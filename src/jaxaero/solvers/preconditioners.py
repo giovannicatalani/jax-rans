@@ -85,7 +85,13 @@ def identity(atlas: Atlas, gamma: float, viscosity=None, model=None, distance=No
 
 
 class ChainLayout:
-    """Gathering canvas fields onto the line chains and back."""
+    """Gathering canvas fields onto the line chains and back.
+
+    When the chains are the ``j`` lines of one 3D box, one per ``(i, k)``
+    (a single-block 3D atlas), the gathers are slices and transposes: the same
+    values, but a canvas split over devices along ``i`` stays split. Then
+    every canvas row ``i`` carries chains, the ghost rows' inert (identity,
+    no links, zero right-hand side), so the split axis is never sliced."""
 
     def __init__(self, atlas: Atlas):
         lines = atlas.lines
@@ -97,17 +103,71 @@ class ChainLayout:
         self.inverse = jnp.asarray(inverse)
         self.up_face, self.down_face = jnp.asarray(lines.up_face), jnp.asarray(lines.down_face)
         self.up_sign, self.down_sign = jnp.asarray(lines.up_sign), jnp.asarray(lines.down_sign)
+        self.canvas, self.box = atlas.shape, _box(atlas)
+        if self.box is not None:
+            _, j, k = self.box
+            rows = np.zeros(atlas.shape[0], bool)
+            rows[atlas.g:atlas.shape[0] - atlas.g] = True
+            self.rows = jnp.asarray(rows)
+            chain_rows = np.repeat(rows, k.stop - k.start)[:, None]          # (NI nk, 1)
+            links = np.ones(j.stop - j.start, int)
+            links[-1] = 0
+            self.valid = jnp.asarray(np.broadcast_to(chain_rows, (chain_rows.size, j.stop - j.start)))
+            self.up_sign = jnp.asarray(chain_rows * links)
+            self.down_sign = -self.up_sign
 
-    def gather(self, flat: Array) -> Array:
-        """``(..., n_canvas)`` -> ``(..., n_lines, length)``."""
-        return flat[..., self.cells]
+    def gather(self, field: Array) -> Array:
+        """A canvas field ``(..., *canvas shape)`` on the chains, ``(..., n_lines, length)``."""
+        if self.box is None:
+            return _flat(field, len(self.canvas))[..., self.cells]
+        _, j, k = self.box
+        return _chains(field[(Ellipsis, slice(None), j, k)])
 
-    def scatter(self, chains: Array, flat: Array) -> Array:
-        """Chain values ``(..., n_lines, length)`` back onto ``flat``; cells on
-        no chain keep ``flat``'s value."""
-        found = self.inverse >= 0
-        values = chains.reshape(chains.shape[:-2] + (-1,))[..., jnp.where(found, self.inverse, 0)]
-        return jnp.where(found, values, flat)
+    def scatter(self, chains: Array, field: Array) -> Array:
+        """Chain values ``(..., n_lines, length)`` back onto the canvas field
+        ``field``; cells on no chain keep its value."""
+        if self.box is None:
+            found = self.inverse >= 0
+            values = chains.reshape(chains.shape[:-2] + (-1,))[..., jnp.where(found, self.inverse, 0)]
+            return jnp.where(found, values, _flat(field, len(self.canvas))).reshape(field.shape)
+        _, j, k = self.box
+        block = jnp.swapaxes(chains.reshape(chains.shape[:-2] + (self.canvas[0], k.stop - k.start,
+                                                                  j.stop - j.start)), -1, -2)
+        inside = (Ellipsis, slice(None), j, k)
+        return field.at[inside].set(jnp.where(self.rows[:, None, None], block, field[inside]))
+
+    def faces(self, fields: tuple[Array, ...], side: str) -> Array:
+        """Per-family face fields ``(..., *face shape)`` at each chain link's
+        face (``side``: ``"up"`` or ``"down"``), ``(..., n_lines, length)``;
+        links that do not exist (sign 0) may read any face."""
+        if self.box is None:
+            return families(fields)[..., self.up_face if side == "up" else self.down_face]
+        _, j, k = self.box
+        return _chains(fields[1][(Ellipsis, slice(None), slice(j.start + 1, j.stop + 1), k)])   # above each cell
+
+
+def _flat(field: Array, dim: int) -> Array:
+    return field.reshape(field.shape[:field.ndim - dim] + (-1,))
+
+
+def _chains(box: Array) -> Array:
+    """``(..., ni, nj, nk)`` -> ``(..., ni nk, nj)``: one row per ``(i, k)``, ``j`` along."""
+    shape = box.shape
+    return jnp.swapaxes(box, -1, -2).reshape(shape[:-3] + (shape[-3] * shape[-1], shape[-2]))
+
+
+def _box(atlas: Atlas) -> tuple[slice, slice, slice] | None:
+    """The interior box whose ``j`` lines the chains are, if they are exactly
+    that (``(i, k)`` rows, ``i`` major), else ``None``. (The layout then runs
+    its chains over every row ``i``, ghosts included.)"""
+    if atlas.dim != 3 or len(atlas.mesh) != 1:
+        return None
+    g, (ni, nj, nk), (_, NJ, NK) = atlas.g, atlas.mesh[0].shape, atlas.shape
+    i, j, k = (g + a for a in np.meshgrid(np.arange(ni), np.arange(nj), np.arange(nk), indexing="ij"))
+    expected = ((i * NJ + j) * NK + k).transpose(0, 2, 1).reshape(ni * nk, nj)
+    if atlas.lines.cells.shape != expected.shape or not np.array_equal(atlas.lines.cells, expected):
+        return None
+    return slice(g, g + ni), slice(g, g + nj), slice(g, g + nk)
 
 
 def _scan_major(blocks: Array) -> Array:
@@ -120,10 +180,9 @@ def chain_solver(lower: Array, diag: Array, upper: Array, layout: ChainLayout):
     factor = factor_cyclic_reduction(lower, diag, upper)
 
     def solve(r: Array) -> Array:
-        flat = r.reshape(r.shape[0], -1)
-        rhs = jnp.where(layout.valid, layout.gather(flat), 0.0)          # (m, n, L)
+        rhs = jnp.where(layout.valid, layout.gather(r), 0.0)             # (m, n, L)
         x = solve_cyclic_reduction(factor, jnp.transpose(rhs, (2, 1, 0)))  # (L, n, m)
-        return layout.scatter(jnp.transpose(x, (2, 1, 0)), flat).reshape(r.shape)
+        return layout.scatter(jnp.transpose(x, (2, 1, 0)), r)
 
     return solve
 
@@ -134,22 +193,22 @@ def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: A
     grid = atlas.grid
     dim = grid.dim
     m = Rows(dim).n_flow
-    q = primitive_from_conservative(U, gamma, dim).reshape(m, -1)
+    q = primitive_from_conservative(U, gamma, dim)
     eye = jnp.eye(m, dtype=U.dtype)
-    d = jnp.where(layout.valid, layout.gather(diagonal(lambdas, cfl).ravel()), 1.0)
+    d = jnp.where(layout.valid, layout.gather(diagonal(lambdas, cfl)), 1.0)
     diag = d.T[:, :, None, None] * eye
-    S, lam = families(grid.faces), families(lambdas)
+    S, lam = grid.faces, lambdas
 
-    def coupling(face, sign, neighbour):
+    def coupling(side, sign, neighbour):
         """``1/2 A(U_nb, S_out) - 1/2 lambda_f I`` per link, zero where none."""
-        block = (0.5 * euler.normal_flux_jacobian(neighbour, sign * S[:, face], gamma)
-                 - 0.5 * lam[face] * eye.reshape(m, m, 1, 1))
+        block = (0.5 * euler.normal_flux_jacobian(neighbour, sign * layout.faces(S, side), gamma)
+                 - 0.5 * layout.faces(lam, side) * eye.reshape(m, m, 1, 1))
         return _scan_major(jnp.where(sign != 0, block, 0.0))
 
     chains = layout.gather(q)                                             # (m, n, L)
     above = jnp.concatenate([chains[:, :, 1:], chains[:, :, -1:]], axis=2)
-    upper = coupling(layout.up_face, layout.up_sign, above)
-    below_blocks = coupling(layout.down_face, layout.down_sign, chains)  # row k+1 -> cell k
+    upper = coupling("up", layout.up_sign, above)
+    below_blocks = coupling("down", layout.down_sign, chains)  # row k+1 -> cell k
     lower = jnp.concatenate([jnp.zeros_like(below_blocks[:1]), below_blocks[:-1]], axis=0)
     return lower, diag, upper
 
@@ -193,17 +252,17 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
     destruction = jnp.where(nu_hat > 0.0, 2.0 * c.c_w1 * f_w * nu_inf * nu_hat / distance**2, 0.0)
     diag = diag + destruction * grid.volume + cell_wave_speed_sum(lambdas) / cfl
 
-    d_chain = jnp.where(layout.valid, layout.gather(diag.ravel()), 1.0)
-    rho_chain = layout.gather(rho.ravel())
-    m, dj = families(tuple(t[0] for t in terms)), families(tuple(t[1] for t in terms))
+    d_chain = jnp.where(layout.valid, layout.gather(diag), 1.0)
+    rho_chain = layout.gather(rho)
+    m, dj = tuple(t[0] for t in terms), tuple(t[1] for t in terms)
 
-    def coupling(face, sign, rho_nb):
-        block = -(jnp.maximum(-sign * m[face], 0.0) + dj[face]) / rho_nb
+    def coupling(side, sign, rho_nb):
+        block = -(jnp.maximum(-sign * layout.faces(m, side), 0.0) + layout.faces(dj, side)) / rho_nb
         return jnp.where(sign != 0, block, 0.0).T[:, :, None, None]
 
     above = jnp.concatenate([rho_chain[:, 1:], rho_chain[:, -1:]], axis=1)
-    upper = coupling(layout.up_face, layout.up_sign, above)
-    below_blocks = coupling(layout.down_face, layout.down_sign, rho_chain)
+    upper = coupling("up", layout.up_sign, above)
+    below_blocks = coupling("down", layout.down_sign, rho_chain)
     lower = jnp.concatenate([jnp.zeros_like(below_blocks[:1]), below_blocks[:-1]], axis=0)
     return lower, d_chain.T[:, :, None, None], upper
 

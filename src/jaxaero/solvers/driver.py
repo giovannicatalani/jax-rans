@@ -3,8 +3,9 @@ with Python between blocks for monitoring. It knows nothing of the equations,
 so the explicit and implicit paths share it and its convergence test. A step
 may advance a batch of independent cases (one residual each), split over
 devices along the leading axis with no communication; or one case may be
-split over devices in slabs of its canvas (``slabs``), XLA partitioning the
-step and inserting the exchanges between slabs (GSPMD).
+split over devices in slabs of its canvas (``slabs``): the residual's
+stencils exchange their halos explicitly (``numerics/slabs.py``), XLA
+partitions the rest of the step (GSPMD).
 """
 
 from __future__ import annotations
@@ -17,8 +18,9 @@ import jax
 import numpy as np
 from jax import Array, lax
 
+from ..numerics.slabs import SPACE_AXIS
+
 BATCH_AXIS = "case"
-SPACE_AXIS = "space"
 
 
 class StepFunction(Protocol):

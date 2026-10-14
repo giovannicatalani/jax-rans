@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from typing import Callable
+from typing import Callable, Sequence
 
 import jax.numpy as jnp
 from jax import Array
@@ -36,6 +36,7 @@ from . import boundary as bc
 from . import gradients, reconstruction, turbulence
 from .limiters import get_limiter
 from .riemann import get_flux
+from .slabs import slab_stencil
 
 
 def primitive_from_conservative(U: Array, gamma: float, dim: int) -> Array:
@@ -253,12 +254,15 @@ def make_residual(
     first_order: bool = False,
     freestream: Array | None = None,
     distance: Array | None = None,
+    devices: Sequence | None = None,
 ) -> ResidualOperator:
     """The residual of one case. A ``Grid`` or a mesh is packed into an atlas.
 
     ``freestream`` replaces ``flow``'s primitives ``(d+2,)`` and may be traced (a
     polar maps the step over it); ``distance`` is a precomputed wall-distance
-    canvas (with SA). Registries are resolved here, before tracing.
+    canvas (with SA); ``devices`` (two or more) compute the stencils in slabs
+    of the canvas, one per device (``numerics/slabs.py``). Registries are
+    resolved here, before tracing.
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     if atlas.g != numerics.n_ghost:
@@ -280,14 +284,19 @@ def make_residual(
     far_field = bc.FAR_FIELDS[numerics.far_field]
     flux, limiter = get_flux(numerics.flux), get_limiter(numerics.limiter)
     U_0 = uniform_canvas(q_inf, canvas, gamma, dtype)
+    stencil = partial(block_residual, flux=flux, limiter=limiter, gamma=gamma, n_ghost=g,
+                      first_order=first_order, viscosity=viscosity, model=model, kappa=numerics.kappa)
+    if devices is not None and len(devices) > 1:
+        stencils = slab_stencil(atlas, distance, devices, stencil)
+    else:
+        def stencils(filled: Array) -> Array:
+            return stencil(jnp.pad(filled, ((0, 0),) + ((g, g),) * dim, mode="edge"), canvas, atlas.centres,
+                           distance)
 
     def residual(U: Array) -> Array:
         q = primitive_from_conservative(U, gamma, dim)
         conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
-        padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * dim, mode="edge")
-        R = block_residual(padded, canvas, atlas.centres, distance, flux=flux, limiter=limiter,
-                           gamma=gamma, n_ghost=g, first_order=first_order,
-                           viscosity=viscosity, model=model, kappa=numerics.kappa)
+        R = stencils(bc.fill_ghosts(q, atlas, conditions))
         return jnp.where(atlas.interior, R, U - U_0)
 
     return ResidualOperator(

@@ -176,14 +176,15 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, devices: Sequence | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
     flow, numerics = case.flow, case.numerics
-    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance)
+    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance, devices=devices)
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
-            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
+            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance,
+            devices=devices)
         return (implicit.make_newton_step(operator, case.implicit, jacobian),
                 implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
     return (explicit.make_rk_step(operator, scheme=case.rk_scheme),
@@ -196,10 +197,8 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
     after its ``sequencing`` coarser grids, each started from the one before;
     ``on_level(level, grid)`` announces each grid (0: the case's own).
     ``devices`` (two or more) split the state in slabs along the canvas's
-    first axis, one per device: a case too large for one device. Only the
-    case's own grid is split; its coarser levels run on one device (split, a
-    grid that fits one device runs slower: the slabs exchange halos over the
-    interconnect at every stencil)."""
+    first axis, one per device (``numerics/slabs.py``). Only the case's own
+    grid is split; its coarser levels, small, run on one device."""
     grid = case.grid() if grid is None else grid
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
@@ -221,7 +220,7 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
     length = case.grid_spec.force_reference()
-    step, state = make_stepper(case, grid)
+    step, state = make_stepper(case, grid, devices=devices)
     if start is not None:
         state = state._replace(U=prolong(*start, grid, state.U))
 

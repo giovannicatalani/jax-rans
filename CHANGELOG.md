@@ -19,11 +19,12 @@
   `main_flap_sa`; validation case `gen_30p30n_a5p5` (the 30P30N on generated
   grids); `scripts/plot_blocks.py` draws a grid's blocks.
 - **One case over several GPUs** (`jaxaero CASE --devices N`, `run(case,
-  devices=...)`): the grid split in slabs along its first index, XLA
-  partitioning the step. For cases too large for one GPU (the ONERA M6 on 8.65
-  million cells over four A100-40GB); slower than one GPU when it fits. The
-  ghost fill and face averages now gather only the cells that move (bitwise the
-  same results).
+  devices=...)`): the grid split in slabs along its first index. The
+  residual's stencils exchange two rows with each neighbour per evaluation
+  (`shard_map`), the rest of the step is partitioned by XLA. ONERA M6 1.08M:
+  1.8x faster on four V100s than on one, a quarter of the memory each; the
+  8.65M grid fits on four 32 GB GPUs. The ghost fill, face averages and line
+  chains no longer gather the whole canvas (bitwise the same results).
 
 - **Faster implicit solver on GPUs.** The line preconditioner solves its
   block-tridiagonal chains by cyclic reduction instead of a sequential Thomas
