@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ..core.state import RHO, Rows, dot, magnitude, split, stack_primitive
@@ -244,12 +245,19 @@ def far_field_models(dim: int) -> list[str]:
 
 def fill_ghosts(q: Array, atlas: Atlas, conditions: Conditions) -> Array:
     """Every ghost cell of a primitive canvas ``(nvar, *canvas shape)``, by the
-    atlas's gather stages; interior and gap cells unchanged."""
+    atlas's gather stages; interior and gap cells unchanged.
+
+    Only a stage's ghosts are gathered and written (``index`` is the identity
+    elsewhere): a canvas split over devices then exchanges ghost sources, not
+    the whole canvas."""
     flat = q.reshape(q.shape[0], -1)
+    n = flat.shape[1]
     for stage in atlas.stages:
-        parts = [flat]
-        for kind, source, normal, midpoint in stage.conditions:
-            face = Face(jnp.asarray(normal), jnp.asarray(midpoint))
-            parts.append(CONDITIONS[kind](flat[:, source], face, conditions))
-        flat = jnp.concatenate(parts, axis=1)[:, stage.index]
+        values = [CONDITIONS[kind](flat[:, source], Face(jnp.asarray(normal), jnp.asarray(midpoint)), conditions)
+                  for kind, source, normal, midpoint in stage.conditions]
+        ghosts = np.flatnonzero(stage.index != np.arange(n))
+        source = stage.index[ghosts]
+        inside = source < n
+        parts = [flat[:, source[inside]]] + ([jnp.concatenate(values, axis=1)[:, source[~inside] - n]] if values else [])
+        flat = flat.at[:, np.concatenate([ghosts[inside], ghosts[~inside]])].set(jnp.concatenate(parts, axis=1))
     return flat.reshape(q.shape)

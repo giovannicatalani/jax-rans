@@ -2,7 +2,9 @@
 with Python between blocks for monitoring. It knows nothing of the equations,
 so the explicit and implicit paths share it and its convergence test. A step
 may advance a batch of independent cases (one residual each), split over
-devices along the leading axis with no communication.
+devices along the leading axis with no communication; or one case may be
+split over devices in slabs of its canvas (``slabs``), XLA partitioning the
+step and inserting the exchanges between slabs (GSPMD).
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import numpy as np
 from jax import Array, lax
 
 BATCH_AXIS = "case"
+SPACE_AXIS = "space"
 
 
 class StepFunction(Protocol):
@@ -79,14 +82,21 @@ class ConvergenceHistory:
         )
 
 
-def make_block(step: StepFunction, block_iters: int,
-               devices: Sequence | None = None) -> Callable[[Any], tuple[Any, Array]]:
+def make_block(step: StepFunction, block_iters: int, devices: Sequence | None = None,
+               shardings: Any = None) -> Callable[[Any], tuple[Any, Array]]:
     """``block_iters`` steps as one jitted call, ``state -> (state, residuals)``;
-    with two or more ``devices`` a batch is split over them (``shard_map``)."""
+    with two or more ``devices`` a batch is split over them (``shard_map``);
+    with ``shardings`` (``slab_shardings``) one state is kept split so."""
 
     def run_block(state: Any) -> tuple[Any, Array]:
         return lax.scan(lambda carry, _: step(carry), state, xs=None, length=block_iters)
 
+    if shardings is not None:
+        whole = jax.tree_util.tree_leaves(shardings)[0]
+        from jax.sharding import NamedSharding, PartitionSpec as P
+
+        return jax.jit(run_block, in_shardings=(shardings,),
+                       out_shardings=(shardings, NamedSharding(whole.mesh, P())))
     if devices is None or len(devices) < 2:
         return jax.jit(run_block)
     from jax.experimental.shard_map import shard_map
@@ -94,6 +104,29 @@ def make_block(step: StepFunction, block_iters: int,
 
     return jax.jit(shard_map(run_block, mesh=_mesh(devices), in_specs=(P(BATCH_AXIS),),
                              out_specs=(P(BATCH_AXIS), P(None, BATCH_AXIS)), check_rep=False))
+
+
+def slab_shardings(state: Any, devices: Sequence) -> Any:
+    """Shardings splitting every field of ``state`` (``(nvar, *canvas)``)
+    along its first spatial axis over ``devices``; scalars replicated.
+
+    Raises:
+        ValueError: that axis does not divide evenly over the devices.
+    """
+    from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
+
+    mesh = Mesh(np.array(devices), (SPACE_AXIS,))
+
+    def spec(leaf):
+        shape = np.shape(leaf)
+        if len(shape) < 2:
+            return NamedSharding(mesh, P())
+        if shape[1] % len(devices):
+            raise ValueError(f"cannot split the canvas over {len(devices)} devices: its first axis has "
+                             f"{shape[1]} cells (ghosts included), not a multiple of {len(devices)}")
+        return NamedSharding(mesh, P(None, SPACE_AXIS))
+
+    return jax.tree_util.tree_map(spec, state)
 
 
 def _mesh(devices: Sequence):
@@ -112,6 +145,7 @@ def run_to_steady(
     on_block: Callable[[int, Any, np.ndarray], bool | None] | None = None,
     finite_check: Callable[[Any], Array] | None = None,
     devices: Sequence | None = None,
+    slabs: Sequence | None = None,
 ) -> tuple[Any, ConvergenceHistory]:
     """Iterate until the residual is ``tol`` times its running **peak**, per case.
 
@@ -122,8 +156,12 @@ def run_to_steady(
     caller's own test, e.g. on forces). A block in which a case's residual
     does not change at all stops that case as ``STALLED``: no step was
     taken. ``finite_check(state)`` is an optional device-side health test.
+    ``devices`` split a batch of cases, ``slabs`` (two or more) one case.
     """
-    block = make_block(step, block_iters, devices)
+    shardings = slab_shardings(state, slabs) if slabs is not None and len(slabs) > 1 else None
+    if shardings is not None:
+        state = jax.device_put(state, shardings)
+    block = make_block(step, block_iters, devices, shardings)
     if devices is not None and len(devices) > 1:
         from jax.sharding import NamedSharding, PartitionSpec as P
 

@@ -32,10 +32,14 @@ jaxaero examples/naca0012_euler              # or: python -m jaxaero examples/na
 jaxaero examples/naca0012_euler --check      # build and draw the grid, do not solve
 jaxaero examples/naca0012_sa --set case.freestream.alpha_deg=12
 jaxaero my_case --out /scratch/me/run1 --quiet
+jaxaero my_wing --devices 4                  # one case split over 4 GPUs (too large for one)
 ```
 
 `--set file.section.key=value` changes one key for this run, and can be
-repeated. From Python:
+repeated. `--devices N` splits the case's grid in N slabs along its first index,
+one per GPU, for a case that does not fit on one; the first grid index (ghost
+cells included) must divide by N. On a grid that fits one GPU it is slower,
+not faster: the slabs exchange their edges at every stencil. From Python:
 
 ```python
 from jaxaero import load_case, run

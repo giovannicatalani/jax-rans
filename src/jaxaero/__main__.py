@@ -15,6 +15,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import jax
 import numpy as np
 
 from . import CaseError, load_case, run
@@ -30,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
                         metavar="FILE.SECTION.KEY=VALUE", help="override one key; repeatable")
     parser.add_argument("--out", type=Path, help="output directory (default: <save_path>/<case_name>)")
     parser.add_argument("--quiet", action="store_true", help="no progress lines")
+    parser.add_argument("--devices", type=int, default=1,
+                        help="split the case over this many GPUs (slabs of its first grid axis)")
     parser.add_argument("--check", action="store_true",
                         help="build and report the grid, write grid.png, do not solve")
     args = parser.parse_args(argv)
@@ -40,6 +43,9 @@ def main(argv: list[str] | None = None) -> int:
         grid = case.grid()
         if case.sequencing:
             case.grid(coarsen=case.sequencing)       # fail now, not after the first levels
+        devices = jax.devices()[:args.devices] if args.devices > 1 else None
+        if devices is not None and len(devices) < args.devices:
+            raise ValueError(f"--devices {args.devices}, but only {len(devices)} device(s) visible")
     except (CaseError, FileNotFoundError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -59,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         name = f"coarse level {level} (1/{2 ** level} of the nodes in each direction)" if level else "the case's grid"
         print(f"grid sequencing: {name}, {atlas.cells} cells")
 
-    result = run(case, grid, progress=None if args.quiet else progress, on_level=on_level)
+    result = run(case, grid, progress=None if args.quiet else progress, on_level=on_level, devices=devices)
     directory = result.write(args.out)
     for k, level in enumerate(result.levels):
         print(f"level {len(result.levels) - k}: {level['cells']} cells, {level['exit_reason']} after "

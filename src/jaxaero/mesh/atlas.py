@@ -159,7 +159,9 @@ class Atlas:
         family, for ``(..., *canvas shape)``: the neighbour across a block
         face is the partner cell, or the cell itself at a physical boundary."""
         lead = a.shape[:a.ndim - self.dim]
-        filled = a.reshape(lead + (-1,))[..., self.neighbours].reshape(a.shape)
+        flat = a.reshape(lead + (-1,))
+        moved = np.flatnonzero(self.neighbours != np.arange(self.neighbours.size))   # only these gather
+        filled = flat.at[..., moved].set(flat[..., self.neighbours[moved]]).reshape(a.shape)
         out = []
         for axis in range(self.dim):
             widths = [(0, 0)] * filled.ndim

@@ -1,0 +1,81 @@
+"""One case split over devices in slabs (``run(..., devices=...)``): the
+partitioned step computes what the unsplit one does, to round-off.
+
+Four CPU devices, forced in a subprocess as the two-device polar test does,
+both versions in it (another process compiles for another CPU configuration).
+From a perturbed state, 40 implicit steps agree to 1e-13 on the M6 example,
+1e-10 on the small C-grid.
+From freestream they do not, by design of inexact Newton: the first residual
+is tiny, GMRES stops at 1e-2 of it, and round-off decides whether a restart
+cycle runs, so the first updates differ by ~1e-6 (then 2e-8 after 40 steps,
+both converging on the same solution); there ``run(..., devices=...)`` is
+only checked to run end to end.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from jaxaero.solvers.driver import slab_shardings
+
+ROOT = Path(__file__).resolve().parents[2]
+CASES = {
+    "2d": ("examples/naca0012_laminar", ("case.domain.cells_airfoil=64", "case.domain.cells_wake=16",
+                                         "case.domain.cells_normal=24")),
+    "3d": ("examples/onera_m6_sa", ()),
+}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
+    directory, sets = CASES[name]
+    script = textwrap.dedent(f"""
+        import jax, jax.numpy as jnp, numpy as np
+        from jaxaero import load_case, run
+        from jaxaero.numerics.residual import make_residual
+        from jaxaero.simulation import make_stepper
+        from jaxaero.solvers.driver import make_block, slab_shardings
+        assert len(jax.devices()) == 4, jax.devices()
+        case = load_case({str(ROOT / directory)!r}, {sets!r})
+        grid = case.grid()
+        step, state = make_stepper(case, grid)
+        state = state._replace(U=state.U * (1.0 + 1e-3 * jnp.sin(jnp.arange(state.U.size).reshape(state.U.shape))))
+        split = slab_shardings(state, jax.devices())
+        residual = make_residual(grid, case.flow, case.numerics).residual
+        R1 = jax.jit(residual)(state.U)
+        R4 = jax.jit(residual, in_shardings=(split.U,))(jax.device_put(state.U, split.U))
+        one, four = make_block(step, 20), make_block(step, 20, shardings=split)
+        a, b = state, jax.device_put(state, split)
+        for _ in range(2):
+            a, b = one(a)[0], four(b)[0]
+        np.savez("out.npz", R1=R1, R4=R4, U1=a.U, U4=b.U)
+
+        sets = {sets!r} + ("numerical.convergence.max_iters=40", "numerical.convergence.forces_tol=null")
+        r4 = run(load_case({str(ROOT / directory)!r}, sets), devices=jax.devices())
+        assert r4.timing.devices == 4 and np.isfinite([r4.forces.cl, r4.forces.cd]).all()
+    """)
+    env = {**os.environ, "JAX_PLATFORMS": "cpu", "XLA_FLAGS": "--xla_force_host_platform_device_count=4"}
+    done = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
+                          capture_output=True, text=True, timeout=1800)
+    assert done.returncode == 0, done.stderr[-3000:]
+    out = np.load(tmp_path / "out.npz")
+    assert np.max(np.abs(out["R4"] - out["R1"])) <= 1e-12 * np.max(np.abs(out["R1"]))
+    # 40 implicit steps amplify the round-off: measured 1e-13 (M6), 1e-10 (the C-grid).
+    assert np.max(np.abs(out["U4"] - out["U1"])) <= 1e-9 * np.max(np.abs(out["U1"]))
+
+
+def test_an_uneven_split_is_refused() -> None:
+    import jax
+    import jax.numpy as jnp
+
+    state = (jnp.zeros((5, 7, 4)), jnp.zeros(()))
+    with pytest.raises(ValueError, match="not a multiple of"):
+        slab_shardings(state, [jax.devices()[0]] * 2)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 import jax.numpy as jnp
 import numpy as np
@@ -96,7 +96,8 @@ class Timing:
             return f"{self.total:.1f} s (one block, compilation included)"
         return (f"{self.total:.1f} s, compile ~{self.compile:.1f} s, "
                 f"{1e3 * self.per_iteration:.2f} ms/iteration"
-                + (f" for {self.cases} cases on {self.devices} device(s)" if self.cases > 1 else ""))
+                + (f" for {self.cases} cases on {self.devices} device(s)" if self.cases > 1
+                   else f" on {self.devices} devices" if self.devices > 1 else ""))
 
 
 @dataclass(frozen=True)
@@ -190,10 +191,15 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
 
 
 def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
-        on_level: Callable[[int, Atlas], None] | None = None) -> Result:
+        on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None) -> Result:
     """March ``case`` to steady state on ``grid`` (default: ``case.grid()``),
     after its ``sequencing`` coarser grids, each started from the one before;
-    ``on_level(level, grid)`` announces each grid (0: the case's own)."""
+    ``on_level(level, grid)`` announces each grid (0: the case's own).
+    ``devices`` (two or more) split the state in slabs along the canvas's
+    first axis, one per device: a case too large for one device. Only the
+    case's own grid is split; its coarser levels run on one device (split, a
+    grid that fits one device runs slower: the slabs exchange halos over the
+    interconnect at every stencil)."""
     grid = case.grid() if grid is None else grid
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
@@ -206,10 +212,11 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
         start = (r.U, coarse)
     if levels and on_level is not None:
         on_level(0, grid)
-    return replace(_march(case, grid, progress, start), levels=tuple(levels))
+    return replace(_march(case, grid, progress, start, devices), levels=tuple(levels))
 
 
-def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Array, Atlas] | None) -> Result:
+def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Array, Atlas] | None,
+           devices: Sequence | None = None) -> Result:
     """One grid to steady state, from freestream or from ``start``, a coarser
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
@@ -240,11 +247,11 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     state, history = run_to_steady(
         step, state,
         max_iters=numerics.max_iters, tol=numerics.tol, block_iters=case.block_iters,
-        on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)),
+        on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)), slabs=devices,
     )
     return Result(
         case=case, grid=grid, U=state.U,
         forces=integrate_forces(state.U, grid, flow, length),
         history=history, cl_history=np.asarray(cl_history),
-        timing=Timing.of(history, case.block_iters, grid.cells),
+        timing=Timing.of(history, case.block_iters, grid.cells, devices=len(devices) if devices else 1),
     )

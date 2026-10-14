@@ -175,7 +175,8 @@ Measured on this wing (SA, case 2308), from freestream to settled forces:
 | 1,081,344 | A100 40 GB | 1.32 s | 2,520 | 57 min |
 | 1,081,344 | CPU node, 24 cores | 160 s | | (4.7 days at that rate) |
 
-The 8.65-million-cell level of the family does not fit on a 40 GB GPU.
+The 8.65-million-cell level of the family does not fit on a 40 GB GPU; split
+over four (`jaxaero ... --devices 4`) it needs about 33 GB on each.
 
 Forces are steady after roughly 500 to 2500 steps, more on finer grids. The
 run stops there by itself (`settled`: CL, CD and CM each vary by less than

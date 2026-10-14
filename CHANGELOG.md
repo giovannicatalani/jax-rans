@@ -18,6 +18,13 @@
   deflection, gap and overlap (docs/multi-element.md). New example
   `main_flap_sa`; validation case `gen_30p30n_a5p5` (the 30P30N on generated
   grids); `scripts/plot_blocks.py` draws a grid's blocks.
+- **One case over several GPUs** (`jaxaero CASE --devices N`, `run(case,
+  devices=...)`): the grid split in slabs along its first index, XLA
+  partitioning the step. For cases too large for one GPU (the ONERA M6 on 8.65
+  million cells over four A100-40GB); slower than one GPU when it fits. The
+  ghost fill and face averages now gather only the cells that move (bitwise the
+  same results).
+
 - **Faster implicit solver on GPUs.** The line preconditioner solves its
   block-tridiagonal chains by cyclic reduction instead of a sequential Thomas
   sweep: on an A100 a Newton step takes 21.5 ms instead of 136 on RAE 2822,
