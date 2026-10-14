@@ -24,6 +24,7 @@ from jax import Array
 from .core.state import conservative_to_primitive
 from .mesh.atlas import Atlas
 from .mesh.coarsen import prolong
+from .numerics.slabs import SlabAtlas
 from .mesh.quality import quality
 from .numerics.residual import make_residual
 from .case import Case
@@ -176,15 +177,14 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None, devices: Sequence | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
     flow, numerics = case.flow, case.numerics
-    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance, devices=devices)
+    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance)
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
-            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance,
-            devices=devices)
+            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
         return (implicit.make_newton_step(operator, case.implicit, jacobian),
                 implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
     return (explicit.make_rk_step(operator, scheme=case.rk_scheme),
@@ -220,7 +220,9 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
     length = case.grid_spec.force_reference()
-    step, state = make_stepper(case, grid, devices=devices)
+    if devices is not None and len(devices) > 1:
+        grid = SlabAtlas.of(grid, devices)
+    step, state = make_stepper(case, grid)
     if start is not None:
         state = state._replace(U=prolong(*start, grid, state.U))
 

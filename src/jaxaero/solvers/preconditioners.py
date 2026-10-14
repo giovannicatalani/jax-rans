@@ -29,6 +29,7 @@ from ..core.linalg import factor_cyclic_reduction, solve_cyclic_reduction
 from ..core.state import RHO, Rows, dot
 from ..mesh.atlas import Atlas
 from ..numerics import turbulence
+from ..numerics.slabs import SlabAtlas
 from ..numerics.residual import lower_upper, cell_wave_speed_sum, primitive_from_conservative
 from ..physics import euler, navier_stokes
 from ..physics import spalart_allmaras as sa
@@ -87,11 +88,12 @@ def identity(atlas: Atlas, gamma: float, viscosity=None, model=None, distance=No
 class ChainLayout:
     """Gathering canvas fields onto the line chains and back.
 
-    When the chains are the ``j`` lines of one 3D box, one per ``(i, k)``
-    (a single-block 3D atlas), the gathers are slices and transposes: the same
-    values, but a canvas split over devices along ``i`` stays split. Then
-    every canvas row ``i`` carries chains, the ghost rows' inert (identity,
-    no links, zero right-hand side), so the split axis is never sliced."""
+    On an atlas split over devices (``numerics/slabs.py``) whose chains are
+    the ``j`` lines of one 3D box, one per ``(i, k)``, the gathers are slices
+    and transposes instead (the same values; a flat gather of a split canvas
+    copies it to every device), with chains on every canvas row ``i``, the
+    ghost rows' inert (identity, no links, zero right-hand side), so the split
+    axis is never sliced."""
 
     def __init__(self, atlas: Atlas):
         lines = atlas.lines
@@ -103,7 +105,7 @@ class ChainLayout:
         self.inverse = jnp.asarray(inverse)
         self.up_face, self.down_face = jnp.asarray(lines.up_face), jnp.asarray(lines.down_face)
         self.up_sign, self.down_sign = jnp.asarray(lines.up_sign), jnp.asarray(lines.down_sign)
-        self.canvas, self.box = atlas.shape, _box(atlas)
+        self.canvas, self.box = atlas.shape, _box(atlas) if isinstance(atlas, SlabAtlas) else None
         if self.box is not None:
             _, j, k = self.box
             rows = np.zeros(atlas.shape[0], bool)

@@ -1,5 +1,6 @@
-"""One case split over devices in slabs (``run(..., devices=...)``): the
-partitioned step computes what the unsplit one does, to round-off.
+"""One case split over devices in slabs (``run(..., devices=...)``,
+``numerics/slabs.py``): the split step computes what the unsplit one does,
+to round-off.
 
 Four CPU devices, forced in a subprocess as the two-device polar test does,
 both versions in it (another process compiles for another CPU configuration).
@@ -41,18 +42,21 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
         import jax, jax.numpy as jnp, numpy as np
         from jaxaero import load_case, run
         from jaxaero.numerics.residual import make_residual
+        from jaxaero.numerics.slabs import SlabAtlas
         from jaxaero.simulation import make_stepper
         from jaxaero.solvers.driver import make_block, slab_shardings
         assert len(jax.devices()) == 4, jax.devices()
         case = load_case({str(ROOT / directory)!r}, {sets!r})
         grid = case.grid()
+        slabs = SlabAtlas.of(grid, jax.devices())
         step, state = make_stepper(case, grid)
+        step4, _ = make_stepper(case, slabs)
         state = state._replace(U=state.U * (1.0 + 1e-3 * jnp.sin(jnp.arange(state.U.size).reshape(state.U.shape))))
         split = slab_shardings(state, jax.devices())
-        residual = make_residual(grid, case.flow, case.numerics).residual
-        R1 = jax.jit(residual)(state.U)
-        R4 = jax.jit(residual, in_shardings=(split.U,))(jax.device_put(state.U, split.U))
-        one, four = make_block(step, 20), make_block(step, 20, shardings=split)
+        R1 = jax.jit(make_residual(grid, case.flow, case.numerics).residual)(state.U)
+        R4 = jax.jit(make_residual(slabs, case.flow, case.numerics).residual,
+                     in_shardings=(split.U,))(jax.device_put(state.U, split.U))
+        one, four = make_block(step, 20), make_block(step4, 20, shardings=split)
         a, b = state, jax.device_put(state, split)
         for _ in range(2):
             a, b = one(a)[0], four(b)[0]

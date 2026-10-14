@@ -154,14 +154,18 @@ class Atlas:
             out = picked if out is None else jnp.where(W.family == a, picked, out)
         return out
 
+    def fill_neighbours(self, a: Array) -> Array:
+        """``a`` with every canvas cell replaced by its neighbour across its
+        block face (``neighbours``: the partner cell, or itself)."""
+        lead = a.shape[:a.ndim - self.dim]
+        return a.reshape(lead + (-1,))[..., self.neighbours].reshape(a.shape)
+
     def face_averages(self, a: Array) -> tuple[Array, ...]:
         """Mean of the two cells either side of every canvas face, per
         family, for ``(..., *canvas shape)``: the neighbour across a block
         face is the partner cell, or the cell itself at a physical boundary."""
+        filled = self.fill_neighbours(a)
         lead = a.shape[:a.ndim - self.dim]
-        flat = a.reshape(lead + (-1,))
-        moved = np.flatnonzero(self.neighbours != np.arange(self.neighbours.size))   # only these gather
-        filled = flat.at[..., moved].set(flat[..., self.neighbours[moved]]).reshape(a.shape)
         out = []
         for axis in range(self.dim):
             widths = [(0, 0)] * filled.ndim

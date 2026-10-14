@@ -23,8 +23,8 @@
   residual's stencils exchange two rows with each neighbour per evaluation
   (`shard_map`), the rest of the step is partitioned by XLA. ONERA M6 1.08M:
   1.8x faster on four V100s than on one, a quarter of the memory each; the
-  8.65M grid fits on four 32 GB GPUs. The ghost fill, face averages and line
-  chains no longer gather the whole canvas (bitwise the same results).
+  8.65M grid fits on four 32 GB GPUs. All of it in `numerics/slabs.py` and
+  behind `--devices`: a one-GPU run executes the code it did before.
 
 - **Faster implicit solver on GPUs.** The line preconditioner solves its
   block-tridiagonal chains by cyclic reduction instead of a sequential Thomas
