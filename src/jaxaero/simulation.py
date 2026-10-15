@@ -24,9 +24,9 @@ from jax import Array
 from .core.state import conservative_to_primitive
 from .mesh.atlas import Atlas
 from .mesh.coarsen import prolong
-from .numerics.slabs import SlabAtlas
 from .mesh.quality import quality
 from .numerics.residual import make_residual
+from .numerics.slabs import SlabAtlas
 from .case import Case
 from .post.forces import Forces, integrate_forces, surface
 from .io.output import ResultWriter
@@ -200,6 +200,7 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
     first axis, one per device (``numerics/slabs.py``). Only the case's own
     grid is split; its coarser levels, small, run on one device."""
     grid = case.grid() if grid is None else grid
+    devices = tuple(devices) if devices is not None and len(devices) > 1 else None
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
         coarse = case.grid(coarsen=level)
@@ -220,7 +221,7 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
     length = case.grid_spec.force_reference()
-    if devices is not None and len(devices) > 1:
+    if devices:
         grid = SlabAtlas.of(grid, devices)
     step, state = make_stepper(case, grid)
     if start is not None:

@@ -86,90 +86,107 @@ def identity(atlas: Atlas, gamma: float, viscosity=None, model=None, distance=No
 
 
 class ChainLayout:
-    """Gathering canvas fields onto the line chains and back.
-
-    On an atlas split over devices (``numerics/slabs.py``) whose chains are
-    the ``j`` lines of one 3D box, one per ``(i, k)``, the gathers are slices
-    and transposes instead (the same values; a flat gather of a split canvas
-    copies it to every device), with chains on every canvas row ``i``, the
-    ghost rows' inert (identity, no links, zero right-hand side), so the split
-    axis is never sliced."""
+    """Gathering canvas fields onto the line chains and back, by flat index."""
 
     def __init__(self, atlas: Atlas):
         lines = atlas.lines
         valid = lines.cells >= 0
         inverse = np.full(int(np.prod(atlas.shape)), -1, dtype=np.int64)
         inverse[lines.cells[valid]] = np.flatnonzero(valid)     # canvas cell -> chain slot
+        self.dim = atlas.dim
         self.valid = jnp.asarray(valid)
         self.cells = jnp.asarray(np.where(valid, lines.cells, 0))
         self.inverse = jnp.asarray(inverse)
         self.up_face, self.down_face = jnp.asarray(lines.up_face), jnp.asarray(lines.down_face)
         self.up_sign, self.down_sign = jnp.asarray(lines.up_sign), jnp.asarray(lines.down_sign)
-        self.canvas, self.box = atlas.shape, _box(atlas) if isinstance(atlas, SlabAtlas) else None
-        if self.box is not None:
-            _, j, k = self.box
-            rows = np.zeros(atlas.shape[0], bool)
-            rows[atlas.g:atlas.shape[0] - atlas.g] = True
-            self.rows = jnp.asarray(rows)
-            chain_rows = np.repeat(rows, k.stop - k.start)[:, None]          # (NI nk, 1)
-            links = np.ones(j.stop - j.start, int)
-            links[-1] = 0
-            self.valid = jnp.asarray(np.broadcast_to(chain_rows, (chain_rows.size, j.stop - j.start)))
-            self.up_sign = jnp.asarray(chain_rows * links)
-            self.down_sign = -self.up_sign
+
+    def _flat(self, field: Array) -> Array:
+        return field.reshape(field.shape[:field.ndim - self.dim] + (-1,))
 
     def gather(self, field: Array) -> Array:
         """A canvas field ``(..., *canvas shape)`` on the chains, ``(..., n_lines, length)``."""
-        if self.box is None:
-            return _flat(field, len(self.canvas))[..., self.cells]
-        _, j, k = self.box
-        return _chains(field[(Ellipsis, slice(None), j, k)])
+        return self._flat(field)[..., self.cells]
 
     def scatter(self, chains: Array, field: Array) -> Array:
         """Chain values ``(..., n_lines, length)`` back onto the canvas field
         ``field``; cells on no chain keep its value."""
-        if self.box is None:
-            found = self.inverse >= 0
-            values = chains.reshape(chains.shape[:-2] + (-1,))[..., jnp.where(found, self.inverse, 0)]
-            return jnp.where(found, values, _flat(field, len(self.canvas))).reshape(field.shape)
-        _, j, k = self.box
-        block = jnp.swapaxes(chains.reshape(chains.shape[:-2] + (self.canvas[0], k.stop - k.start,
-                                                                  j.stop - j.start)), -1, -2)
-        inside = (Ellipsis, slice(None), j, k)
-        return field.at[inside].set(jnp.where(self.rows[:, None, None], block, field[inside]))
+        found = self.inverse >= 0
+        values = chains.reshape(chains.shape[:-2] + (-1,))[..., jnp.where(found, self.inverse, 0)]
+        return jnp.where(found, values, self._flat(field)).reshape(field.shape)
 
     def faces(self, fields: tuple[Array, ...], side: str) -> Array:
         """Per-family face fields ``(..., *face shape)`` at each chain link's
         face (``side``: ``"up"`` or ``"down"``), ``(..., n_lines, length)``;
         links that do not exist (sign 0) may read any face."""
-        if self.box is None:
-            return families(fields)[..., self.up_face if side == "up" else self.down_face]
-        _, j, k = self.box
-        return _chains(fields[1][(Ellipsis, slice(None), slice(j.start + 1, j.stop + 1), k)])   # above each cell
+        return families(fields)[..., self.up_face if side == "up" else self.down_face]
 
 
-def _flat(field: Array, dim: int) -> Array:
-    return field.reshape(field.shape[:field.ndim - dim] + (-1,))
+class SliceChains:
+    """``ChainLayout`` for a 3D canvas split over devices in slabs of its first
+    axis (``numerics/slabs.py``) whose chains are its lines along one other
+    axis ``axis`` over ``span``: every block's line axis, every block spanning
+    exactly ``span`` along it. The gathers are slices and transposes (a flat
+    gather of a split canvas copies it to every device); every line of the
+    canvas carries a chain, those outside the blocks inert (identity, no
+    links, zero right-hand side), so the split axis is never sliced; the same
+    values."""
+
+    def __init__(self, atlas: Atlas, axis: int, span: slice):
+        self.axis, self.span = axis, span
+        inside = self._cut(atlas.interior)
+        valid = np.moveaxis(inside, axis, -1)
+        self.shape = valid.shape
+        valid = valid.reshape(-1, valid.shape[-1])
+        links = valid & np.roll(valid, -1, axis=1)
+        links[:, -1] = False
+        self.inside = jnp.asarray(inside)
+        self.valid = jnp.asarray(valid)
+        self.up_sign = jnp.asarray(links.astype(np.int64))
+        self.down_sign = -self.up_sign
+
+    def _cut(self, field, offset: int = 0):
+        """``field`` (``(..., *canvas shape)``) along ``axis`` over ``span``, shifted by ``offset``."""
+        index = [slice(None)] * 3
+        index[self.axis] = slice(self.span.start + offset, self.span.stop + offset)
+        return field[(Ellipsis,) + tuple(index)]
+
+    def _chains(self, cut: Array) -> Array:
+        moved = jnp.moveaxis(cut, cut.ndim - 3 + self.axis, -1)
+        return moved.reshape(moved.shape[:-3] + (-1, moved.shape[-1]))
+
+    def gather(self, field: Array) -> Array:
+        return self._chains(self._cut(field))
+
+    def scatter(self, chains: Array, field: Array) -> Array:
+        block = chains.reshape(chains.shape[:-2] + self.shape)
+        block = jnp.moveaxis(block, -1, block.ndim - 3 + self.axis)
+        index = [slice(None)] * 3
+        index[self.axis] = self.span
+        inside = (Ellipsis,) + tuple(index)
+        return field.at[inside].set(jnp.where(self.inside, block, field[inside]))
+
+    def faces(self, fields: tuple[Array, ...], side: str) -> Array:
+        return self._chains(self._cut(fields[self.axis], 1))          # the face above each cell
 
 
-def _chains(box: Array) -> Array:
-    """``(..., ni, nj, nk)`` -> ``(..., ni nk, nj)``: one row per ``(i, k)``, ``j`` along."""
-    shape = box.shape
-    return jnp.swapaxes(box, -1, -2).reshape(shape[:-3] + (shape[-3] * shape[-1], shape[-2]))
+Layout = ChainLayout | SliceChains
 
 
-def _box(atlas: Atlas) -> tuple[slice, slice, slice] | None:
-    """The interior box whose ``j`` lines the chains are, if they are exactly
-    that (``(i, k)`` rows, ``i`` major), else ``None``. (The layout then runs
-    its chains over every row ``i``, ghosts included.)"""
-    if atlas.dim != 3 or len(atlas.mesh) != 1:
-        return None
-    g, (ni, nj, nk), (_, NJ, NK) = atlas.g, atlas.mesh[0].shape, atlas.shape
-    i, j, k = (g + a for a in np.meshgrid(np.arange(ni), np.arange(nj), np.arange(nk), indexing="ij"))
-    expected = ((i * NJ + j) * NK + k).transpose(0, 2, 1).reshape(ni * nk, nj)
-    if atlas.lines.cells.shape != expected.shape or not np.array_equal(atlas.lines.cells, expected):
-        return None
-    return slice(g, g + ni), slice(g, g + nj), slice(g, g + nk)
+def chain_layout(atlas: Atlas) -> Layout:
+    """The chains' layout: by slices on a split 3D atlas whose blocks all run
+    their lines along one canvas axis (not the split one) over the same
+    span, by flat index otherwise."""
+    if isinstance(atlas, SlabAtlas) and atlas.dim == 3:
+        from ..mesh.atlas3d import line_axis
+
+        axes = {line_axis(block) for block in atlas.mesh}
+        spans = {(w[a].start, w[a].stop) for w in atlas.windows for a in axes}
+        if len(axes) == 1 and len(spans) == 1 and axes != {0}:
+            (axis,), ((start, stop),) = axes, spans
+            layout = SliceChains(atlas, axis, slice(start, stop))
+            if int(layout.valid.sum()) == int((atlas.lines.cells >= 0).sum()):
+                return layout
+    return ChainLayout(atlas)
 
 
 def _scan_major(blocks: Array) -> Array:
@@ -177,7 +194,7 @@ def _scan_major(blocks: Array) -> Array:
     return jnp.transpose(blocks, (3, 2, 0, 1))
 
 
-def chain_solver(lower: Array, diag: Array, upper: Array, layout: ChainLayout):
+def chain_solver(lower: Array, diag: Array, upper: Array, layout: Layout):
     """Factor the chains once; return ``r -> x`` on canvas fields ``(m, *canvas shape)``."""
     factor = factor_cyclic_reduction(lower, diag, upper)
 
@@ -190,7 +207,7 @@ def chain_solver(lower: Array, diag: Array, upper: Array, layout: ChainLayout):
 
 
 def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atlas,
-                      gamma: float, layout: ChainLayout):
+                      gamma: float, layout: Layout):
     """``(lower, diag, upper)`` of the mean-flow chains, ``(L, n_lines, d+2, d+2)``."""
     grid = atlas.grid
     dim = grid.dim
@@ -216,7 +233,7 @@ def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: A
 
 
 def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atlas,
-                    gamma: float, viscosity, model: sa.SAModel, distance: Array, layout: ChainLayout):
+                    gamma: float, viscosity, model: sa.SAModel, distance: Array, layout: Layout):
     """Scalar chain blocks for the SA row, unknown ``rho nu_hat``, ``(L, n_lines, 1, 1)``.
 
     Across a face with outward mass flux ``m`` and diffusion ``d = kappa
@@ -274,7 +291,7 @@ def line_implicit_j(atlas: Atlas, gamma: float, viscosity=None, model=None, dist
     """Exact block-tridiagonal solves along the line chains; the SA row on its
     own scalar chains, its coupling to the mean flow left to the Krylov
     iteration."""
-    layout = ChainLayout(atlas)
+    layout = chain_layout(atlas)
     n_flow = Rows(atlas.dim).n_flow
 
     def prepare(U: Array, lambdas: tuple[Array, ...], cfl: Array):

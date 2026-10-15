@@ -24,7 +24,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.solvers.driver import slab_shardings
+from jaxaero import load_case
+from jaxaero.numerics.slabs import SlabAtlas
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = {
@@ -78,8 +79,7 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
 
 def test_an_uneven_split_is_refused() -> None:
     import jax
-    import jax.numpy as jnp
 
-    state = (jnp.zeros((5, 7, 4)), jnp.zeros(()))
+    atlas = load_case(ROOT / "examples/onera_m6_sa").grid()          # canvas first axis 20
     with pytest.raises(ValueError, match="not a multiple of"):
-        slab_shardings(state, [jax.devices()[0]] * 2)
+        SlabAtlas.of(atlas, [jax.devices()[0]] * 3)

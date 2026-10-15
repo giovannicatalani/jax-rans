@@ -101,6 +101,27 @@ each choice, grouped by module.
   for unstructured grids, not a slope-ratio limiter; fed `r = a/b` it returns
   `phi(1) = 3/4`, quietly losing second order.
 
+## numerics/slabs.py (one case over several GPUs)
+
+- **Explicit halo exchange for the stencils, automatic partitioning for the
+  rest.** Left to XLA (GSPMD), the split step made one exchange per shifted
+  array, ~1000 per step body: on the M6 1.08M grid, four A100s were 3.2x
+  slower than one (all four GPUs talk over PCIe and the socket link, no
+  NVLink). `block_residual` inside `shard_map`, each device taking `g` rows
+  from either neighbour once per evaluation, brought it to 32 exchanges and
+  four V100s 1.83x faster than one (2196 -> 1201 ms per step), a quarter of
+  the memory each. The residual's stencils reach `g` cells, which is why
+  `g` rows suffice and the unsplit edge padding reproduces the canvas ends.
+- **No whole-canvas gather on a split canvas**: a flat gather of a split
+  array is an all-gather (a copy of the state to every device). So the split
+  atlas fills ghosts and face-average neighbours by gathering only the cells
+  that move, and the line chains of a single 3D block are slices, run over
+  every canvas row (ghost rows inert) so the split axis is never sliced. The
+  unsplit atlas keeps the flat gathers: one code path each, same values.
+- **Only the case's own grid is split**; grid-sequencing levels are small and
+  run on one device (with the default allocator device 0 then keeps their
+  memory: `XLA_PYTHON_CLIENT_ALLOCATOR=platform` for a sequenced split run).
+
 ## mesh/coarsen.py
 
 - **Grid sequencing coarsens the case's own grid** (every other node, the

@@ -94,11 +94,7 @@ def make_block(step: StepFunction, block_iters: int, devices: Sequence | None = 
         return lax.scan(lambda carry, _: step(carry), state, xs=None, length=block_iters)
 
     if shardings is not None:
-        whole = jax.tree_util.tree_leaves(shardings)[0]
-        from jax.sharding import NamedSharding, PartitionSpec as P
-
-        return jax.jit(run_block, in_shardings=(shardings,),
-                       out_shardings=(shardings, NamedSharding(whole.mesh, P())))
+        return jax.jit(run_block, in_shardings=(shardings,), out_shardings=(shardings, None))
     if devices is None or len(devices) < 2:
         return jax.jit(run_block)
     from jax.experimental.shard_map import shard_map
@@ -110,31 +106,18 @@ def make_block(step: StepFunction, block_iters: int, devices: Sequence | None = 
 
 def slab_shardings(state: Any, devices: Sequence) -> Any:
     """Shardings splitting every field of ``state`` (``(nvar, *canvas)``)
-    along its first spatial axis over ``devices``; scalars replicated.
+    along its first spatial axis over ``devices``; scalars replicated."""
+    from jax.sharding import NamedSharding, PartitionSpec as P
 
-    Raises:
-        ValueError: that axis does not divide evenly over the devices.
-    """
-    from jax.sharding import Mesh, NamedSharding, PartitionSpec as P
-
-    mesh = Mesh(np.array(devices), (SPACE_AXIS,))
-
-    def spec(leaf):
-        shape = np.shape(leaf)
-        if len(shape) < 2:
-            return NamedSharding(mesh, P())
-        if shape[1] % len(devices):
-            raise ValueError(f"cannot split the canvas over {len(devices)} devices: its first axis has "
-                             f"{shape[1]} cells (ghosts included), not a multiple of {len(devices)}")
-        return NamedSharding(mesh, P(None, SPACE_AXIS))
-
-    return jax.tree_util.tree_map(spec, state)
+    mesh = _mesh(devices, SPACE_AXIS)
+    return jax.tree_util.tree_map(
+        lambda leaf: NamedSharding(mesh, P(None, SPACE_AXIS) if np.ndim(leaf) > 1 else P()), state)
 
 
-def _mesh(devices: Sequence):
+def _mesh(devices: Sequence, axis: str = BATCH_AXIS):
     from jax.sharding import Mesh
 
-    return Mesh(np.array(devices), (BATCH_AXIS,))
+    return Mesh(np.array(devices), (axis,))
 
 
 def run_to_steady(
@@ -158,9 +141,10 @@ def run_to_steady(
     caller's own test, e.g. on forces). A block in which a case's residual
     does not change at all stops that case as ``STALLED``: no step was
     taken. ``finite_check(state)`` is an optional device-side health test.
-    ``devices`` split a batch of cases, ``slabs`` (two or more) one case.
+    ``devices`` split a batch of cases, ``slabs`` one case (the step's own,
+    ``numerics/slabs.py``).
     """
-    shardings = slab_shardings(state, slabs) if slabs is not None and len(slabs) > 1 else None
+    shardings = slab_shardings(state, slabs) if slabs else None
     if shardings is not None:
         state = jax.device_put(state, shardings)
     block = make_block(step, block_iters, devices, shardings)
