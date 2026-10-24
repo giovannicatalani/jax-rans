@@ -270,3 +270,19 @@ measures it.
   and gaps). A better packer only if memory requires it.
 - **Measured (CPU)**: CRM 450k, assembly 7 s, atlas plans 14 s, freestream
   residual 1e-13 off the wall.
+- **CRM 450k, `max_relative_update` off** (`adodg_crm_wing`). With the M6's
+  0.2 the run reached `max_iters` (6000 steps) at 1.2 orders, the forces
+  still drifting: the CFL never left its starting 10. GMRES was not the
+  cause (linear reduction 0.001 at CFL 10, against 0.5 to succeed); the
+  global relaxation was: omega = 0.04 every step, set by nu~ in ten cells
+  of the first layers at the wing tip's trailing edge (an odd-even
+  checkerboard there, the smallest and most skewed cells of the grid), and
+  the CFL grows only on omega = 1. Copying the three-block edge ghosts from
+  another neighbour left the residual there unchanged to five digits: not
+  the vertex treatment. Without the bound the same case settles in 2940
+  steps (3.95 orders): CL 0.502865, CD 0.022494. A bound applied per cell
+  (or to the SA row alone) would keep both; a solver change, not made.
+- **Memory**: 9.7 GB on one A100 for the CRM 450k canvas (0.77M cells),
+  12.6 kB per canvas cell (nvidia-smi's peak, preallocation off; the M6's
+  7.8 kB was XLA's compile-time estimate of temporaries, a different
+  measure). The 3.6M level's canvas (5.07M cells) would need ~64 GB.

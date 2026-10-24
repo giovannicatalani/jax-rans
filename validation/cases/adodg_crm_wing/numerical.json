@@ -8,7 +8,8 @@
         "solver": "implicit"
     },
     "implicit": {
-        "max_relative_update": 0.2
+        "max_relative_update": null,
+        "notes": "No bound on the step: with the M6's 0.2, a nu~ checkerboard in ten cells at the wing tip's trailing edge held omega at 0.04 and the CFL at its start for 6000 steps (1.2 orders, forces drifting). Unbounded, the case settles in 2940 steps (docs/dev/notes.md)."
     },
     "convergence": {
         "max_iters": 6000,
