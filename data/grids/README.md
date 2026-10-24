@@ -18,6 +18,7 @@ validation code, not library).
 | `onera_m6/om6_strct_{4x11x6 .. 64x176x96}.ufmt` (ONERA M6, one 3D block, 264-1.08M cells) | generated with NASA TMR's program, see below | `tmr_onera_m6_*` |
 | `onera_m6/om6_sample_40x64x48.ufmt` (+ `.nmf`, `.mapbc`) | the same program's sample input (`input.nml_strct`, y+ 1): small, for tests | `tests/unit/test_grid3d.py`, `test_freestream3d.py` |
 | `crm_adodg/crm_450k_hdf5.cgns` (NASA CRM wing, 26 blocks, 450,560 cells) | Lyu, Kenway and Martins, AIAA ADODG Case 4: Mendeley Data, doi 10.17632/7jnyjdbvf9.1 (CC BY 4.0), `CRM-baseline.zip`, see below | `adodg_crm_wing`, `tests/unit/test_assemble3d.py` |
+| `dpw5_crm/L{1,2,3}.*.rev01.p3d` (NASA CRM wing-body, 5 blocks, 0.64M / 2.16M / 5.11M cells) | 5th AIAA Drag Prediction Workshop common structured grids: <https://dpw.larc.nasa.gov/DPW5/multiblock_grids.REV01/> (big-endian unformatted Plot3D, in inches) | `dpw5_crm_wb` |
 
 TMR airfoil grids: C-grids; the wrap index runs downstream wake -> trailing
 edge -> lower surface -> leading edge -> upper surface -> trailing edge ->
