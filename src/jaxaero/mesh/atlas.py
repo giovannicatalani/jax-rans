@@ -62,7 +62,8 @@ class Lines:
 
     ``cells`` are flat canvas indices. Between chain positions ``k`` and
     ``k + 1``, row ``k`` couples across ``up_face`` (flat index into the
-    canvas ``j``-face array) with outward sign ``up_sign``, and row ``k + 1``
+    canvas face arrays of every family, flattened and concatenated in family
+    order) with outward sign ``up_sign``, and row ``k + 1``
     across ``down_face`` with ``down_sign``: each row uses its own cell's face
     (the same face inside a block, the two sides of an interface across one).
     Padded links have sign 0.
@@ -104,7 +105,7 @@ class Atlas:
     grid: Grid
     interior: np.ndarray
     centres: Array
-    stages: tuple[Stage, Stage]
+    stages: tuple[Stage, ...]
     neighbours: np.ndarray
     lines: Lines
     walls: Walls
@@ -211,7 +212,7 @@ def build_atlas(mesh: Mesh | Grid, g: int = 2) -> Atlas:
               _stage(mesh, g, ("i_min", "i_max"), pos, NI * NJ, pad=True))
     walls = _walls(mesh, pos, origins, g, NI, NJ)
     return Atlas(tuple(mesh), g, tuple(origins), tuple(windows), grid, interior, padded_centres,
-                 stages, _neighbour_map(mesh, pos, NI * NJ), _lines(mesh, pos, origins, g, NJ),
+                 stages, _neighbour_map(mesh, pos, NI * NJ), _lines(mesh, pos, origins, g, NI, NJ),
                  walls, _quarter_chord(walls.faces))
 
 
@@ -363,7 +364,7 @@ def _neighbour_map(mesh: Mesh, pos, n_canvas: int) -> np.ndarray:
     return index
 
 
-def _lines(mesh: Mesh, pos, origins, g: int, NJ: int) -> Lines:
+def _lines(mesh: Mesh, pos, origins, g: int, NI: int, NJ: int) -> Lines:
     """Chains of cells linked along ``j``, through a block's own ``j``-side cuts.
 
     Every cell has at most one neighbour below and one above; following those
@@ -373,9 +374,10 @@ def _lines(mesh: Mesh, pos, origins, g: int, NJ: int) -> Lines:
     """
 
     def jface(b: int, i: int, j: int) -> int:
-        """Flat index of the canvas j-face below block cell (i, j)."""
+        """Flat index of the canvas j-face below block cell (i, j), after the
+        ``(NI + 1) * NJ`` i-faces."""
         oi, oj = origins[b]
-        return (oi + g + i) * (NJ + 1) + (oj + g + j)
+        return (NI + 1) * NJ + (oi + g + i) * (NJ + 1) + (oj + g + j)
 
     # neighbour[(b, i, j)] = {"down"/"up": ((b', i', j'), my face, my sign)}
     links: dict[tuple, dict[str, tuple]] = {}

@@ -142,54 +142,52 @@ def _mean_edges(nodes: np.ndarray) -> list[np.ndarray]:
 
 
 def _quality_3d(mesh: Mesh) -> Quality:
-    """``quality`` of single 3D blocks: smallest volume and angle between the
-    mean edges, growth and aspect from the widths between opposite face
+    """``quality`` of 3D blocks: smallest volume and angle between the mean
+    edges, growth and aspect from the widths between opposite face
     centroids, first-cell heights and orthogonality off every wall, and the
     far field's distance from the walls. Degenerate edges (a pole) are skipped."""
     from .block3d import normal_axis
     from .wall3d import wall_quads
 
-    (block,) = mesh
-    nodes = np.asarray(block.nodes)
-    edges = _mean_edges(nodes)
-    length = [np.linalg.norm(e, axis=0) for e in edges]
-    angles = []
-    for a, b in ((0, 1), (0, 2), (1, 2)):
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cos = np.abs(np.sum(edges[a] * edges[b], axis=0)) / (length[a] * length[b])
-        angles.append(np.degrees(np.arccos(np.clip(cos[np.isfinite(cos)], 0.0, 1.0))).min())
-    growth, widths = [1.0], length
-    for axis, w in enumerate(widths):
-        a, b = np.take(w, range(w.shape[axis] - 1), axis), np.take(w, range(1, w.shape[axis]), axis)
-        ok = (a > 0) & (b > 0)
-        growth.append(float(np.max(np.maximum(a / b, b / a)[ok])))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        ratio = np.maximum.reduce([w1 / w2 for w1 in widths for w2 in widths if w1 is not w2])
-    aspect = float(np.max(ratio[np.isfinite(ratio)]))
-    heights, wall_angles = [], [0.0]
-    for side, rect in block.sides.walls():
-        n = normal_axis(side)
-        first, second = (0, 1) if side.endswith("min") else (-1, -2)
-        wall = np.take(nodes, first, axis=1 + n)
-        inner = np.take(nodes, second, axis=1 + n)
-        h = inner - wall
-        heights.append(np.linalg.norm(h, axis=0).ravel())
-        S = np.take(np.asarray(block.faces[n]), 0 if first == 0 else block.shape[n], axis=1 + n)
-        hc = 0.25 * (h[:, :-1, :-1] + h[:, 1:, :-1] + h[:, :-1, 1:] + h[:, 1:, 1:])
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cos = np.abs(np.sum(S * hc, axis=0)) / (np.linalg.norm(S, axis=0) * np.linalg.norm(hc, axis=0))
-        wall_angles.append(float(np.degrees(np.arccos(np.clip(cos[np.isfinite(cos)], 0.0, 1.0))).max()))
-    far = np.inf
+    angles, growth, aspect, heights, wall_angles, far = [], [1.0], [], [], [0.0], np.inf
     quads = wall_quads(mesh)
-    if len(quads.corners):
-        wall_points = quads.mid[:: max(1, len(quads.mid) // 2000)]
-        for side, rect in block.sides.boundaries():
-            if rect.kind == "far_field":
-                plane = np.take(nodes, 0 if side.endswith("min") else nodes.shape[1 + normal_axis(side)] - 1,
-                                axis=1 + normal_axis(side)).reshape(3, -1)[:, ::7]
-                d = np.linalg.norm(plane.T[:, None, :] - wall_points[None], axis=-1)
-                far = min(far, float(d.min()))
+    wall_points = quads.mid[:: max(1, len(quads.mid) // 2000)]
+    for block in mesh:
+        nodes = np.asarray(block.nodes)
+        edges = _mean_edges(nodes)
+        length = [np.linalg.norm(e, axis=0) for e in edges]
+        for a, b in ((0, 1), (0, 2), (1, 2)):
+            with np.errstate(invalid="ignore", divide="ignore"):
+                cos = np.abs(np.sum(edges[a] * edges[b], axis=0)) / (length[a] * length[b])
+            angles.append(np.degrees(np.arccos(np.clip(cos[np.isfinite(cos)], 0.0, 1.0))).min())
+        for axis, w in enumerate(length):
+            if w.shape[axis] > 1:
+                lo, hi = np.take(w, range(w.shape[axis] - 1), axis), np.take(w, range(1, w.shape[axis]), axis)
+                ok = (lo > 0) & (hi > 0)
+                growth.append(float(np.max(np.maximum(lo / hi, hi / lo)[ok])))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratio = np.maximum.reduce([w1 / w2 for w1 in length for w2 in length if w1 is not w2])
+        aspect.append(float(np.max(ratio[np.isfinite(ratio)])))
+        for side, rect in block.sides.walls():
+            n = normal_axis(side)
+            first, second = (0, 1) if side.endswith("min") else (-1, -2)
+            window = (slice(None), slice(rect.start[0], rect.stop[0] + 1), slice(rect.start[1], rect.stop[1] + 1))
+            h = (np.take(nodes, second, axis=1 + n) - np.take(nodes, first, axis=1 + n))[window]
+            heights.append(np.linalg.norm(h, axis=0).ravel())
+            S = np.take(np.asarray(block.faces[n]), 0 if first == 0 else block.shape[n], axis=1 + n)
+            S = S[:, rect.start[0]:rect.stop[0], rect.start[1]:rect.stop[1]]
+            hc = 0.25 * (h[:, :-1, :-1] + h[:, 1:, :-1] + h[:, :-1, 1:] + h[:, 1:, 1:])
+            with np.errstate(invalid="ignore", divide="ignore"):
+                cos = np.abs(np.sum(S * hc, axis=0)) / (np.linalg.norm(S, axis=0) * np.linalg.norm(hc, axis=0))
+            wall_angles.append(float(np.degrees(np.arccos(np.clip(cos[np.isfinite(cos)], 0.0, 1.0))).max()))
+        if len(wall_points):
+            for side, rect in block.sides.boundaries():
+                if rect.kind == "far_field":
+                    plane = np.take(nodes, 0 if side.endswith("min") else nodes.shape[1 + normal_axis(side)] - 1,
+                                    axis=1 + normal_axis(side)).reshape(3, -1)[:, ::7]
+                    d = np.linalg.norm(plane.T[:, None, :] - wall_points[None], axis=-1)
+                    far = min(far, float(d.min()))
     heights = np.concatenate(heights) if heights else np.array([np.nan])
-    return Quality(int(np.prod(block.shape)), float(np.asarray(block.volume).min()), float(min(angles)),
-                   float(max(growth)), aspect, (float(heights.min()), float(heights.max())),
-                   float(max(wall_angles)), far)
+    return Quality(sum(int(np.prod(b.shape)) for b in mesh), min(float(np.asarray(b.volume).min()) for b in mesh),
+                   float(min(angles)), float(max(growth)), float(max(aspect)),
+                   (float(heights.min()), float(heights.max())), float(max(wall_angles)), far)

@@ -10,9 +10,9 @@ dissipation. With the face flux ``1/2 (F.S(U_L) + F.S(U_R)) - 1/2 lambda_f
 and the pseudo-time term adds ``V/dt = sum_f lambda_f / CFL`` to the diagonal.
 
 ``line_j`` keeps the off-diagonal blocks along the atlas's line chains (cells
-linked in ``j``, continued through a block's own cut: the C-grid wake) and
-solves each chain exactly, block-tridiagonal; the
-``i`` couplings are left to the Krylov iteration. The SA row is solved on
+linked along each block's wall-normal index, ``j`` in 2D, continued through a
+block's own cut: the C-grid wake) and solves each chain exactly,
+block-tridiagonal; the other couplings are left to the Krylov iteration. The SA row is solved on
 scalar chains of its own (upwind convection, thin-layer diffusion, the
 destruction derivative). Mavriplis, AIAA J. 37 (1999).
 """
@@ -34,8 +34,10 @@ from ..physics import euler, navier_stokes
 from ..physics import spalart_allmaras as sa
 
 
-LINE_FAMILY = 1
-"""Lines run along ``j`` (wall-normal in every grid here), coupling across j-faces."""
+def families(fields: tuple[Array, ...]) -> Array:
+    """Per-family face fields ``(..., *face shape)`` flattened and concatenated
+    in family order, ``(..., n_faces)``: what the line links index."""
+    return jnp.concatenate([f.reshape(f.shape[:f.ndim - len(fields)] + (-1,)) for f in fields], axis=-1)
 
 
 class Preconditioner(Protocol):
@@ -136,7 +138,7 @@ def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: A
     eye = jnp.eye(m, dtype=U.dtype)
     d = jnp.where(layout.valid, layout.gather(diagonal(lambdas, cfl).ravel()), 1.0)
     diag = d.T[:, :, None, None] * eye
-    S, lam = grid.faces[LINE_FAMILY].reshape(dim, -1), lambdas[LINE_FAMILY].ravel()
+    S, lam = families(grid.faces), families(lambdas)
 
     def coupling(face, sign, neighbour):
         """``1/2 A(U_nb, S_out) - 1/2 lambda_f I`` per link, zero where none."""
@@ -193,7 +195,7 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
 
     d_chain = jnp.where(layout.valid, layout.gather(diag.ravel()), 1.0)
     rho_chain = layout.gather(rho.ravel())
-    m, dj = terms[LINE_FAMILY][0].ravel(), terms[LINE_FAMILY][1].ravel()
+    m, dj = families(tuple(t[0] for t in terms)), families(tuple(t[1] for t in terms))
 
     def coupling(face, sign, rho_nb):
         block = -(jnp.maximum(-sign * m[face], 0.0) + dj[face]) / rho_nb
