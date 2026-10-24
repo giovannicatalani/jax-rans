@@ -4,6 +4,9 @@
     "levels": [
         {
             "file": "data/grids/crm_adodg/crm_450k_hdf5.cgns"
+        },
+        {
+            "file": "data/grids/crm_adodg/crm_3m_hdf5.cgns"
         }
     ],
     "reference": {
