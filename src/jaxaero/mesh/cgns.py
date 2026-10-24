@@ -148,11 +148,8 @@ def _zone(name: str, zone, zone_names: list[str], path: Path, dim: int) -> RawBl
         if len(size) != 3 or any(c is None for c in xyz):
             raise ValueError(f"{path.name}: zone {name!r} is not a 3D zone")
         face = lambda point_range: _face_3d(point_range, size)  # noqa: E731
-    elif len(size) == 2:
-        x, y, axes = xyz[0], xyz[1], (0, 1)
-        face = lambda point_range: _face(point_range, axes)  # noqa: E731
     else:
-        x, y, axes = _thin_plane(xyz, name, path)
+        x, y, axes = (xyz[0], xyz[1], (0, 1)) if len(size) == 2 else _thin_plane(xyz, name, path)
         face = lambda point_range: _face(point_range, axes)  # noqa: E731
     declared = []
     for _, zbc in _children(zone, "ZoneBC_t"):

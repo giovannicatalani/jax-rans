@@ -24,8 +24,9 @@
   (`shard_map`), the rest of the step is partitioned by XLA. ONERA M6 1.08M:
   1.8x faster on four V100s than on one, a quarter of the memory each; the
   8.65M grid fits on four 32 GB GPUs. All of it in `numerics/slabs.py` and
-  behind `--devices`: a one-GPU run executes the code it did before.
-
+  behind `--devices`: a one-GPU run executes the code it did before. Works on
+  multi-block grids too: the NASA CRM wing on 3.6M cells (26 blocks) runs on
+  two A100s (24 GB each; 35 GB of temporaries alone on one), 2.2 s a step.
 - **Faster implicit solver on GPUs.** The line preconditioner solves its
   block-tridiagonal chains by cyclic reduction instead of a sequential Thomas
   sweep: on an A100 a Newton step takes 21.5 ms instead of 136 on RAE 2822,

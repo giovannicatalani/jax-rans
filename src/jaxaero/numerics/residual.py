@@ -282,24 +282,22 @@ def make_residual(
     flux, limiter = get_flux(numerics.flux), get_limiter(numerics.limiter)
     U_0 = uniform_canvas(q_inf, canvas, gamma, dtype)
 
+    stencil = partial(block_residual, flux=flux, limiter=limiter, gamma=gamma, n_ghost=g,
+                      first_order=first_order, viscosity=viscosity, model=model, kappa=numerics.kappa)
     if isinstance(atlas, SlabAtlas):        # split over devices: numerics/slabs.py
-        slab = slab_stencil(atlas, distance, partial(
-            block_residual, flux=flux, limiter=limiter, gamma=gamma, n_ghost=g, first_order=first_order,
-            viscosity=viscosity, model=model, kappa=numerics.kappa))
+        slab = slab_stencil(atlas, distance, stencil)
 
-        def residual(U: Array) -> Array:
-            q = primitive_from_conservative(U, gamma, dim)
-            conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
-            return jnp.where(atlas.interior, slab(slab_fill_ghosts(q, atlas, conditions)), U - U_0)
+        def net_flux(q: Array, conditions: bc.Conditions) -> Array:
+            return slab(slab_fill_ghosts(q, atlas, conditions))
     else:
-        def residual(U: Array) -> Array:
-            q = primitive_from_conservative(U, gamma, dim)
-            conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
+        def net_flux(q: Array, conditions: bc.Conditions) -> Array:
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * dim, mode="edge")
-            R = block_residual(padded, canvas, atlas.centres, distance, flux=flux, limiter=limiter,
-                               gamma=gamma, n_ghost=g, first_order=first_order,
-                               viscosity=viscosity, model=model, kappa=numerics.kappa)
-            return jnp.where(atlas.interior, R, U - U_0)
+            return stencil(padded, canvas, atlas.centres, distance)
+
+    def residual(U: Array) -> Array:
+        q = primitive_from_conservative(U, gamma, dim)
+        conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
+        return jnp.where(atlas.interior, net_flux(q, conditions), U - U_0)
 
     return ResidualOperator(
         residual=residual,

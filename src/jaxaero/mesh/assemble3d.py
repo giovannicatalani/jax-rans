@@ -131,7 +131,7 @@ class _Faces:
             setattr(self, key, np.concatenate(values))
 
     def rows(self, block: int, side: str) -> np.ndarray:
-        """Rows of one side, ``(na, nb)`` in its running order."""
+        """Rows of one side, in its running order (``(na, nb)`` row-major)."""
         return np.flatnonzero((self.block == block) & (self.side == SIDES_3D.index(side)))
 
 

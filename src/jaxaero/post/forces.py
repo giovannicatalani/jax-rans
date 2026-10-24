@@ -166,7 +166,8 @@ def _surface_3d(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.nd
     faces = atlas.walls.faces
     mid = faces.mid
     q = dynamic_pressure(flow)
-    out = {"block": faces.block.astype(float), "i": faces.cell[:, 0].astype(float), "k": faces.cell[:, 1].astype(float),
+    out = {"block": faces.block.astype(float),
+           "i": faces.cell[:, 0].astype(float), "k": faces.cell[:, 1].astype(float),
            "x": mid[:, 0], "y": mid[:, 1], "z": mid[:, 2], "cp": p / q}
     if not flow.inviscid:
         area = np.linalg.norm(S, axis=0)
