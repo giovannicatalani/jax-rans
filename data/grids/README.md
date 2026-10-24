@@ -17,6 +17,7 @@ validation code, not library).
 | `2Ddomain_L{1..5}_*_r1.p3d` (30P30N, 117 blocks, 64k-1.04M cells) | JAXA APC-V, 2D section grids: <https://cfdws.chofu.jaxa.jp/apc/apc5/external/2D_domain.tar.gz> (`2D_domain/plot3d/`) | `jaxa_30p30n_*` |
 | `onera_m6/om6_strct_{4x11x6 .. 64x176x96}.ufmt` (ONERA M6, one 3D block, 264-1.08M cells) | generated with NASA TMR's program, see below | `tmr_onera_m6_*` |
 | `onera_m6/om6_sample_40x64x48.ufmt` (+ `.nmf`, `.mapbc`) | the same program's sample input (`input.nml_strct`, y+ 1): small, for tests | `tests/unit/test_grid3d.py`, `test_freestream3d.py` |
+| `crm_adodg/crm_450k_hdf5.cgns` (NASA CRM wing, 26 blocks, 450,560 cells) | Lyu, Kenway and Martins, AIAA ADODG Case 4: Mendeley Data, doi 10.17632/7jnyjdbvf9.1 (CC BY 4.0), `CRM-baseline.zip`, see below | `adodg_crm_wing`, `tests/unit/test_assemble3d.py` |
 
 TMR airfoil grids: C-grids; the wrap index runs downstream wake -> trailing
 edge -> lower surface -> leading edge -> upper surface -> trailing edge ->
@@ -58,3 +59,15 @@ pole to the root symmetry plane, `j` from the wall to the hemispherical far
 field (100 root chords), `k` round the section (an O, starting at the leading
 edge); root chord 1, semispan 1.476. `mesh/assemble3d.py` finds the O seam and
 the pole from the coordinates; the patches are named by `domain.patches` rules.
+
+The CRM wing grids come in `CRM-baseline.zip` (869 MB, sha256
+`20c08d83b6e5457daee95cf9829867adf4d7daa858a23cb22634779b49247748`; the
+download link is listed by
+<https://data.mendeley.com/public-api/datasets/7jnyjdbvf9/files?folder_id=root&version=1>):
+structured CGNS in ADF storage, 26 blocks, at 450k (`Lyu-etal-CRM-baseline-450k.cgns`),
+3.6M and 28M cells, each level the next finer one with every other node. Convert
+a level to HDF5 with `adf2hdf`, or `python scripts/adf2hdf.py IN OUT` where the
+CGNS tools are not available, and save it here as `crm_450k_hdf5.cgns`
+(`crm_3m_hdf5.cgns`, ...). Coordinates in mean aerodynamic chords (275.8 in);
+every block has the wall on `k_min` and the far field (about 25 spans away) on
+`k_max`; families `wall`, `far`, `sym`.

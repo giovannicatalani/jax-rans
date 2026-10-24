@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Multi-block 3D grids**: any number of point-matched blocks, from Plot3D or
+  CGNS (HDF5; 3D zones read whole, with their families, BC types and 1-to-1
+  interfaces). Interfaces are found from coincident faces in any relative
+  orientation of the blocks, partial faces included; three or five blocks may
+  meet along an edge. The line preconditioner runs normal to each block's
+  wall, whatever its index; the ghost fill repeats its three stages where an
+  interface permutes index directions (docs/dev/notes.md). Single-block 3D
+  results unchanged bitwise. Verified by splitting the ONERA M6 grid into
+  re-indexed blocks (the same residual to 4e-15) and on a three-block prism.
+  New validation case `adodg_crm_wing` (the NASA CRM wing, 26 blocks);
+  `scripts/adf2hdf.py` converts ADF CGNS files.
 - **Generated multi-element grids** (`domain.grid = "multi_element"`): a slat,
   main element and flap meshed from their coordinates, optionally re-placed by
   deflection, gap and overlap (docs/multi-element.md). New example

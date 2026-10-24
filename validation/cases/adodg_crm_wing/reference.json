@@ -1,0 +1,20 @@
+{
+    "suite": "wing",
+    "order": 3,
+    "levels": [
+        {"file": "data/grids/crm_adodg/crm_450k_hdf5.cgns"}
+    ],
+    "reference": {
+        "cl": 0.5,
+        "cd": 0.0211,
+        "cl_tol": 0.06,
+        "cd_tol": 0.06,
+        "isolates": "a multi-block 3D grid (26 blocks, permuted interfaces, three blocks round some edges) on a transonic swept wing",
+        "sources": [
+            "Lyu, Kenway and Martins, AIAA 2014-0567, Fig. 3 (ADflow, SA; read off the plot, +-0.5 count): CD at CL = 0.5 on these grids",
+            "Lyu, Kenway and Martins, AIAA J. 53(4) 968-985 (2015)"
+        ],
+        "notes": "Per level, CD at CL = 0.5: 450,560 cells ~211 counts (this level), 3,604,480 ~202, 28,835,840 199.7, 230,686,720 ~199. This case runs at one estimated angle (2.2 deg), not at CL = 0.5, so CL and CD are compared loosely: near CL 0.5 the induced drag changes by about 1.5 counts per 0.01 of CL (CL^2 / (pi e AR), AR 8.3, e ~ 0.85)."
+    },
+    "settled_cl_spread": 0.0001
+}

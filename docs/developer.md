@@ -17,7 +17,7 @@ numerics/     residual, reconstruction, limiters, Riemann solvers, gradients,
               boundary conditions, SA source terms
 physics/      Euler, Navier-Stokes and SA pointwise functions
 mesh/         blocks and metrics (2D and 3D), meshes (patches, bodies, wall distance),
-              the atlas (all blocks packed into one array; atlas3d: one 3D block),
+              the atlas (all blocks packed into one array; atlas3d in 3D),
               Plot3D and CGNS readers, assembly (interfaces and patch names; assemble3d),
               3D sides (block3d: rectangles, O seams, poles), grid generation, quality,
               coarsening (grid sequencing: every other node, the solution carried back)

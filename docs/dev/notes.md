@@ -229,3 +229,44 @@ measures it.
 - **3D incidence is in x-z, span y** (TMR's wing grids): `freestream_primitive(flow, 3)`
   is `M (cos a, 0, sin a)`; a 2D grid extruded in z needs the freestream
   passed explicitly (tests/verification/test_extruded.py does).
+
+## Multi-block 3D (mesh/assemble3d.py, mesh/atlas3d.py)
+
+- **Interfaces from the geometry, orientation from the corners.** Each
+  boundary quad is matched to the one whose four corners coincide under one
+  of the eight orientations of a quadrilateral (KD-tree on centroids,
+  tolerance 5% of the shorter of the face's shortest edge and its cell's
+  width, as in 2D). The orientation gives `axes` and `flip` of the
+  `InterfaceRect`, so a one-cell-wide interface is oriented too, and partial
+  faces and C-cuts come out of the same code. The CGNS `Transform` is not
+  read; the file's 1-to-1 ranges only cross-check the matching.
+- **Blocks keep the file's index order.** The wall-normal index is chosen in
+  the atlas (`line_axis`: the normal of the wall faces, else of the
+  far-field faces), where the conditions are known; the preconditioner's
+  links index the canvas faces of all families concatenated. Transposing
+  blocks on reading would have needed the conditions at assembly time.
+- **Fill order per block, wall-normal pair first.** A ghost between two
+  physical sides is filled by one condition applied to the other's ghost,
+  and its centre reflected through two planes; two reflections commute only
+  for orthogonal planes. With the stages in fixed index order (`j, i, k`), a
+  re-indexed M6 split differed from the single block by 5e-4 (laminar) at
+  the wall-symmetry edge; with the wall pair first, then by 4e-7 at the far
+  field of the outer blocks (no wall: still `j` of their own frame); with the
+  far-field normal as their line axis, 4e-15. Corners between two physical
+  sides that are both off the line axis (e.g. symmetry and inflow) still
+  depend on the index order: none of the grids here has one.
+- **Repeated fill passes.** A stage extends each side over the ghosts of the
+  stages before it, reading the partner's ghosts there. Across an interface
+  that maps my `k` to its `i`, that partner ghost belongs to the same stage
+  and is not filled yet. The three stages are repeated until a pass reads
+  filled cells only, found once in NumPy (`_passes`): 1 pass for a single
+  block (bitwise as before), 2 for the CRM grid and the permuted M6 splits.
+  The edge ghosts round a vertex of three blocks become copies of one of
+  them, value and centre together, so the diamond gradients stay exact for
+  linear fields there (tests/verification/test_irregular3d.py).
+- **Packing**: tiles in the plane of two canvas axes (the 2D `_pack`), as
+  deep as the deepest along the third, choosing the axis that gives the
+  smallest canvas. CRM: 1.70x the cells at 450k, 1.41x at 3.6M (ghost rings
+  and gaps). A better packer only if memory requires it.
+- **Measured (CPU)**: CRM 450k, assembly 7 s, atlas plans 14 s, freestream
+  residual 1e-13 off the wall.

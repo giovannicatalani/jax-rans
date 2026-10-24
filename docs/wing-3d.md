@@ -9,21 +9,26 @@ Resource conditions (case 2308), on a small grid that ships with the example.
 ## 1. What the grid file must be
 
 - **Format**: Plot3D with three index directions (formatted or binary, single
-  or double precision). CGNS is read in 2D only for now.
-- **One block.** Multi-block 3D grids are not supported yet.
-- **What lies on each of its six sides** is found from the coordinates:
-    - two opposite sides whose nodes coincide become an interface (the seam of
-      an O-grid round the wing section);
+  or double precision), or CGNS in HDF5 storage (`scripts/adf2hdf.py`
+  converts the older ADF storage).
+- **One block or many**, point-matched: a face of one block meets whole faces
+  of others, node for node (a block side may face several blocks).
+- **What lies on each block side** is found from the coordinates:
+    - faces whose four corners coincide become an interface, in whatever
+      orientation the two blocks' indices have (between blocks, or within one:
+      the seam of an O-grid round the wing section). The file's 1-to-1
+      interfaces, if it has any, must agree;
     - a side collapsed to a line (every face of zero area) becomes a **pole**,
-      provided it lies round a seam direction with an even number of cells.
-      The rounded tip of the example grid closes this way;
-    - every other face is named by the box rules of `domain.patches`
-      (section 2).
+      provided it lies round a seam of the same block with an even number of
+      cells. The rounded tip of the example grid closes this way;
+    - every other face is named by the file (CGNS families, then BC types),
+      else by the box rules of `domain.patches` (section 2).
 - **Axes**: `x` along the chord, `y` along the span, `z` up. The angle of
   attack turns the freestream in the `x`-`z` plane.
-- **The wall-normal index should be `j`.** The implicit solver's
-  preconditioner solves along `j` lines, which is what makes thin wall cells
-  affordable. A wall on another index has not been tested.
+- **Any index may be wall-normal.** The implicit solver's preconditioner
+  solves along lines through each block normal to its wall (to its far
+  field, for blocks without one), which is what makes thin wall cells
+  affordable; lines stop at the block's ends.
 - A block that is left-handed is reversed in `k` on reading. A folded grid
   (a cell of non-positive volume) is refused.
 
@@ -197,7 +202,8 @@ jaxaero examples/onera_m6_sa --set case.domain.file=data/grids/onera_m6/om6_strc
 
 ## 8. Limits
 
-- One block, Plot3D. No 3D grid generation, no multi-block 3D, no CGNS in 3D.
+- Point-matched blocks only (no overset or patched interfaces); one body; a
+  pole must close round a seam of its own block. No 3D grid generation.
 - `python -m jaxaero.plot` and the `--check` picture are 2D only.
 - Polars (`python -m jaxaero.polar`) have not been tested in 3D.
 - The far field is plain characteristic (no point-vortex correction in 3D):

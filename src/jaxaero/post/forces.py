@@ -157,15 +157,16 @@ def surface(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarra
 
 
 def _surface_3d(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarray]:
-    """Per wall face: its running position on the wall side ``i``, ``k``
-    (the wing sections of validation/sections.py use them), ``x``, ``y``, ``z``, ``cp`` and,
-    viscous, the skin friction vector ``cf_x``, ``cf_y``, ``cf_z`` (wall shear
-    over ``q_inf``)."""
+    """Per wall face: its ``block`` and running position on its side ``i``,
+    ``k`` (the two indices along a ``j`` side; the wing sections of
+    validation/sections.py use them), ``x``, ``y``, ``z``, ``cp`` and, viscous,
+    the skin friction vector ``cf_x``, ``cf_y``, ``cf_z`` (wall shear over
+    ``q_inf``)."""
     p, S, shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
     faces = atlas.walls.faces
     mid = faces.mid
     q = dynamic_pressure(flow)
-    out = {"i": faces.cell[:, 0].astype(float), "k": faces.cell[:, 1].astype(float),
+    out = {"block": faces.block.astype(float), "i": faces.cell[:, 0].astype(float), "k": faces.cell[:, 1].astype(float),
            "x": mid[:, 0], "y": mid[:, 1], "z": mid[:, 2], "cp": p / q}
     if not flow.inviscid:
         area = np.linalg.norm(S, axis=0)
