@@ -5,8 +5,9 @@ mesh/generate.py, the airfoil a NACA 4-digit name or a coordinate file),
 generated round a multi-element section (``multi_element``: mesh/highlift.py,
 the elements from one file each or from one multi-curve file, optionally
 re-placed), or read from any structured grid file (``file``: Plot3D or CGNS,
-single- or multi-block, mesh/assemble.py). Paths are resolved against the
-case directory first, the working directory second.
+single- or multi-block, 2D or 3D: mesh/assemble.py, mesh/assemble3d.py).
+Paths are resolved against the case directory first, the working directory
+second.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import numpy as np
 from ..geometry.airfoil import Airfoil, airfoil_source
 from ..geometry.elements import Element, place, read_element, read_elements
 from ..mesh.assemble import PatchRule, RawBlock, assemble, load_grid
-from ..mesh.assemble3d import is_3d_plot3d, load_grid_3d
+from ..mesh.assemble3d import is_3d, load_grid_3d
 from ..mesh.generate import Spacing, c_grid, o_grid
 from ..mesh.highlift import Settings, multi_element
 from ..mesh.mesh import Mesh
@@ -139,8 +140,8 @@ def _generated(spec: GridSpec, base: Path, dtype) -> Mesh:
 
 def _file(spec: GridSpec, base: Path, dtype) -> Mesh:
     path = spec.resolve(base)
-    if spec.format in ("auto", "plot3d") and is_3d_plot3d(path):
-        mesh, _ = load_grid_3d(path, spec.coordinate_scale, spec.rules(), dtype)
+    if is_3d(path, spec.format):
+        mesh, _ = load_grid_3d(path, spec.format, spec.coordinate_scale, spec.rules(), dtype)
         return mesh
     mesh, _ = load_grid(path, spec.format, spec.coordinate_scale, spec.rules(), dtype)
     return mesh

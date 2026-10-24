@@ -12,6 +12,7 @@ from jaxaero.mesh.assemble import PatchRule
 from jaxaero.mesh.assemble3d import _rectangles, assemble_3d, load_grid_3d
 from jaxaero.mesh.atlas import build_atlas
 from jaxaero.mesh.block3d import BoundaryRect, InterfaceRect
+from jaxaero.mesh.cgns import RawBlock3D
 from jaxaero.mesh.mesh import assign_conditions
 from jaxaero.numerics.residual import make_residual
 from jaxaero.post.forces import ForceReference, integrate_forces, surface
@@ -42,7 +43,7 @@ def test_the_wing_grid_assembles_from_its_geometry() -> None:
 def test_a_face_matching_no_rule_is_an_error() -> None:
     nodes = warped_box((2, 2, 2), amplitude=0.0)
     with pytest.raises(ValueError, match="no patch rule"):
-        assemble_3d(nodes, (PatchRule("wall", x_max=0.5),))
+        assemble_3d([RawBlock3D(nodes)], (PatchRule("wall", x_max=0.5),))
 
 
 def test_mixed_labels_become_rectangles_tiling_the_side() -> None:
