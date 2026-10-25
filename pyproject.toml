@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jax-aero"
+name = "jax-rans"
 dynamic = ["version"]
-description = "JAX-Aero: GPU aerodynamics in JAX -- compressible Euler, laminar Navier-Stokes and SA RANS on structured single- and multi-block grids"
+description = "Differentiable compressible RANS in JAX: Euler, laminar Navier-Stokes and Spalart-Allmaras on structured multi-block grids, 2D and 3D, on GPUs"
 readme = "README.md"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
@@ -16,7 +16,7 @@ dependencies = [
     "numpy>=1.26",
     "scipy>=1.10",
 ]
-keywords = ["CFD", "aerodynamics", "JAX", "RANS", "Spalart-Allmaras", "airfoil", "GPU"]
+keywords = ["CFD", "aerodynamics", "JAX", "RANS", "Spalart-Allmaras", "airfoil", "wing", "GPU", "differentiable", "adjoint"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
@@ -27,8 +27,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 
+[project.urls]
+Homepage = "https://github.com/giovannicatalani/jax-rans"
+Documentation = "https://giovannicatalani.github.io/jax-rans/"
+Repository = "https://github.com/giovannicatalani/jax-rans"
+Issues = "https://github.com/giovannicatalani/jax-rans/issues"
+
 [project.scripts]
-jaxaero = "jaxaero.__main__:main"
+jaxrans = "jaxrans.__main__:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "hypothesis>=6", "sympy>=1.12", "build>=1", "pyflakes>=3"]
@@ -40,7 +46,7 @@ cgns = ["h5py>=3.8"]
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = { attr = "jaxaero.__version__" }
+version = { attr = "jaxrans.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

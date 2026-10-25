@@ -13,11 +13,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.block import o_grid_sides
-from jaxaero.core.state import freestream_primitive
-from jaxaero.numerics import reconstruction
-from jaxaero.numerics.limiters import get_limiter
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.block import o_grid_sides
+from jaxrans.core.state import freestream_primitive
+from jaxrans.numerics import reconstruction
+from jaxrans.numerics.limiters import get_limiter
 
 from ..single import Single, fill_ghosts, forces, wall_slice, wall_surface
 from ..conftest import freestream_state, uniform_state

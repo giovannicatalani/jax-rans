@@ -1,4 +1,4 @@
-"""``python -m jaxaero.case [--write]``: print (or write) docs/case_reference.md."""
+"""``python -m jaxrans.case [--write]``: print (or write) docs/case_reference.md."""
 
 import sys
 

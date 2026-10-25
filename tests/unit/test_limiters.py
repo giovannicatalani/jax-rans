@@ -13,7 +13,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from jaxaero.numerics import limiters
+from jaxrans.numerics import limiters
 
 ALL = sorted(limiters.LIMITERS)
 MONOTONE = [n for n in ALL if n != "none"]

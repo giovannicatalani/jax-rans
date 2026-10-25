@@ -1,4 +1,4 @@
-# JAX-Aero
+# JAX-RANS
 
 A steady airfoil and wing solver in JAX: compressible Euler, laminar
 Navier-Stokes and Spalart-Allmaras RANS on structured grids, in 2D and 3D,
@@ -7,10 +7,10 @@ a slat, main element and flap from their coordinates, or read from Plot3D and
 CGNS files with any number of blocks. A case is two JSON files.
 
 ```bash
-pip install jax-aero[plot,cgns]
-jaxaero my_case --check     # build and draw the grid
-jaxaero my_case             # solve
-python -m jaxaero.polar my_case --alpha -2 10 1
+pip install jax-rans[plot,cgns]
+jaxrans my_case --check     # build and draw the grid
+jaxrans my_case             # solve
+python -m jaxrans.polar my_case --alpha -2 10 1
 ```
 
 - [Running a case](guide.md)

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Renamed to JAX-RANS**: distribution `jax-rans`, import `jaxrans`, command
+  `jaxrans` (formerly `jax-aero`, `jaxaero`; nothing had been released under
+  the old name, so there is no alias).
 - **Multi-block 3D grids**: any number of point-matched blocks, from Plot3D or
   CGNS (HDF5; 3D zones read whole, with their families, BC types and 1-to-1
   interfaces). Interfaces are found from coincident faces in any relative
@@ -18,7 +21,7 @@
   deflection, gap and overlap (docs/multi-element.md). New example
   `main_flap_sa`; validation case `gen_30p30n_a5p5` (the 30P30N on generated
   grids); `scripts/plot_blocks.py` draws a grid's blocks.
-- **One case over several GPUs** (`jaxaero CASE --devices N`, `run(case,
+- **One case over several GPUs** (`jaxrans CASE --devices N`, `run(case,
   devices=...)`): the grid split in slabs along its first index. The
   residual's stencils exchange two rows with each neighbour per evaluation
   (`shard_map`), the rest of the step is partitioned by XLA. ONERA M6 1.08M:
@@ -45,7 +48,7 @@
   C-grid can be built round a downloaded coordinate file.
 - Airfoils are scaled to unit chord with the leading edge at the origin, so
   coordinates in other units give correct coefficients.
-- `jaxaero CASE --check` builds the grid, prints its patches, conditions and
+- `jaxrans CASE --check` builds the grid, prints its patches, conditions and
   bodies, writes `grid.png` and stops.
 - New examples: `clarky_sa` (a UIUC coordinate file as downloaded) and
   `30p30n_sa` (a multi-block grid from file).
@@ -61,7 +64,7 @@
   Example `onera_m6_sa` (its grid in the example directory) and the
   walkthrough [docs/wing-3d.md](docs/wing-3d.md).
   2D results unchanged (to 5e-15). Limits: single-block 3D grids from Plot3D;
-  `jaxaero.plot` is 2D only (3D wings: `scripts/plot_wing.py` or ParaView).
+  `jaxrans.plot` is 2D only (3D wings: `scripts/plot_wing.py` or ParaView).
 - Internal API (Python users of library internals; JSON cases unaffected):
   Riemann fluxes take an area vector `S (d, ...)`; state conversions take
   `dim`; `Grid` stores `nodes`, `centres`, `volume`, `faces`.

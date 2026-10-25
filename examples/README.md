@@ -12,7 +12,7 @@
 | `main_flap_sa` | two-element high lift (30P30N main and flap), M 0.17, 5.5 deg, Re 1.71e6 | generated multi-element grid |
 | `onera_m6_sa` | 3D wing, transonic SA RANS, M 0.84, 3.06 deg, Re 14.6e6 | NASA TMR one-block 3D grid, in the example directory |
 
-Run one with `jaxaero examples/naca0012_euler`. The grid files of
+Run one with `jaxrans examples/naca0012_euler`. The grid files of
 `naca0012_sa`, `rae2822_transonic_sa`, `flatplate_sa` and `30p30n_sa` are
 downloaded separately (`data/grids/README.md`); `onera_m6_sa` carries its own.
 

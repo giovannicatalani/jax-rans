@@ -44,7 +44,7 @@ the case files to a function. They are looked up before tracing, so jitted
 code never branches on a string. To add one, write the function, add it to
 the registry, and if it needs a new case key, add one line to
 `case/schema.py`. Then regenerate the case reference with
-`python -m jaxaero.case --write` (a test fails if you forget).
+`python -m jaxrans.case --write` (a test fails if you forget).
 
 | registry | entries |
 |---|---|

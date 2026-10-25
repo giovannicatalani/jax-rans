@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jaxaero.core.linalg import (
+from jaxrans.core.linalg import (
     factor_block_tridiagonal,
     solve_block_tridiagonal,
 )
@@ -114,7 +114,7 @@ def test_shape_disagreement_is_rejected(system) -> None:
 def test_cyclic_reduction_matches_thomas(n) -> None:
     """The parallel factor solves the same system as the sequential one, to
     round-off, for chain lengths on and off a power of two."""
-    from jaxaero.core.linalg import factor_cyclic_reduction, solve_cyclic_reduction
+    from jaxrans.core.linalg import factor_cyclic_reduction, solve_cyclic_reduction
 
     rng = np.random.default_rng(n)
     shape = (n, 3, M, M)

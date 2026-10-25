@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.numerics import reconstruction as rc
-from jaxaero.numerics.limiters import LIMITERS, get_limiter
+from jaxrans.numerics import reconstruction as rc
+from jaxrans.numerics.limiters import LIMITERS, get_limiter
 
 GHOST = 2
 N, OTHER = 10, 3
@@ -94,7 +94,7 @@ def test_kappa_one_third_is_exact_for_quadratic_cell_averages() -> None:
 
 
 def test_kappa_needs_the_unlimited_scheme() -> None:
-    from jaxaero.core.config import NumericsConfig
+    from jaxrans.core.config import NumericsConfig
 
     with pytest.raises(ValueError, match="limiter 'none'"):
         NumericsConfig(limiter="minmod", kappa=1.0 / 3.0)

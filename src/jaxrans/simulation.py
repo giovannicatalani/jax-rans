@@ -1,6 +1,6 @@
 """Run a case: build the operator, march to steady state, write the result.
 
-    from jaxaero import load_case, run
+    from jaxrans import load_case, run
 
     case = load_case("examples/naca0012_euler")
     result = run(case)              # progress=None: silent

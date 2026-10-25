@@ -19,14 +19,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero import CaseError, load_case
-from jaxaero.case import parse_case
-from jaxaero.geometry.elements import corners, fan_points, gap, overlap, place, read_elements
-from jaxaero.mesh.assemble import assemble
-from jaxaero.mesh.coarsen import coarsen
-from jaxaero.mesh.highlift import Settings, family, multi_element
-from jaxaero.mesh.mesh import assign_conditions, patches
-from jaxaero.mesh.quality import _cell_angles, interface_growth, quality
+from jaxrans import CaseError, load_case
+from jaxrans.case import parse_case
+from jaxrans.geometry.elements import corners, fan_points, gap, overlap, place, read_elements
+from jaxrans.mesh.assemble import assemble
+from jaxrans.mesh.coarsen import coarsen
+from jaxrans.mesh.highlift import Settings, family, multi_element
+from jaxrans.mesh.mesh import assign_conditions, patches
+from jaxrans.mesh.quality import _cell_angles, interface_growth, quality
 
 CRV = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
 PICK = {"main_flap": [1, 2], "slat_main": [0, 1], "slat_main_flap": [0, 1, 2]}

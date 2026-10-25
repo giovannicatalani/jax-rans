@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from jaxaero import CaseError, load_case
-from jaxaero.case import apply_override, parse_case
+from jaxrans import CaseError, load_case
+from jaxrans.case import apply_override, parse_case
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
@@ -202,7 +202,7 @@ def test_patches_the_case_does_not_name_take_the_defaults() -> None:
 
 
 def test_check_reports_the_grid_and_stops(tmp_path, capsys) -> None:
-    from jaxaero.__main__ import main
+    from jaxrans.__main__ import main
     assert main([str(EXAMPLES / "clarky_sa"), "--check", "--out", str(tmp_path),
                  "--set", "case.domain.cells_airfoil=64", "--set", "case.domain.cells_wake=16",
                  "--set", "case.domain.cells_normal=24", "--set", "case.domain.wall_spacing=1e-4"]) == 0

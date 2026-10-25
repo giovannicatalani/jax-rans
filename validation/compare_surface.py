@@ -39,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jaxaero.plot import read_table
+from jaxrans.plot import read_table
 
 REFERENCES = Path(__file__).resolve().parent / "references"
 GAMMA = 1.4

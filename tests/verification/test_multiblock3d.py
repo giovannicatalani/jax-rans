@@ -17,15 +17,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, ImplicitConfig, NumericsConfig
-from jaxaero.mesh.assemble3d import assemble_3d, load_grid_3d
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.cgns import RawBlock3D
-from jaxaero.mesh.mesh import assign_conditions, wall_distance
-from jaxaero.mesh.plot3d import read_plot3d_3d
-from jaxaero.numerics.residual import make_residual
-from jaxaero.post.forces import ForceReference, integrate_forces, surface
-from jaxaero.solvers import implicit
+from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from jaxrans.mesh.assemble3d import assemble_3d, load_grid_3d
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.cgns import RawBlock3D
+from jaxrans.mesh.mesh import assign_conditions, wall_distance
+from jaxrans.mesh.plot3d import read_plot3d_3d
+from jaxrans.numerics.residual import make_residual
+from jaxrans.post.forces import ForceReference, integrate_forces, surface
+from jaxrans.solvers import implicit
 
 from ..unit.test_assemble3d import M6, M6_RULES, ORIENTATIONS, check_interfaces, cut, reindex
 

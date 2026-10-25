@@ -21,15 +21,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, ImplicitConfig, NumericsConfig
-from jaxaero.mesh.block import BlockSides, Boundary, Grid, Interface
-from jaxaero.mesh.mesh import assign_conditions, wall_distance
+from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from jaxrans.mesh.block import BlockSides, Boundary, Grid, Interface
+from jaxrans.mesh.mesh import assign_conditions, wall_distance
 
 from ..single import Single, read_grid
 from validation.grids.karman_trefftz import TMR, make_o_grid
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.numerics.residual import make_residual
-from jaxaero.solvers import implicit
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.numerics.residual import make_residual
+from jaxrans.solvers import implicit
 
 GRIDS = Path(__file__).resolve().parents[2] / "data" / "grids"
 
@@ -261,7 +261,7 @@ def test_an_implicit_step_on_the_atlas_is_accepted_and_leaves_the_gaps_alone(cas
 
 def test_forces_and_surface_are_the_single_block_ones(case, atlas) -> None:
     """Pressure and friction, face by face: the same wall faces and cells."""
-    from jaxaero.post.forces import integrate_forces, surface
+    from jaxrans.post.forces import integrate_forces, surface
 
     _, grid, mesh, windows = case
     atlas = atlas()

@@ -10,14 +10,14 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from jaxaero.core.config import NumericsConfig
-from jaxaero.mesh.atlas import Atlas, build_atlas
-from jaxaero.mesh.block import BlockSides, Boundary, Grid, Interface, rectangle_sides
-from jaxaero.mesh.block3d import BoundaryRect, InterfaceRect, Sides3D, box_sides
-from jaxaero.mesh.wall3d import triangle_distance
-from jaxaero.mesh.mesh import assign_conditions, patches
-from jaxaero.numerics import boundary as bc
-from jaxaero.numerics.residual import ResidualOperator, make_residual
+from jaxrans.core.config import NumericsConfig
+from jaxrans.mesh.atlas import Atlas, build_atlas
+from jaxrans.mesh.block import BlockSides, Boundary, Grid, Interface, rectangle_sides
+from jaxrans.mesh.block3d import BoundaryRect, InterfaceRect, Sides3D, box_sides
+from jaxrans.mesh.wall3d import triangle_distance
+from jaxrans.mesh.mesh import assign_conditions, patches
+from jaxrans.numerics import boundary as bc
+from jaxrans.numerics.residual import ResidualOperator, make_residual
 
 G = NumericsConfig().n_ghost
 
@@ -135,7 +135,7 @@ def ghost_centres(grid):
 
 def forces(U, grid, flow, reference_length: float = 1.0):
     """``integrate_forces`` of a block-shaped state."""
-    from jaxaero.post.forces import integrate_forces
+    from jaxrans.post.forces import integrate_forces
 
     atlas = atlas_of(grid, G, not flow.inviscid)
     return integrate_forces(to_canvas(U, atlas), atlas, flow, reference_length)
@@ -143,7 +143,7 @@ def forces(U, grid, flow, reference_length: float = 1.0):
 
 def wall_surface(U, grid, flow):
     """``surface`` of a block-shaped state: ``x``, ``y``, ``body``, ``cp`` [, ``cf``]."""
-    from jaxaero.post.forces import surface
+    from jaxrans.post.forces import surface
 
     atlas = atlas_of(grid, G, not flow.inviscid)
     return surface(to_canvas(U, atlas), atlas, flow)
@@ -151,7 +151,7 @@ def wall_surface(U, grid, flow):
 
 def wave_speeds(U, grid, gamma, viscosity=None, model=None):
     """``face_wave_speeds`` of a block-shaped state, on the block's faces."""
-    from jaxaero.numerics.residual import face_wave_speeds
+    from jaxrans.numerics.residual import face_wave_speeds
 
     atlas = atlas_of(grid, G, viscosity is not None)
     li, lj = face_wave_speeds(to_canvas(U, atlas), atlas, gamma, viscosity, model)
@@ -191,7 +191,7 @@ def c_layout(grid) -> CLayout:
 
 def read_grid(path, rules=()):
     """The one block of a grid file, patches named (mesh/assemble.py)."""
-    from jaxaero.mesh.assemble import PatchRule, load_grid
+    from jaxrans.mesh.assemble import PatchRule, load_grid
 
     mesh, _ = load_grid(path, rules=tuple(PatchRule(**r) for r in rules))
     assert len(mesh) == 1
@@ -212,7 +212,7 @@ def body_area(grid) -> float:
     """Area enclosed by the ``wall`` nodes on ``j_min``."""
     import numpy as np
 
-    from jaxaero.mesh.block import polygon_area
+    from jaxrans.mesh.block import polygon_area
 
     sl = wall_slice(grid)
     return abs(polygon_area(np.asarray(grid.x_node)[sl.start:sl.stop + 1, 0],

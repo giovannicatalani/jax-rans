@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A case's grid, each block in its own colour, in one or more windows side
-by side: user post-processing, not part of the library (``jaxaero CASE
+by side: user post-processing, not part of the library (``jaxrans CASE
 --check`` draws the whole grid in one colour per body).
 
     python scripts/plot_blocks.py CASE_DIR [--set file.section.key=value ...]
@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    from jaxaero import load_case
+    from jaxrans import load_case
 
     case = load_case(args.case, tuple(args.set))
     mesh = case.grid_spec.build(case.directory)

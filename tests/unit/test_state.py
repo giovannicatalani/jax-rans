@@ -8,8 +8,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from jaxaero.core import state
-from jaxaero.core.config import FlowConditions
+from jaxrans.core import state
+from jaxrans.core.config import FlowConditions
 
 from ..conftest import freestream_state
 

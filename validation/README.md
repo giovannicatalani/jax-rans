@@ -1,7 +1,7 @@
 # Validation
 
 Everything needed to reproduce published results is here. The solver in
-`src/jaxaero` knows nothing about these cases.
+`src/jaxrans` knows nothing about these cases.
 
 ```
 cases/<name>/        case.json + numerical.json, plus reference.json
@@ -16,7 +16,7 @@ The results are in [gallery/README.md](gallery/README.md). Raw run output
 goes to `results/` at the repository root, which is not tracked.
 
 A validation case is a normal case directory (run it with
-`jaxaero validation/cases/<name>`) plus a `reference.json` that only the
+`jaxrans validation/cases/<name>`) plus a `reference.json` that only the
 scripts here read:
 
 | key | meaning |

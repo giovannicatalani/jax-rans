@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.state import conservative_to_primitive, dot, magnitude, primitive_to_conservative, split, stack_primitive
-from jaxaero.physics import euler
+from jaxrans.core.state import conservative_to_primitive, dot, magnitude, primitive_to_conservative, split, stack_primitive
+from jaxrans.physics import euler
 
 from ..conftest import random_face_vectors, random_physical_states
 

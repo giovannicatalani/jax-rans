@@ -27,8 +27,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero import load_case
-from jaxaero.numerics.slabs import SlabAtlas
+from jaxrans import load_case
+from jaxrans.numerics.slabs import SlabAtlas
 
 ROOT = Path(__file__).resolve().parents[2]
 CASES = {
@@ -47,7 +47,7 @@ def blocks_case(directory: Path, name: str) -> Path:
 
     from ..unit.test_assemble3d import M6, ORIENTATIONS, cut, reindex
     from ..unit.test_grid_files import write_cgns
-    from jaxaero.mesh.plot3d import read_plot3d_3d
+    from jaxrans.mesh.plot3d import read_plot3d_3d
 
     cuts, reorient = BLOCKS[name]
     (nodes,) = read_plot3d_3d(M6)
@@ -70,13 +70,13 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
     directory = blocks_case(tmp_path, name) if name in BLOCKS else ROOT / directory
     script = textwrap.dedent(f"""
         import jax, jax.numpy as jnp, numpy as np
-        from jaxaero import load_case, run
-        from jaxaero.numerics.residual import make_residual
-        from jaxaero.numerics.slabs import SlabAtlas
-        from jaxaero.simulation import make_stepper
-        from jaxaero.solvers.driver import make_block, slab_shardings
+        from jaxrans import load_case, run
+        from jaxrans.numerics.residual import make_residual
+        from jaxrans.numerics.slabs import SlabAtlas
+        from jaxrans.simulation import make_stepper
+        from jaxrans.solvers.driver import make_block, slab_shardings
         assert len(jax.devices()) == 4, jax.devices()
-        from jaxaero.solvers.preconditioners import chain_layout
+        from jaxrans.solvers.preconditioners import chain_layout
         case = load_case({str(directory)!r}, {sets!r})
         grid = case.grid()
         slabs = SlabAtlas.of(grid, jax.devices())

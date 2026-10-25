@@ -12,9 +12,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.state import magnitude, split, stack_primitive
-from jaxaero.numerics import riemann
-from jaxaero.physics import euler
+from jaxrans.core.state import magnitude, split, stack_primitive
+from jaxrans.numerics import riemann
+from jaxrans.physics import euler
 
 from ..conftest import random_face_vectors, random_physical_states
 

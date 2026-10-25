@@ -6,16 +6,16 @@ from dataclasses import MISSING, fields
 
 import pytest
 
-from jaxaero.case import CaseError, parse_case
-from jaxaero.case.domain import GridSpec
-from jaxaero.case.schema import CONDITIONS_HELP, FAR_FIELD_MODELS, REFERENCE, REQUIRED, keys, reference
-from jaxaero.core.config import ImplicitConfig
-from jaxaero.mesh.block import CONDITION_KINDS
-from jaxaero.numerics.boundary import FAR_FIELDS
+from jaxrans.case import CaseError, parse_case
+from jaxrans.case.domain import GridSpec
+from jaxrans.case.schema import CONDITIONS_HELP, FAR_FIELD_MODELS, REFERENCE, REQUIRED, keys, reference
+from jaxrans.core.config import ImplicitConfig
+from jaxrans.mesh.block import CONDITION_KINDS
+from jaxrans.numerics.boundary import FAR_FIELDS
 
 
 def test_the_reference_page_is_generated_from_the_schema() -> None:
-    assert REFERENCE.read_text() == reference(), "regenerate: python -m jaxaero.case --write"
+    assert REFERENCE.read_text() == reference(), "regenerate: python -m jaxrans.case --write"
 
 
 @pytest.mark.parametrize("section, cls", [("domain", GridSpec), ("implicit", ImplicitConfig)])

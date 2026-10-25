@@ -14,11 +14,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero import load_case, run
-from jaxaero.mesh.block import Grid
-from jaxaero.mesh.block3d import box_sides
-from jaxaero.mesh.coarsen import coarsen, prolong
-from jaxaero.mesh.mesh import interface_node_mismatch, patches
+from jaxrans import load_case, run
+from jaxrans.mesh.block import Grid
+from jaxrans.mesh.block3d import box_sides
+from jaxrans.mesh.coarsen import coarsen, prolong
+from jaxrans.mesh.mesh import interface_node_mismatch, patches
 
 from ..single import pole_sides
 from ..verification.test_freestream3d import FLOWS, assert_preserved
@@ -40,7 +40,7 @@ def test_a_c_grid_coarsens_with_its_wake_cut_and_patches() -> None:
 def test_freestream_is_preserved_on_the_coarsened_m6_grid() -> None:
     """The pole (an interface flipped and periodic round the O seam) and the
     symmetry plane survive coarsening."""
-    from jaxaero.mesh.plot3d import read_plot3d_3d
+    from jaxrans.mesh.plot3d import read_plot3d_3d
 
     (nodes,) = read_plot3d_3d(EXAMPLES / "onera_m6_sa/om6_strct_16x44x24.ufmt")
     grid = Grid.from_node_array(nodes, pole_sides(tuple(n - 1 for n in nodes.shape[1:])))
@@ -89,10 +89,10 @@ def test_a_coarsened_split_grid_is_the_coarsened_grid_split() -> None:
     tests/verification/test_multiblock.py)."""
     import jax
 
-    from jaxaero.core.config import NumericsConfig
-    from jaxaero.mesh.atlas import build_atlas
-    from jaxaero.mesh.mesh import assign_conditions
-    from jaxaero.numerics.residual import make_residual
+    from jaxrans.core.config import NumericsConfig
+    from jaxrans.mesh.atlas import build_atlas
+    from jaxrans.mesh.mesh import assign_conditions
+    from jaxrans.numerics.residual import make_residual
 
     from ..single import Single
     from ..verification.test_multiblock import FLOWS as FLOWS_2D, cut, join, o_grid, perturbed, split

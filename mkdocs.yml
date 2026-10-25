@@ -1,7 +1,8 @@
-site_name: JAX-Aero
+site_name: JAX-RANS
 site_description: Compressible Euler, Navier-Stokes and SA RANS on structured grids in JAX, 2D and 3D
-site_url: https://giovannicatalani.github.io/jaxaero/
-repo_url: https://github.com/giovannicatalani/jaxaero
+site_url: https://giovannicatalani.github.io/jax-rans/
+repo_url: https://github.com/giovannicatalani/jax-rans
+repo_name: giovannicatalani/jax-rans
 docs_dir: docs
 theme:
   name: material

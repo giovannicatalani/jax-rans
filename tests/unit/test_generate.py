@@ -10,12 +10,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jaxaero.geometry.airfoil import airfoil_source, from_points, naca4, read_airfoil
-from jaxaero.mesh.assemble import RawBlock, assemble
-from jaxaero.mesh.block import Interface
-from jaxaero.mesh.generate import c_grid, geometric, o_grid, vinokur
-from jaxaero.mesh.mesh import assign_conditions, patches
-from jaxaero.mesh.quality import quality
+from jaxrans.geometry.airfoil import airfoil_source, from_points, naca4, read_airfoil
+from jaxrans.mesh.assemble import RawBlock, assemble
+from jaxrans.mesh.block import Interface
+from jaxrans.mesh.generate import c_grid, geometric, o_grid, vinokur
+from jaxrans.mesh.mesh import assign_conditions, patches
+from jaxrans.mesh.quality import quality
 
 
 def test_vinokur_comes_close_to_both_end_spacings() -> None:
@@ -134,7 +134,7 @@ def test_an_airfoil_in_millimetres_is_scaled_to_unit_chord() -> None:
 
 
 def test_a_c_grid_case_closes_an_open_trailing_edge_on_request(tmp_path) -> None:
-    from jaxaero.case.domain import GridSpec
+    from jaxrans.case.domain import GridSpec
     spec = dict(grid="c_grid", airfoil="naca2412_blunt", cells_airfoil=64, cells_wake=16, cells_normal=24,
                 wall_spacing=1e-4)
     with pytest.raises(ValueError, match="trailing_edge"):

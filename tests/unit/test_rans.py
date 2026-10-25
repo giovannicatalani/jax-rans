@@ -19,15 +19,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
+from jaxrans.core.config import FlowConditions, NumericsConfig
 from validation.grids.karman_trefftz import TMR, make_o_grid
 
 from ..single import PLATE_RULES, Single, atlas_of, fill_ghosts, from_canvas, n_symmetry, read_grid, to_canvas, wall_slice
-from jaxaero.numerics.residual import make_residual, primitive_from_conservative
-from jaxaero.numerics.turbulence import face_eddy_viscosity
-from jaxaero.physics import spalart_allmaras as sa
-from jaxaero.physics.navier_stokes import Viscosity
-from jaxaero.solvers.explicit import initial_state
+from jaxrans.numerics.residual import make_residual, primitive_from_conservative
+from jaxrans.numerics.turbulence import face_eddy_viscosity
+from jaxrans.physics import spalart_allmaras as sa
+from jaxrans.physics.navier_stokes import Viscosity
+from jaxrans.solvers.explicit import initial_state
 
 NVAR_RANS, P_NU, RHO_NU = 5, 4, 4     # 2D: Rows(2).nu
 
@@ -123,7 +123,7 @@ def test_symmetry_plane_keeps_nu_tilde_and_the_wall_does_not() -> None:
 
 def test_the_sa_line_preconditioner_inverts_its_own_blocks() -> None:
     """Dense check on the chain through one wake pair of the C-grid."""
-    from jaxaero.solvers import preconditioners as pre
+    from jaxrans.solvers import preconditioners as pre
 
     grid, fl = c_grid(), flow()
     single = Single(grid, fl, NumericsConfig(limiter="none"))
@@ -165,8 +165,8 @@ def test_an_implicit_step_on_a_rans_case_stays_finite() -> None:
     """Five rows through the JVP, GMRES and both preconditioners."""
     import jax
 
-    from jaxaero.core.config import ImplicitConfig
-    from jaxaero.solvers import implicit
+    from jaxrans.core.config import ImplicitConfig
+    from jaxrans.solvers import implicit
 
     grid, fl = o_grid(), flow()
     num = NumericsConfig(limiter="none", solver="implicit")
@@ -182,7 +182,7 @@ def test_an_implicit_step_on_a_rans_case_stays_finite() -> None:
 def test_update_relaxation_bounds_every_relative_change() -> None:
     """omega scales the whole update so the largest relative change of rho,
     p (linearized) or nu~ is exactly the fraction; small updates pass whole."""
-    from jaxaero.solvers.implicit import relax
+    from jaxrans.solvers.implicit import relax
 
     grid, fl = o_grid(), flow()
     U = initial_state(make_residual(atlas_of(grid, 2, True), fl, NumericsConfig(limiter="none"))).U
@@ -204,7 +204,7 @@ def test_vorticity_has_a_finite_derivative_where_it_vanishes(dim) -> None:
     must stay finite there (3D: |curl V| is a square root)."""
     import jax
 
-    from jaxaero.numerics.turbulence import vorticity_magnitude
+    from jaxrans.numerics.turbulence import vorticity_magnitude
 
     g = jnp.zeros((dim, dim, 5))
     _, tangent = jax.jvp(vorticity_magnitude, (g,), (jnp.ones_like(g),))

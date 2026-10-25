@@ -4,11 +4,11 @@ Cell-centred finite-volume solver for steady 2D airfoil flow on structured
 grids (generated O-grids; C-grids and flat-plate rectangles from Plot3D):
 compressible Euler, laminar Navier-Stokes and Spalart-Allmaras RANS.
 
-    from jaxaero import load_case, run
+    from jaxrans import load_case, run
     result = run(load_case("examples/naca0012_euler"))
     result.write()
 
-or, from the shell, ``python -m jaxaero examples/naca0012_euler``.
+or, from the shell, ``python -m jaxrans examples/naca0012_euler``.
 
 Float64 is enabled here, before any submodule creates an array: JAX only
 honours the x64 flag if it is set before the first allocation.

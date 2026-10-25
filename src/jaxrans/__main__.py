@@ -1,6 +1,6 @@
 """Command line: run one case and write its result.
 
-    python -m jaxaero CASE_DIR [--set file.section.key=value ...] [--out DIR] [--quiet] [--check]
+    python -m jaxrans CASE_DIR [--set file.section.key=value ...] [--out DIR] [--quiet] [--check]
 
 The case directory holds ``case.json`` and ``numerical.json`` (format:
 ``docs/guide.md``). ``--set`` changes one key for this run; the resolved
@@ -24,7 +24,7 @@ from .mesh.quality import quality
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m jaxaero", description=__doc__,
+    parser = argparse.ArgumentParser(prog="python -m jaxrans", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("case", type=Path, help="case directory (case.json + numerical.json)")
     parser.add_argument("--set", dest="overrides", action="append", default=[],

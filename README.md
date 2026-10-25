@@ -1,6 +1,6 @@
-# JAX-Aero
+# JAX-RANS
 
-Jaxaero is a Computational Fluid Dynamics solver written in Jax, conceived for steady 2D and 3D flow solutions over airfoil and wings, on structured meshes.
+JAX-RANS is a Computational Fluid Dynamics solver written in Jax, conceived for steady 2D and 3D flow solutions over airfoil and wings, on structured meshes.
 It implements the numerical solution of compressible Euler, laminar Navier-Stokes and RANS equations (Spalart-Allmaras turbulence model) with a
 cell-centred finite-volume method on structured grids, in double precision,
 on CPU or GPU.
@@ -27,8 +27,8 @@ For a GPU, install jax with CUDA support first
 ## Run an existing example
 
 ```bash
-jaxaero examples/naca0012_euler
-python -m jaxaero.plot examples/naca0012_euler/results/naca0012_euler
+jaxrans examples/naca0012_euler
+python -m jaxrans.plot examples/naca0012_euler/results/naca0012_euler
 ```
 
 ## Run your own airfoil
@@ -37,7 +37,7 @@ python -m jaxaero.plot examples/naca0012_euler/results/naca0012_euler
    downloaded) and copy `case.json` and `numerical.json` from
    `examples/clarky_sa`.
 2. Set `domain.airfoil` to your file name, and set the freestream.
-3. `jaxaero my_airfoil --check` to see the grid, then `jaxaero my_airfoil`.
+3. `jaxrans my_airfoil --check` to see the grid, then `jaxrans my_airfoil`.
 
 The full walkthrough is [docs/own-airfoil.md](docs/own-airfoil.md). For a
 slat-main-flap section or any grid from your own mesher, see
@@ -76,7 +76,7 @@ minutes on one NVIDIA A100 (8,000 iterations).
 ## Repository
 
 ```
-src/jaxaero/   the solver
+src/jaxrans/   the solver
 docs/          documentation
 examples/      example cases
 validation/    cases against published data, reference data, gallery

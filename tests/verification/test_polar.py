@@ -19,8 +19,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero import load_case, run
-from jaxaero.polar import main, run_polar
+from jaxrans import load_case, run
+from jaxrans.polar import main, run_polar
 
 pytestmark = pytest.mark.slow   # ~6 min on a CPU: the implicit step compiles several times
 
@@ -74,8 +74,8 @@ def test_two_devices_give_the_one_device_answer(batched) -> None:
     """shard_map over two (CPU) devices; three angles, so one is padding."""
     script = textwrap.dedent(f"""
         import jax, numpy as np
-        from jaxaero import load_case
-        from jaxaero.polar import run_polar
+        from jaxrans import load_case
+        from jaxrans.polar import run_polar
         assert len(jax.devices()) == 2, jax.devices()
         case = load_case({str(ROOT / "examples" / "naca0012_euler")!r}, {SMALL!r})
         polar = run_polar(case, {ALPHAS!r})

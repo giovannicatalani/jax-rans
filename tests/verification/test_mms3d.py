@@ -29,17 +29,17 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from jaxaero.core import constants
-from jaxaero.core.config import FlowConditions, ImplicitConfig, NumericsConfig
-from jaxaero.core.state import primitive_to_conservative, split
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.block import Grid
-from jaxaero.mesh.block3d import SIDES_3D, box_sides
-from jaxaero.mesh.mesh import assign_conditions
-from jaxaero.numerics import boundary as bc
-from jaxaero.numerics.residual import make_residual, primitive_from_conservative
-from jaxaero.solvers import implicit
-from jaxaero.solvers.driver import run_to_steady
+from jaxrans.core import constants
+from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from jaxrans.core.state import primitive_to_conservative, split
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.block import Grid
+from jaxrans.mesh.block3d import SIDES_3D, box_sides
+from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics import boundary as bc
+from jaxrans.numerics.residual import make_residual, primitive_from_conservative
+from jaxrans.solvers import implicit
+from jaxrans.solvers.driver import run_to_steady
 
 FLOW = FlowConditions(mach=0.5, alpha_deg=0.0, reynolds=100.0)
 GAMMA, MU, PR = FLOW.gamma, FLOW.mu_inf, constants.PRANDTL_LAMINAR
@@ -116,8 +116,8 @@ def dirichlet_ghosts(atlas, nodes: np.ndarray, primitive):
     the first cells through the boundary face midpoints, carried over edges
     and corners -- as the operator's ghost centres, and ``U_e`` there as each
     fill stage's ghost values (keyed by the stage's size)."""
-    from jaxaero.mesh.atlas3d import _extended_nodes
-    from jaxaero.mesh.block import metrics
+    from jaxrans.mesh.atlas3d import _extended_nodes
+    from jaxrans.mesh.block import metrics
 
     g = atlas.g
     centres = metrics(_extended_nodes(nodes, g))[0]

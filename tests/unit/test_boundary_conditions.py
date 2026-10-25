@@ -12,10 +12,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions
-from jaxaero.core.state import freestream_primitive
-from jaxaero.numerics import boundary as bc
-from jaxaero.numerics.riemann import get_flux
+from jaxrans.core.config import FlowConditions
+from jaxrans.core.state import freestream_primitive
+from jaxrans.numerics import boundary as bc
+from jaxrans.numerics.riemann import get_flux
 
 from ..single import atlas_of, fill_ghosts, to_canvas, unit_j_normals, wall_slice
 

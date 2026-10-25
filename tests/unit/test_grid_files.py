@@ -13,11 +13,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.mesh.assemble import PatchRule, RawBlock, assemble, load_grid
-from jaxaero.mesh.block import Interface, o_grid_sides
-from jaxaero.mesh.cgns import Declared
+from jaxrans.mesh.assemble import PatchRule, RawBlock, assemble, load_grid
+from jaxrans.mesh.block import Interface, o_grid_sides
+from jaxrans.mesh.cgns import Declared
 from validation.grids.karman_trefftz import make_o_grid
-from jaxaero.mesh.plot3d import read_plot3d
+from jaxrans.mesh.plot3d import read_plot3d
 
 GRIDS = Path(__file__).resolve().parents[2] / "data" / "grids"
 

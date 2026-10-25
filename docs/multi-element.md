@@ -54,7 +54,7 @@ The pitching moment is taken about (0.25, 0) in the scaled coordinates.
 ## 3. Check the grid
 
 ```bash
-jaxaero examples/30p30n_sa --check
+jaxrans examples/30p30n_sa --check
 ```
 
 ```
@@ -81,7 +81,7 @@ main 1, flap 2.
 ## 4. Run
 
 ```bash
-jaxaero examples/30p30n_sa
+jaxrans examples/30p30n_sa
 ```
 
 Use the implicit solver with `van_albada`; high-lift flows at low Mach

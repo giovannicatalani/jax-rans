@@ -140,7 +140,7 @@ Residual fell 10.8 orders in 3,000 iterations; CL moved 6.0e-10 over the last qu
 
 ## Transonic polar: RAE 2822, M 0.729, Re 6.5e6
 
-`nparc_rae2822_case6` at 16 angles, all advanced together (`python -m jaxaero.polar`) on 4 x GPU: **15.2 min**, compile 43 s, 145 ms per iteration of the batch. Hollow points did not settle (CL still moving over the last quarter of the run).
+`nparc_rae2822_case6` at 16 angles, all advanced together (`python -m jaxrans.polar`) on 4 x GPU: **15.2 min**, compile 43 s, 145 ms per iteration of the batch. Hollow points did not settle (CL still moving over the last quarter of the run).
 
 ![polar](figures/polar.png)
 

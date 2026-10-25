@@ -11,11 +11,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jaxaero.mesh.assemble import assemble
-from jaxaero.mesh.blocking import (Block, cell_areas, chain_nodes, distribute, fill, raw_blocks, smooth,
+from jaxrans.mesh.assemble import assemble
+from jaxrans.mesh.blocking import (Block, cell_areas, chain_nodes, distribute, fill, raw_blocks, smooth,
                                    solve_counts, tfi, unfolded, winslow)
-from jaxaero.mesh.generate import geometric
-from jaxaero.mesh.quality import _cell_angles, interface_growth, quality
+from jaxrans.mesh.generate import geometric
+from jaxrans.mesh.quality import _cell_angles, interface_growth, quality
 
 
 def _arc(r, t0, t1, n):

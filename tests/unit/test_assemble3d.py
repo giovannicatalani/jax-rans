@@ -10,11 +10,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.mesh.assemble import PatchRule
-from jaxaero.mesh.assemble3d import _plane, _quads, assemble_3d, is_3d, load_grid_3d
-from jaxaero.mesh.block3d import SIDES_3D, BoundaryRect, InterfaceRect
-from jaxaero.mesh.cgns import Declared, RawBlock3D, read_cgns
-from jaxaero.mesh.plot3d import read_plot3d_3d
+from jaxrans.mesh.assemble import PatchRule
+from jaxrans.mesh.assemble3d import _plane, _quads, assemble_3d, is_3d, load_grid_3d
+from jaxrans.mesh.block3d import SIDES_3D, BoundaryRect, InterfaceRect
+from jaxrans.mesh.cgns import Declared, RawBlock3D, read_cgns
+from jaxrans.mesh.plot3d import read_plot3d_3d
 
 from .test_grid3d import warped_box
 from .test_grid_files import write_cgns

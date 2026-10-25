@@ -28,10 +28,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from jaxaero.geometry.elements import fan_points, gap, overlap, place, read_elements  # noqa: E402
-from jaxaero.mesh.assemble import assemble  # noqa: E402
-from jaxaero.mesh.highlift import Settings, multi_element  # noqa: E402
-from jaxaero.mesh.quality import _cell_angles, interface_growth, quality  # noqa: E402
+from jaxrans.geometry.elements import fan_points, gap, overlap, place, read_elements  # noqa: E402
+from jaxrans.mesh.assemble import assemble  # noqa: E402
+from jaxrans.mesh.highlift import Settings, multi_element  # noqa: E402
+from jaxrans.mesh.quality import _cell_angles, interface_growth, quality  # noqa: E402
 
 CRV = ROOT / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
 GIVEN = {"flap": (0.0, 0.0127, 0.0014), "slat": (0.0, 0.0295, None)}

@@ -7,15 +7,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.assemble import PatchRule
-from jaxaero.mesh.assemble3d import _rectangles, assemble_3d, load_grid_3d
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.block3d import BoundaryRect, InterfaceRect
-from jaxaero.mesh.cgns import RawBlock3D
-from jaxaero.mesh.mesh import assign_conditions
-from jaxaero.numerics.residual import make_residual
-from jaxaero.post.forces import ForceReference, integrate_forces, surface
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.assemble import PatchRule
+from jaxrans.mesh.assemble3d import _rectangles, assemble_3d, load_grid_3d
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.block3d import BoundaryRect, InterfaceRect
+from jaxrans.mesh.cgns import RawBlock3D
+from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics.residual import make_residual
+from jaxrans.post.forces import ForceReference, integrate_forces, surface
 from validation.sections import section
 
 from .test_grid3d import M6_SAMPLE, warped_box
@@ -103,7 +103,7 @@ def test_3d_forces_of_a_uniform_overpressure() -> None:
 
 
 def test_a_3d_case_needs_a_reference_area() -> None:
-    from jaxaero.post.forces import _integrate_forces_3d
+    from jaxrans.post.forces import _integrate_forces_3d
 
     with pytest.raises(ValueError, match="reference_area"):
         _integrate_forces_3d(jnp.zeros(1), None, FlowConditions(mach=0.5), ForceReference())
@@ -111,11 +111,11 @@ def test_a_3d_case_needs_a_reference_area() -> None:
 
 @needs_sample
 def test_check_reports_a_3d_grid(tmp_path, capsys) -> None:
-    """``jaxaero CASE --check`` on a 3D wing: patches by faces, the wall's
+    """``jaxrans CASE --check`` on a 3D wing: patches by faces, the wall's
     extent, no 2D picture."""
     import json
 
-    from jaxaero.__main__ import main
+    from jaxrans.__main__ import main
 
     case = {"general": {"case_name": "m6_check"},
             "domain": {"grid": "file", "file": str(M6_SAMPLE), "reference_area": 1.15,
@@ -136,7 +136,7 @@ def test_2d_figures_refuse_a_3d_result(tmp_path) -> None:
     np.savez(tmp_path / "w_fields.npz", n_blocks=1, U_0=np.zeros((5, 1, 1, 1)), x_node_0=np.zeros((2, 2, 2)),
              y_node_0=np.zeros((2, 2, 2)), z_node_0=np.zeros((2, 2, 2)))
     (tmp_path / "w_metadata.json").write_text("{}")
-    from jaxaero.plot import load_result
+    from jaxrans.plot import load_result
 
     with pytest.raises(SystemExit, match="3D result"):
         load_result(tmp_path)

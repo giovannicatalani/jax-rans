@@ -12,12 +12,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.block import Grid
-from jaxaero.mesh.block3d import box_sides
-from jaxaero.mesh.mesh import assign_conditions
-from jaxaero.numerics.residual import make_residual
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.block import Grid
+from jaxrans.mesh.block3d import box_sides
+from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics.residual import make_residual
 
 from ..single import pole_sides
 from ..unit.test_grid3d import M6_SAMPLE, warped_box
@@ -52,7 +52,7 @@ def test_freestream_is_preserved_on_warped_cells(physics) -> None:
 @pytest.mark.skipif(not M6_SAMPLE.exists(), reason="ONERA M6 sample grid not generated")
 @pytest.mark.parametrize("physics", ["euler", "sa"])
 def test_freestream_is_preserved_on_the_onera_m6_grid(physics) -> None:
-    from jaxaero.mesh.plot3d import read_plot3d_3d
+    from jaxrans.mesh.plot3d import read_plot3d_3d
 
     (nodes,) = read_plot3d_3d(M6_SAMPLE)
     shape = tuple(n - 1 for n in nodes.shape[1:])

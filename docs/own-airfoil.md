@@ -105,7 +105,7 @@ hundred SA steps from overshooting.
 ## 4. Check the grid, then run
 
 ```bash
-jaxaero my_airfoil --check
+jaxrans my_airfoil --check
 ```
 
 This builds the grid, prints the quality report and the patches, and
@@ -129,8 +129,8 @@ runs.
 Then run it:
 
 ```bash
-jaxaero my_airfoil
-python -m jaxaero.plot my_airfoil/results/clarky_sa
+jaxrans my_airfoil
+python -m jaxrans.plot my_airfoil/results/clarky_sa
 ```
 
 On a 4 GB laptop GPU the Clark Y takes 6 minutes (0.29 s per iteration; an
@@ -171,21 +171,21 @@ a grid that is too coarse at the trailing edge.
 ## 6. A polar
 
 ```bash
-python -m jaxaero.polar my_airfoil --alpha -4 12 2
+python -m jaxrans.polar my_airfoil --alpha -4 12 2
 ```
 
 This runs every angle together (on a GPU, as one batch) and writes
 `polar.dat`, with one row per angle: alpha, CL, CD, friction drag, CM, the
 orders the residual dropped, the iterations, the spread of CL over the last
 quarter of the run, and whether that spread is small enough to call CL
-settled. `python -m jaxaero.plot` on the polar directory draws it. Near and
+settled. `python -m jaxrans.plot` on the polar directory draws it. Near and
 past stall, look at the `settled` column: a steady solver cannot settle a
 flow that is really unsteady.
 
 ## Changing one thing without editing the files
 
 ```bash
-jaxaero my_airfoil --set case.freestream.alpha_deg=8 --set case.domain.cells_normal=128
+jaxrans my_airfoil --set case.freestream.alpha_deg=8 --set case.domain.cells_normal=128
 ```
 
 The changed values are saved with the result.

@@ -10,7 +10,7 @@ that compares devices and grid sizes. ``JAX_PLATFORMS=cpu`` forces the CPU.
     python scripts/benchmark.py validation/cases/tmr_naca0012_sa_a10 --set case.domain.file=data/grids/n0012_897-257.p2dfmt.gz
 
 With ``--batches`` it measures instead the throughput of a batched polar
-(``jaxaero.polar``) for each batch size on each device count: the same
+(``jaxrans.polar``) for each batch size on each device count: the same
 ``--iterations`` Newton steps every time (the residual tolerance is made
 unreachable), steady rate, compilation excluded, written as JSON for
 validation/report.py:
@@ -31,11 +31,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jaxaero import load_case
-from jaxaero.numerics.residual import make_residual
-from jaxaero.solvers import implicit
-from jaxaero.solvers.explicit import initial_state
-from jaxaero.solvers.preconditioners import get_preconditioner
+from jaxrans import load_case
+from jaxrans.numerics.residual import make_residual
+from jaxrans.solvers import implicit
+from jaxrans.solvers.explicit import initial_state
+from jaxrans.solvers.preconditioners import get_preconditioner
 
 
 def timed(fn, *args, repeats: int) -> float:
@@ -49,8 +49,8 @@ def timed(fn, *args, repeats: int) -> float:
 
 
 def batch_throughput(args) -> int:
-    from jaxaero.io.output import environment_record, git_revision
-    from jaxaero.polar import run_polar
+    from jaxrans.io.output import environment_record, git_revision
+    from jaxrans.polar import run_polar
 
     overrides = (*args.overrides, f"numerical.convergence.max_iters={args.iterations}",
                  "numerical.convergence.tol=1e-300")

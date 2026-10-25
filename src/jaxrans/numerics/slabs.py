@@ -1,7 +1,7 @@
 """Domain decomposition over devices: the canvas cut in equal slabs along its
 first axis, one per device.
 
-Everything here runs only on a ``SlabAtlas`` (``jaxaero CASE --devices N``);
+Everything here runs only on a ``SlabAtlas`` (``jaxrans CASE --devices N``);
 an ordinary atlas never reaches it. Three pieces:
 
 * the stencils (``block_residual``) need every cell's neighbours up to ``g``

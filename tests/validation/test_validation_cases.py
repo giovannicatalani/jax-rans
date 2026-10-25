@@ -9,10 +9,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero import load_case
-from jaxaero.mesh.block import cell_widths
-from jaxaero.post.forces import Forces
-from jaxaero.solvers.driver import ConvergenceHistory
+from jaxrans import load_case
+from jaxrans.mesh.block import cell_widths
+from jaxrans.post.forces import Forces
+from jaxrans.solvers.driver import ConvergenceHistory
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "validation"))
@@ -61,7 +61,7 @@ def test_richardson_recovers_order_and_limit() -> None:
 
 
 def judged(cl_history):
-    from jaxaero.simulation import Result
+    from jaxrans.simulation import Result
 
     case = load_case(ROOT / "validation" / "cases" / "hiocfd_c12")
     result = Result(case, None, None, Forces(cl=0.0183, cd=0.0553, cm=0.0, fx=0.0, fy=0.0),

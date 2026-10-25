@@ -13,13 +13,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core import constants
-from jaxaero.core.config import FlowConditions, NumericsConfig
+from jaxrans.core import constants
+from jaxrans.core.config import FlowConditions, NumericsConfig
 from validation.grids.karman_trefftz import make_o_grid
-from jaxaero.core.state import freestream_primitive
-from jaxaero.numerics.gradients import face_gradients
-from jaxaero.numerics.residual import local_time_step, viscous_fluxes
-from jaxaero.physics.navier_stokes import Viscosity, conductivity, viscous_flux
+from jaxrans.core.state import freestream_primitive
+from jaxrans.numerics.gradients import face_gradients
+from jaxrans.numerics.residual import local_time_step, viscous_fluxes
+from jaxrans.physics.navier_stokes import Viscosity, conductivity, viscous_flux
 
 from ..single import Single, fill_ghosts, ghost_centres, padded_centres, wave_speeds
 from ..conftest import uniform_state

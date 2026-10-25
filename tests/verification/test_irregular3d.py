@@ -16,15 +16,15 @@ import numpy as np
 import pytest
 from scipy.ndimage import minimum_filter
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.assemble import PatchRule
-from jaxaero.mesh.assemble3d import assemble_3d
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.cgns import RawBlock3D
-from jaxaero.mesh.mesh import assign_conditions
-from jaxaero.numerics import boundary as bc
-from jaxaero.numerics.gradients import face_gradients
-from jaxaero.numerics.residual import make_residual
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.assemble import PatchRule
+from jaxrans.mesh.assemble3d import assemble_3d
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.cgns import RawBlock3D
+from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics import boundary as bc
+from jaxrans.numerics.gradients import face_gradients
+from jaxrans.numerics.residual import make_residual
 
 FLOWS = {
     "euler": FlowConditions(0.6, 4.0),

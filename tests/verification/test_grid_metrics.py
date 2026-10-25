@@ -21,8 +21,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from jaxaero.mesh.block import Grid, normal_closure_residual, perimeter_area, validate_metrics
-from jaxaero.mesh.mesh import interface_node_mismatch
+from jaxrans.mesh.block import Grid, normal_closure_residual, perimeter_area, validate_metrics
+from jaxrans.mesh.mesh import interface_node_mismatch
 from ..single import unit_j_normals
 
 ROUNDOFF = 1e-12

@@ -1,6 +1,6 @@
 """A polar: one case at many angles of attack, batched on the GPU(s).
 
-    python -m jaxaero.polar CASE_DIR --alpha START STOP STEP [--devices N]
+    python -m jaxrans.polar CASE_DIR --alpha START STOP STEP [--devices N]
                             [--set file.section.key=value ...] [--out DIR] [--quiet]
 
 The angle of attack enters the solver only through the freestream vector
@@ -122,7 +122,7 @@ def run_polar(case: Case, alphas, grid: Atlas | None = None, devices: int | None
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m jaxaero.polar", description=__doc__,
+    parser = argparse.ArgumentParser(prog="python -m jaxrans.polar", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("case", type=Path, help="case directory (case.json + numerical.json)")
     parser.add_argument("--alpha", type=float, nargs=3, required=True, metavar=("START", "STOP", "STEP"),

@@ -1,6 +1,6 @@
 # Case reference
 
-Generated from `src/jaxaero/case/schema.py` (`python -m jaxaero.case --write`); do not edit. How to write a case: [the guide](guide.md).
+Generated from `src/jaxrans/case/schema.py` (`python -m jaxrans.case --write`); do not edit. How to write a case: [the guide](guide.md).
 
 Every section may carry a `"notes"` string. Unknown keys are errors, a missing key takes its default, and an option that is not implemented is an error listing the alternatives.
 

@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-Importing ``airfoil`` enables float64 before any array exists. Every test runs in
+Importing any ``jaxrans`` module enables float64 before any array exists. Every test runs in
 double precision: a verification suite in single precision cannot tell a bug from
 round-off.
 """
@@ -16,10 +16,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # validation/ (Karman-Trefftz grids)
 
-import jaxaero  # noqa: F401  (imported for its float64 side effect)
-from jaxaero.core.config import FlowConditions, NumericsConfig
+from jaxrans.core.config import FlowConditions, NumericsConfig
 from validation.grids.karman_trefftz import make_o_grid
-from jaxaero.core.state import freestream_primitive, primitive_to_conservative, split
+from jaxrans.core.state import freestream_primitive, primitive_to_conservative, split
 
 
 @pytest.fixture(scope="session")

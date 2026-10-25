@@ -111,7 +111,7 @@ can stall at a few orders while the forces are steady; judge by the forces.
 ## 4. Check the grid
 
 ```bash
-jaxaero examples/onera_m6_sa --check
+jaxrans examples/onera_m6_sa --check
 ```
 
 ```
@@ -132,7 +132,7 @@ at the tip.) There is no grid picture in 3D.
 ## 5. Run
 
 ```bash
-jaxaero examples/onera_m6_sa
+jaxrans examples/onera_m6_sa
 ```
 
 ```
@@ -156,7 +156,7 @@ The result directory holds:
 | `*_fields.npz` | the conservative state and the grid nodes |
 | `*_residual.dat`, `*_lift.dat`, `*_metadata.json` | histories, the resolved case and provenance |
 
-`python -m jaxaero.plot` draws 2D results only. For a wing,
+`python -m jaxrans.plot` draws 2D results only. For a wing,
 `python scripts/plot_wing.py RESULT_DIR` draws the pressure on the upper and
 lower surfaces, with the sonic line, and a 3D view:
 
@@ -177,7 +177,7 @@ Measured on this wing (SA, case 2308), from freestream to settled forces:
 | 1,081,344 | CPU node, 24 cores | 160 s | | (4.7 days at that rate) |
 
 The 8.65-million-cell level of the family does not fit on a 40 GB GPU; split
-over four (`jaxaero ... --devices 4`) it needs about 33 GB on each.
+over four (`jaxrans ... --devices 4`) it needs about 33 GB on each.
 
 Forces are steady after roughly 500 to 2500 steps, more on finer grids. The
 run stops there by itself (`settled`: CL, CD and CM each vary by less than
@@ -199,14 +199,14 @@ the names of the levels: 135,168 and 1,081,344 cells are the ones NASA's
 reference results are quoted on. Point `domain.file` at a level, or
 
 ```bash
-jaxaero examples/onera_m6_sa --set case.domain.file=data/grids/onera_m6/om6_strct_32x88x48.ufmt
+jaxrans examples/onera_m6_sa --set case.domain.file=data/grids/onera_m6/om6_strct_32x88x48.ufmt
 ```
 
 ## 8. Limits
 
 - Point-matched blocks only (no overset or patched interfaces); one body; a
   pole must close round a seam of its own block. No 3D grid generation.
-- `python -m jaxaero.plot` and the `--check` picture are 2D only.
-- Polars (`python -m jaxaero.polar`) have not been tested in 3D.
+- `python -m jaxrans.plot` and the `--check` picture are 2D only.
+- Polars (`python -m jaxrans.polar`) have not been tested in 3D.
 - The far field is plain characteristic (no point-vortex correction in 3D):
   put it far away, as here (100 chords).

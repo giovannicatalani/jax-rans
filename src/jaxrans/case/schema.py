@@ -2,7 +2,7 @@
 
 The loader checks documents against this table (unknown keys, types,
 choices, required keys, defaults), and ``docs/case_reference.md`` is
-generated from it: ``python -m jaxaero.case --write``. Rules that tie
+generated from it: ``python -m jaxrans.case --write``. Rules that tie
 keys together (Sutherland's law needs a temperature, a turbulence model a
 Reynolds number, ...) stay in the loader.
 """
@@ -248,7 +248,7 @@ def reference() -> str:
     """``docs/case_reference.md``."""
     out = ["# Case reference",
            "",
-           "Generated from `src/jaxaero/case/schema.py` (`python -m jaxaero.case --write`); "
+           "Generated from `src/jaxrans/case/schema.py` (`python -m jaxrans.case --write`); "
            "do not edit. How to write a case: [the guide](guide.md).",
            "",
            "Every section may carry a `\"notes\"` string. Unknown keys are errors, a missing key takes its "

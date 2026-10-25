@@ -19,10 +19,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.atlas import build_atlas
-from jaxaero.mesh.mesh import assign_conditions
-from jaxaero.numerics.residual import make_residual
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.atlas import build_atlas
+from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics.residual import make_residual
 from validation.grids.karman_trefftz import TMR, make_o_grid
 
 from ..single import PLATE_RULES, conditions, extrude, read_grid

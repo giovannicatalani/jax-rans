@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from jaxaero.solvers.driver import ExitReason, run_to_steady
+from jaxrans.solvers.driver import ExitReason, run_to_steady
 
 
 def decay(rates):

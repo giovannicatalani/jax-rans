@@ -37,8 +37,8 @@ HERE = Path(__file__).resolve().parent
 CASES = HERE / "cases"
 sys.path.insert(0, str(HERE.parent / "src"))
 
-from jaxaero import CaseError, Result, load_case, run  # noqa: E402
-from jaxaero.mesh.block import validate_metrics  # noqa: E402
+from jaxrans import CaseError, Result, load_case, run  # noqa: E402
+from jaxrans.mesh.block import validate_metrics  # noqa: E402
 
 
 # --- reference.json -------------------------------------------------------------

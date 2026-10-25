@@ -15,7 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.physics import spalart_allmaras as sa
+from jaxrans.physics import spalart_allmaras as sa
 
 C = sa.SA
 
@@ -179,7 +179,7 @@ def test_qcr_in_simple_shear_gives_the_normal_stress_anisotropy() -> None:
 
 
 def test_the_qcr_model_sets_its_constant() -> None:
-    from jaxaero.core.config import FlowConditions
+    from jaxrans.core.config import FlowConditions
 
     plain = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2"))
     qcr = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2_qcr"))

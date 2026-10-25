@@ -92,7 +92,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from jaxaero.mesh.block import Grid, o_grid_sides
+from jaxrans.mesh.block import Grid, o_grid_sides
 
 # --- The section -------------------------------------------------------------
 

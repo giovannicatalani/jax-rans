@@ -16,12 +16,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "unit"))
 
 from test_elements import _cove_main, _synthetic_slat  # noqa: E402
 
-from jaxaero.geometry.airfoil import Airfoil, from_points, naca4  # noqa: E402
-from jaxaero.geometry.elements import Element, fan_points, gap, place  # noqa: E402
-from jaxaero.mesh.assemble import assemble  # noqa: E402
-from jaxaero.mesh.coarsen import coarsen  # noqa: E402
-from jaxaero.mesh.highlift import Settings, multi_element  # noqa: E402
-from jaxaero.mesh.quality import _cell_angles, quality  # noqa: E402
+from jaxrans.geometry.airfoil import Airfoil, from_points, naca4  # noqa: E402
+from jaxrans.geometry.elements import Element, fan_points, gap, place  # noqa: E402
+from jaxrans.mesh.assemble import assemble  # noqa: E402
+from jaxrans.mesh.coarsen import coarsen  # noqa: E402
+from jaxrans.mesh.highlift import Settings, multi_element  # noqa: E402
+from jaxrans.mesh.quality import _cell_angles, quality  # noqa: E402
 
 pytestmark = pytest.mark.slow
 

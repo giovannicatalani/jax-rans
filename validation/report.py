@@ -24,10 +24,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "src"))
 sys.path.insert(0, str(HERE))
 
-from jaxaero.plot import (SERIES, SURFACE, TEXT_SECONDARY, WINDOW, _figure, _save,  # noqa: E402
+from jaxrans.plot import (SERIES, SURFACE, TEXT_SECONDARY, WINDOW, _figure, _save,  # noqa: E402
                           load_polar, load_result, plot_convergence, plot_cp_family, plot_field,
                           plot_polar, plot_surface)
-from jaxaero.simulation import cl_spread  # noqa: E402
+from jaxrans.simulation import cl_spread  # noqa: E402
 from compare_surface import critical_cp, joined, reference_set, shock_position, upper_lower  # noqa: E402
 from validate import CASES, load_validation  # noqa: E402
 
@@ -127,7 +127,7 @@ def polar_section(polar: Path, bench_path: Path, figures: Path) -> list[str]:
     plot_cp_family(polar, out=figures / "polar_cp_family.png")
     t, env = meta["timing"], meta["environment"]
     lines = ["## Transonic polar: RAE 2822, M 0.729, Re 6.5e6", "",
-             f"`{meta['case']}` at {table.shape[0]} angles, all advanced together (`python -m jaxaero.polar`) "
+             f"`{meta['case']}` at {table.shape[0]} angles, all advanced together (`python -m jaxrans.polar`) "
              f"on {t['devices']} x {env.get('jax_device_kind', 'GPU')}: **{t['total_s'] / 60:.1f} min**, "
              f"compile {t['compile_s']:.0f} s, {1e3 * t['per_iteration_s']:.0f} ms per iteration of the batch. "
              "Hollow points did not settle (CL still moving over the last quarter of the run).", "",

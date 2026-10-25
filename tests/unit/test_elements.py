@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.geometry.airfoil import from_points, naca4
-from jaxaero.geometry.elements import (Element, cove_lip, deflection, gap, join_contours, overlap, place,
+from jaxrans.geometry.airfoil import from_points, naca4
+from jaxrans.geometry.elements import (Element, cove_lip, deflection, gap, join_contours, overlap, place,
                                        read_curves, read_element, read_elements)
 
 CRV = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"

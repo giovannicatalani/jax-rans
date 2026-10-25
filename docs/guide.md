@@ -28,11 +28,11 @@ need nothing else.
 ## Running
 
 ```bash
-jaxaero examples/naca0012_euler              # or: python -m jaxaero examples/naca0012_euler
-jaxaero examples/naca0012_euler --check      # build and draw the grid, do not solve
-jaxaero examples/naca0012_sa --set case.freestream.alpha_deg=12
-jaxaero my_case --out /scratch/me/run1 --quiet
-jaxaero my_wing --devices 4                  # one case split over 4 GPUs (too large for one)
+jaxrans examples/naca0012_euler              # or: python -m jaxrans examples/naca0012_euler
+jaxrans examples/naca0012_euler --check      # build and draw the grid, do not solve
+jaxrans examples/naca0012_sa --set case.freestream.alpha_deg=12
+jaxrans my_case --out /scratch/me/run1 --quiet
+jaxrans my_wing --devices 4                  # one case split over 4 GPUs (too large for one)
 ```
 
 `--set file.section.key=value` changes one key for this run, and can be
@@ -43,7 +43,7 @@ than on one, with a quarter of the memory on each; the slabs exchange two
 rows of cells per residual evaluation. From Python:
 
 ```python
-from jaxaero import load_case, run
+from jaxrans import load_case, run
 
 case = load_case("examples/naca0012_sa", overrides=("case.freestream.alpha_deg=12",))
 result = run(case)
@@ -76,7 +76,7 @@ Results go to `<case>/results/<case_name>/`, or to `--out`:
 | `*_residual.dat`, `*_lift.dat` | convergence histories |
 | `*_metadata.json` | forces, convergence, the case files as run, git hash, versions, device |
 
-`python -m jaxaero.plot <result dir>` writes figures to `figures/` there:
+`python -m jaxrans.plot <result dir>` writes figures to `figures/` there:
 Mach and Cp fields, wall Cp and Cf, convergence. It only reads these files,
 so you can plot results copied back from a cluster without a GPU.
 
@@ -88,7 +88,7 @@ speed of sound and the chord, so the freestream is `rho = 1`,
 ## Polars
 
 ```bash
-python -m jaxaero.polar examples/rae2822_transonic_sa --alpha -2 5.5 0.5
+python -m jaxrans.polar examples/rae2822_transonic_sa --alpha -2 5.5 0.5
 ```
 
 `--alpha` takes start, stop and step. All the angles run together as one

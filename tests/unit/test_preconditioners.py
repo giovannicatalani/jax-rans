@@ -17,11 +17,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.state import primitive_to_conservative
-from jaxaero.numerics.residual import face_wave_speeds
+from jaxrans.core.state import primitive_to_conservative
+from jaxrans.numerics.residual import face_wave_speeds
 
 from ..single import atlas_of, to_canvas
-from jaxaero.solvers import preconditioners as pre
+from jaxrans.solvers import preconditioners as pre
 
 GAMMA = 1.4
 NVAR_FLOW = 4     # 2D

@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jaxaero.plot import read_table
+from jaxrans.plot import read_table
 from sections import section
 
 from compare_surface import critical_cp, differences, shock_position
@@ -133,7 +133,7 @@ def main() -> int:
 def plot_sections(surface, exp, cfd, level, title: str, out: Path) -> None:
     """Cp at the seven stations: this code (solid), CFL3D on the same grid
     (dashed), the experiment (markers); the stations on the planform."""
-    from jaxaero.plot import SERIES, SURFACE, TEXT_SECONDARY, _figure, _save
+    from jaxrans.plot import SERIES, SURFACE, TEXT_SECONDARY, _figure, _save
 
     fig, axes = _figure(nrows=2, ncols=4, figsize=(15.0, 7.4))
     for n, (ax, eta) in enumerate(zip(axes.flat, STATIONS)):

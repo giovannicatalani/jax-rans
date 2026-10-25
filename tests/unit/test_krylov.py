@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.solvers.krylov import gmres_right
+from jaxrans.solvers.krylov import gmres_right
 
 
 def system(n: int = 24, seed: int = 0):

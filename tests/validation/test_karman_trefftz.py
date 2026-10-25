@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 
 from validation.grids import karman_trefftz as kt
-from jaxaero.mesh.block import o_grid_sides, validate_metrics
+from jaxrans.mesh.block import o_grid_sides, validate_metrics
 
 from ..single import body_area, wall_slice
 
@@ -187,7 +187,7 @@ def test_radial_growth_matches_the_conformal_ratio(n_c: int) -> None:
       cell on the mesh; the TMR levels it replaces grade at 4.04 / 2.84 / 2.13
       in their maxima and 1.73 / 1.32 / 1.15 in their medians.
     """
-    from jaxaero.mesh.block import cell_widths
+    from jaxrans.mesh.block import cell_widths
 
     grid = kt.make_o_grid(n_c)
     _, width_j = cell_widths(grid.x_node, grid.y_node)
@@ -211,7 +211,7 @@ def test_cells_are_nearly_square(n_c: int) -> None:
     ratio in the hundreds, sized for a boundary layer an Euler solution has not
     got.
     """
-    from jaxaero.mesh.block import cell_widths
+    from jaxrans.mesh.block import cell_widths
 
     grid = kt.make_o_grid(n_c)
     width_i, width_j = cell_widths(grid.x_node, grid.y_node)
@@ -293,7 +293,7 @@ def test_viscous_first_cell_height_meets_its_target(n_c, nj, wall_spacing) -> No
     square at the wall, and the mean wall arc is the perimeter over ``n_c``.
     Locally the map clusters toward both edges (about 0.4x the target there).
     """
-    from jaxaero.mesh.block import cell_widths
+    from jaxrans.mesh.block import cell_widths
 
     grid = kt.make_o_grid(n_c, nj, wall_spacing)
     _, width_j = cell_widths(grid.x_node, grid.y_node)
@@ -301,7 +301,7 @@ def test_viscous_first_cell_height_meets_its_target(n_c, nj, wall_spacing) -> No
 
 
 def test_viscous_mesh_grows_smoothly_and_stays_symmetric() -> None:
-    from jaxaero.mesh.block import cell_widths
+    from jaxrans.mesh.block import cell_widths
 
     n_c, nj = 128, 176
     x, y = kt.o_mesh_nodes(n_c, nj, 1e-4)

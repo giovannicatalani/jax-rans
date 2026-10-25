@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.mesh.block import Grid, metrics
-from jaxaero.mesh.block3d import InterfaceRect, box_sides
-from jaxaero.mesh.wall3d import patch_distance, wall_distance_3d
+from jaxrans.mesh.block import Grid, metrics
+from jaxrans.mesh.block3d import InterfaceRect, box_sides
+from jaxrans.mesh.wall3d import patch_distance, wall_distance_3d
 
 from ..single import pole_sides, quad_distance
 
@@ -113,7 +113,7 @@ def test_the_pole_faces_the_opposite_cell() -> None:
 
 @pytest.mark.skipif(not M6_SAMPLE.exists(), reason="ONERA M6 sample grid not generated (data/grids/README.md)")
 def test_the_onera_m6_sample_grid_has_sound_metrics() -> None:
-    from jaxaero.mesh.plot3d import read_plot3d_3d
+    from jaxrans.mesh.plot3d import read_plot3d_3d
 
     (nodes,) = read_plot3d_3d(M6_SAMPLE)
     centres, volume, faces = metrics(nodes)
@@ -176,7 +176,7 @@ def test_wall_distance_is_the_brute_force_minimum() -> None:
         {"wall": "no_slip_wall", "farfield": "far_field"})
     grid = Grid.from_node_array(nodes, sides=sides)
     (d,) = wall_distance_3d((grid,), chunk=7)            # chunks not dividing the cell count
-    from jaxaero.mesh.wall3d import wall_quads
+    from jaxrans.mesh.wall3d import wall_quads
 
     quads = wall_quads((grid,)).corners
     p = np.moveaxis(np.asarray(grid.centres), 0, -1).reshape(-1, 3)
@@ -189,7 +189,7 @@ def test_wall_distance_is_the_brute_force_minimum() -> None:
 def test_the_metric_check_passes_valid_3d_blocks() -> None:
     """``validate_metrics`` (what ``validate.py --grids-only`` reports) in 3D:
     positive volumes, closed cells, the boundary identity."""
-    from jaxaero.mesh.block import validate_metrics
+    from jaxrans.mesh.block import validate_metrics
 
     nodes = warped_box((5, 4, 6), amplitude=0.3, seed=3)
     grid = Grid.from_node_array(nodes, box_sides((5, 4, 6), **dict.fromkeys(
@@ -203,8 +203,8 @@ def test_the_metric_check_passes_valid_3d_blocks() -> None:
 
 @pytest.mark.skipif(not M6_SAMPLE.exists(), reason="ONERA M6 sample grid not generated (data/grids/README.md)")
 def test_the_onera_m6_sample_passes_the_metric_check() -> None:
-    from jaxaero.mesh.block import validate_metrics
-    from jaxaero.mesh.plot3d import read_plot3d_3d
+    from jaxrans.mesh.block import validate_metrics
+    from jaxrans.mesh.plot3d import read_plot3d_3d
 
     (nodes,) = read_plot3d_3d(M6_SAMPLE)
     shape = tuple(n - 1 for n in nodes.shape[1:])

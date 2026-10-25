@@ -34,16 +34,16 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from jaxaero.core import constants
-from jaxaero.core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from jaxrans.core import constants
+from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
 from validation.grids.karman_trefftz import make_o_grid
-from jaxaero.core.state import primitive_to_conservative, split
-from jaxaero.numerics import boundary as bc
+from jaxrans.core.state import primitive_to_conservative, split
+from jaxrans.numerics import boundary as bc
 
 from ..single import from_canvas, to_canvas, unit_j_normals, atlas_of
-from jaxaero.numerics.residual import make_residual, primitive_from_conservative
-from jaxaero.solvers import implicit
-from jaxaero.solvers.driver import run_to_steady
+from jaxrans.numerics.residual import make_residual, primitive_from_conservative
+from jaxrans.solvers import implicit
+from jaxrans.solvers.driver import run_to_steady
 
 FLOW = FlowConditions(mach=0.5, alpha_deg=1.0, reynolds=100.0)
 GAMMA, MU, PR = FLOW.gamma, FLOW.mu_inf, constants.PRANDTL_LAMINAR

@@ -1,7 +1,7 @@
 """Figures from written results: fields, wall distributions, convergence, polars.
 
-    python -m jaxaero.plot RESULT_DIR [--out DIR] [--window XMIN XMAX YMIN YMAX]
-    python -m jaxaero.plot POLAR_DIR
+    python -m jaxrans.plot RESULT_DIR [--out DIR] [--window XMIN XMAX YMIN YMAX]
+    python -m jaxrans.plot POLAR_DIR
 
 Reads only what ``Result.write`` / ``Polar.write`` saved, never the solver, so
 results computed on a cluster are plotted anywhere. Writes PNGs to
@@ -317,7 +317,7 @@ def plot_cp_family(directory: str | Path, alphas=None, out: Path | None = None):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m jaxaero.plot", description=__doc__,
+    parser = argparse.ArgumentParser(prog="python -m jaxrans.plot", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("directory", type=Path, help="a result or polar directory")
     parser.add_argument("--out", type=Path, help="figure directory (default: DIRECTORY/figures)")

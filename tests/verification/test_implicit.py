@@ -20,10 +20,10 @@ from __future__ import annotations
 import jax.numpy as jnp
 import pytest
 
-from jaxaero.core.config import FlowConditions, ImplicitConfig, NumericsConfig
-from jaxaero.numerics.residual import make_residual
-from jaxaero.solvers import explicit, implicit
-from jaxaero.solvers.driver import run_to_steady
+from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from jaxrans.numerics.residual import make_residual
+from jaxrans.solvers import explicit, implicit
+from jaxrans.solvers.driver import run_to_steady
 
 from ..single import atlas_of
 

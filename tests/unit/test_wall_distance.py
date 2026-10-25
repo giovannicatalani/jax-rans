@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jaxaero.mesh.mesh import wall_distance
+from jaxrans.mesh.mesh import wall_distance
 from validation.grids.karman_trefftz import TMR, make_o_grid
 
 from ..single import c_layout, read_grid, wall_slice, with_conditions
@@ -40,7 +40,7 @@ def test_matches_a_densely_sampled_wall() -> None:
 def test_first_cells_sit_at_half_their_height() -> None:
     """Away from the leading and trailing edges the first centre is half its
     own cell's wall-normal width off the wall, and distance grows outward."""
-    from jaxaero.mesh.block import cell_widths
+    from jaxrans.mesh.block import cell_widths
 
     grid = make_o_grid(64, 88, 2e-4, section=TMR)
     d = wall_distance(with_conditions(grid))[0]

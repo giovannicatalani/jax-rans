@@ -19,9 +19,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.numerics.limiters import LIMITERS
-from jaxaero.numerics.riemann import FLUXES
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.numerics.limiters import LIMITERS
+from jaxrans.numerics.riemann import FLUXES
 
 from ..single import Single
 from ..conftest import uniform_state

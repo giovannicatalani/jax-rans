@@ -7,7 +7,7 @@ cannot be traced to the code that made it.
 
 This module and ``plotting.py`` are the only places in the package that
 touch the filesystem. Plotting reads these files and never the solver, so
-redrawing a figure never forces a re-run (``python -m jaxaero.plot``).
+redrawing a figure never forces a re-run (``python -m jaxrans.plot``).
 """
 
 from __future__ import annotations

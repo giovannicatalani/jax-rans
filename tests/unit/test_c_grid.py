@@ -19,15 +19,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from jaxaero.core.config import FlowConditions, NumericsConfig
-from jaxaero.mesh.block import Grid, validate_metrics
-from jaxaero.core.state import freestream_primitive
-from jaxaero.numerics import reconstruction
-from jaxaero.numerics.gradients import face_gradients
-from jaxaero.numerics.limiters import LIMITERS, get_limiter
-from jaxaero.numerics.riemann import FLUXES, get_flux
-from jaxaero.post.forces import integrate_forces, surface
-from jaxaero.mesh.assemble import RawBlock, assemble
+from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.mesh.block import Grid, validate_metrics
+from jaxrans.core.state import freestream_primitive
+from jaxrans.numerics import reconstruction
+from jaxrans.numerics.gradients import face_gradients
+from jaxrans.numerics.limiters import LIMITERS, get_limiter
+from jaxrans.numerics.riemann import FLUXES, get_flux
+from jaxrans.post.forces import integrate_forces, surface
+from jaxrans.mesh.assemble import RawBlock, assemble
 
 from ..conftest import uniform_state
 from ..single import c_grid_sides, read_grid, Single, atlas_of, c_layout, fill_ghosts, ghost_centres, padded_centres, to_canvas
@@ -76,7 +76,7 @@ def physical_interior(grid, flow, seed: int = 0, amplitude: float = 0.05):
 
 
 def test_the_j_min_segments_are_cut_wall_cut(topology) -> None:
-    from jaxaero.mesh.block import Boundary, Interface
+    from jaxrans.mesh.block import Boundary, Interface
 
     ni, nw = topology.ni, topology.n_wake
     lower, wall, upper = topology.sides().j_min
@@ -354,9 +354,9 @@ def test_line_chains_run_through_the_cut_with_the_defining_blocks(c_grid, which)
     the chain is ``1/2 A(U_nb, S_out) - 1/2 lambda_f I``, with ``S_out`` taken
     here from the cell's own face toward the neighbour, independently of how
     the chains were built."""
-    from jaxaero.core.state import primitive_to_conservative, split
-    from jaxaero.physics.euler import normal_flux_jacobian
-    from jaxaero.solvers import preconditioners as pre
+    from jaxrans.core.state import primitive_to_conservative, split
+    from jaxrans.physics.euler import normal_flux_jacobian
+    from jaxrans.solvers import preconditioners as pre
 
     atlas, g = atlas_of(c_grid), atlas_of(c_grid).g
     flow = FlowConditions(mach=0.5, alpha_deg=3.0)
