@@ -82,7 +82,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `model` | string | `none` | `sa_noft2`: Spalart-Allmaras without ft2, with SA-neg; one of `none`, `sa_noft2` |
+| `model` | string | `none` | `sa_noft2`: Spalart-Allmaras without ft2, with SA-neg; `sa_noft2_qcr`: the same with the quadratic constitutive relation (QCR2000); one of `none`, `sa_noft2`, `sa_noft2_qcr` |
 | `freestream_nu_tilde_ratio` | number | `3.0` | far-field nu~/nu (3 to 5) |
 
 ## `numerical.json`

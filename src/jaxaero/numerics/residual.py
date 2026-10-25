@@ -31,7 +31,7 @@ from ..mesh.block import Grid
 from ..mesh.mesh import wall_distance
 from ..physics import euler, navier_stokes
 from ..physics.navier_stokes import Viscosity
-from ..physics.spalart_allmaras import SAModel
+from ..physics.spalart_allmaras import SAModel, qcr_stress
 from . import boundary as bc
 from . import gradients, reconstruction, turbulence
 from .limiters import get_limiter
@@ -76,7 +76,7 @@ def block_residual(
                                    p1[rows.nu][None]])
             grads = gradients.face_gradients(phi, centres)
             mu_t = turbulence.face_eddy_viscosity(p1, viscosity, gamma, model, dim)
-            visc = viscous_fluxes(p1, grid, viscosity, gamma, mu_t, grads)
+            visc = viscous_fluxes(p1, grid, viscosity, gamma, mu_t, grads, c_cr1=model.c_cr1)
             sa_row = turbulence.sa_residual(
                 p1, tuple(f[0] for f in fluxes), tuple(G[:, dim + 1] for G in grads),
                 grid, viscosity, gamma, model, distance,
@@ -89,11 +89,12 @@ def block_residual(
 
 def viscous_fluxes(
     q: Array, grid: Grid, viscosity: Viscosity, gamma: float,
-    mu_t: tuple[Array, ...] | None = None, grads=None, centres: Array | None = None,
+    mu_t: tuple[Array, ...] | None = None, grads=None, centres: Array | None = None, c_cr1: float = 0.0,
 ) -> tuple[Array, ...]:
     """``F_v . S`` on every face family from primitives with one ghost layer,
     ``(d+2, *(shape+2))``; ``mu_t`` adds the eddy viscosity (and, over ``Pr_t``,
-    conductivity). Face velocity and temperature are two-cell means, so a
+    conductivity), with the quadratic constitutive relation where ``c_cr1``
+    is not 0. Face velocity and temperature are two-cell means, so a
     no-slip wall's face velocity is exactly zero, and its heat flux zero to
     round-off (the ghost centre is the reflected cell centre)."""
     dim = grid.dim
@@ -113,7 +114,8 @@ def viscous_fluxes(
         if eddy is not None:
             mu, k = mu + eddy, k + turbulence.turbulent_conductivity(eddy, gamma)
         grad_v = jnp.swapaxes(grad[:, :dim], 0, 1)          # [component, direction]
-        return navier_stokes.viscous_flux(velocity, grad_v, grad[:, dim], s, mu, k)
+        extra = qcr_stress(grad_v, eddy, c_cr1) if eddy is not None and c_cr1 else None
+        return navier_stokes.viscous_flux(velocity, grad_v, grad[:, dim], s, mu, k, extra)
 
     return tuple(flux(a, grad, s, eddy) for a, (grad, s, eddy) in enumerate(zip(grads, grid.faces, eddies)))
 

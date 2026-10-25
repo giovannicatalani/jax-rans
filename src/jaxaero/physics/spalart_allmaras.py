@@ -49,6 +49,9 @@ References
 * Allmaras, Johnson and Spalart, "Modifications and Clarifications for the
   Implementation of the Spalart-Allmaras Turbulence Model", ICCFD7-1902 (2012):
   SA-neg and the S~ clipping.
+* Spalart, "Strategies for turbulence modelling and simulations", Int. J. Heat
+  Fluid Flow 21 (2000) 252-263: the quadratic constitutive relation (QCR2000,
+  ``qcr_stress``), as TMR's SA-noft2-QCR2000.
 """
 
 from __future__ import annotations
@@ -96,13 +99,16 @@ class SAModel:
     nu_inf: float
     freestream_ratio: float = 3.0
     constants: SAConstants = SA
+    c_cr1: float = 0.0
 
     @classmethod
     def of(cls, flow) -> "SAModel | None":
-        """The model for a ``FlowConditions``; ``None`` when laminar."""
+        """The model for a ``FlowConditions``; ``None`` when laminar.
+        ``c_cr1`` is QCR2000's 0.3 for ``sa_noft2_qcr``, else 0 (no QCR)."""
         if flow.turbulence is None:
             return None
-        return cls(nu_inf=flow.mu_inf, freestream_ratio=flow.nu_tilde_ratio)
+        return cls(nu_inf=flow.mu_inf, freestream_ratio=flow.nu_tilde_ratio,
+                   c_cr1=0.3 if flow.turbulence == "sa_noft2_qcr" else 0.0)
 
     def eddy_viscosity(self, rho: Array, nu_hat: Array, mu: Array) -> Array:
         """``mu_t`` from the stored, scaled variable ``nu_hat = nu~ / nu_inf``."""
@@ -183,3 +189,25 @@ def diffusion_coefficient(
     conservative diffusion term."""
     nu = mu / rho
     return (mu + rho * nu_tilde * f_n(nu_tilde, nu, c)) / c.sigma
+
+
+def qcr_stress(grad_v: Array, mu_t: Array, c_cr1: float) -> Array:
+    """The quadratic constitutive relation's addition to the turbulent stress,
+    ``(d, d, ...)``, from ``grad_v[a, b] = d v_a / d x_b`` ``(d, d, ...)``:
+
+        - c_cr1 (O_ik tau_jk + O_jk tau_ik),
+        O_ik = (d u_i / d x_k - d u_k / d x_i) / sqrt(d u_m / d x_n d u_m / d x_n),
+
+    ``tau = mu_t (grad V + grad V^T - 2/3 div V I)`` the Boussinesq turbulent
+    stress (Spalart 2000; TMR, SA-noft2-QCR2000, ``c_cr1 = 0.3``)."""
+    dim = grad_v.shape[0]
+    square = jnp.sum(grad_v * grad_v, axis=(0, 1))
+    # sqrt has an infinite derivative at 0 (a uniform flow): derivative 0 there.
+    positive = square > 0.0
+    norm = jnp.where(positive, jnp.sqrt(jnp.where(positive, square, 1.0)), 1.0)
+    rotation = (grad_v - jnp.swapaxes(grad_v, 0, 1)) / norm
+    divergence = sum(grad_v[a, a] for a in range(dim))
+    identity = jnp.eye(dim).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
+    tau = mu_t * (grad_v + jnp.swapaxes(grad_v, 0, 1) - (2.0 / 3.0) * divergence * identity)
+    product = jnp.einsum("ik...,jk...->ij...", rotation, tau)
+    return -c_cr1 * (product + jnp.swapaxes(product, 0, 1))

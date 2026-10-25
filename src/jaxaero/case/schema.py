@@ -140,7 +140,8 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("prandtl_number", "number", constants.PRANDTL_LAMINAR, "the one implemented"),
     ),
     "turbulence": (
-        Key("model", "string", "none", "`sa_noft2`: Spalart-Allmaras without ft2, with SA-neg",
+        Key("model", "string", "none", "`sa_noft2`: Spalart-Allmaras without ft2, with SA-neg; "
+            "`sa_noft2_qcr`: the same with the quadratic constitutive relation (QCR2000)",
             choices=("none", *TURBULENCE_MODELS)),
         Key("freestream_nu_tilde_ratio", "number", 3.0, "far-field nu~/nu (3 to 5)"),
     ),

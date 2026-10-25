@@ -89,11 +89,13 @@ def viscous_flux(
     s: Array,
     mu: Array | float,
     k: Array | float,
+    extra: Array | None = None,
 ) -> Array:
     """``F_v . S``, ``(d + 2, ...)``, from the face velocity ``(d, ...)``, its
     gradient ``grad_v[a, b] = d v_a / d x_b`` ``(d, d, ...)``, the temperature
     gradient ``(d, ...)``, the area vector ``s (d, ...)``, and effective ``mu``
-    and ``k``."""
+    and ``k``; ``extra`` ``(d, d, ...)`` is added to the stress (a turbulence
+    model's nonlinear part, ``spalart_allmaras.qcr_stress``)."""
     dim = s.shape[0]
     div = grad_v[0, 0]
     for a in range(1, dim):
@@ -102,9 +104,11 @@ def viscous_flux(
 
     def tau(a: int, b: int) -> Array:
         if a == b:
-            return mu * (2.0 * grad_v[a, a] - two_thirds_div)
-        lo, hi = min(a, b), max(a, b)
-        return mu * (grad_v[lo, hi] + grad_v[hi, lo])
+            linear = mu * (2.0 * grad_v[a, a] - two_thirds_div)
+        else:
+            lo, hi = min(a, b), max(a, b)
+            linear = mu * (grad_v[lo, hi] + grad_v[hi, lo])
+        return linear if extra is None else linear + extra[a, b]
 
     force = jnp.stack([dot(jnp.stack([tau(a, b) for b in range(dim)]), s) for a in range(dim)])
     energy = dot(velocity, force) + k * dot(grad_t, s)

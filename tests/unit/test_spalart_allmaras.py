@@ -146,3 +146,41 @@ def test_freestream_value_is_what_tmr_quotes() -> None:
     nu = 1.0
     mu_t = float(sa.eddy_viscosity(jnp.asarray(1.0), jnp.asarray(3.0 * nu), jnp.asarray(nu)))
     assert mu_t == pytest.approx(0.210438, rel=1e-5)
+
+
+# --- QCR2000 ---------------------------------------------------------------------
+
+
+def test_qcr_vanishes_without_rotation_and_is_symmetric() -> None:
+    """An irrotational (symmetric) velocity gradient has O = 0; any gradient
+    gives a symmetric, trace-free correction for a trace-free O tau + (O tau)^T
+    with tau symmetric."""
+    rng = np.random.default_rng(0)
+    g = rng.standard_normal((3, 3, 5))
+    symmetric = 0.5 * (g + np.swapaxes(g, 0, 1))
+    np.testing.assert_allclose(sa.qcr_stress(jnp.asarray(symmetric), 2.0, 0.3), 0.0, atol=1e-15)
+    extra = np.asarray(sa.qcr_stress(jnp.asarray(g), 2.0, 0.3))
+    np.testing.assert_allclose(extra, np.swapaxes(extra, 0, 1), atol=1e-14)
+    np.testing.assert_allclose(np.trace(extra), 0.0, atol=1e-14)
+
+
+def test_qcr_in_simple_shear_gives_the_normal_stress_anisotropy() -> None:
+    """du/dy = gamma: |grad u| = gamma, O_xy = 1, O_yx = -1, tau_xy = mu_t gamma,
+    so the correction is -2 c mu_t gamma on xx, +2 c mu_t gamma on yy, 0 on xy:
+    u'u' > v'v', as measured in shear flows (Spalart 2000)."""
+    mu_t, shear, c = 1.7, 3.0, 0.3
+    for dim in (2, 3):
+        g = np.zeros((dim, dim, 1))
+        g[0, 1] = shear
+        extra = np.asarray(sa.qcr_stress(jnp.asarray(g), mu_t, c))[..., 0]
+        want = np.zeros((dim, dim))
+        want[0, 0], want[1, 1] = -2.0 * c * mu_t * shear, 2.0 * c * mu_t * shear
+        np.testing.assert_allclose(extra, want, atol=1e-14)
+
+
+def test_the_qcr_model_sets_its_constant() -> None:
+    from jaxaero.core.config import FlowConditions
+
+    plain = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2"))
+    qcr = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2_qcr"))
+    assert plain.c_cr1 == 0.0 and qcr.c_cr1 == 0.3

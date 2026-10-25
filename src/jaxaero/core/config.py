@@ -12,8 +12,9 @@ import numpy as np
 from . import constants
 
 
-TURBULENCE_MODELS: tuple[str, ...] = ("sa_noft2",)
-"""Spalart-Allmaras without the ft2 term, with SA-neg (physics/spalart_allmaras.py)."""
+TURBULENCE_MODELS: tuple[str, ...] = ("sa_noft2", "sa_noft2_qcr")
+"""Spalart-Allmaras without the ft2 term, with SA-neg, and the same with the
+quadratic constitutive relation QCR2000 (physics/spalart_allmaras.py)."""
 
 
 @dataclass(frozen=True)
