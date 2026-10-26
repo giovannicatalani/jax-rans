@@ -27,6 +27,25 @@ jobs:
       - run: python validation/grids/make_grids.py
       - run: pytest -q -m "not slow"
 
+  notebook:
+    # The quickstart, executed top to bottom on CPU, so it cannot rot; the
+    # checkout is installed first, so its install cell is skipped.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      JAX_PLATFORMS: cpu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e ".[plot]" nbclient ipykernel
+      - run: >-
+          python -c "import nbformat, nbclient;
+          nb = nbformat.read('notebooks/quickstart.ipynb', as_version=4);
+          nbclient.NotebookClient(nb, timeout=3000, resources={'metadata': {'path': 'notebooks'}}).execute()"
+
   build:
     runs-on: ubuntu-latest
     steps:

@@ -17,6 +17,10 @@
   `integrate_forces` its float conversion: the same values to 1e-15.
   New limiter `van_albada_smooth` (van Albada's original form, no cut at
   extrema): differentiable, for derivatives of a flow with a shock.
+- **Quickstart notebook** (`notebooks/quickstart.ipynb`, with an Open in
+  Colab badge): a transonic NACA 0012 solved on a generated grid, its Mach
+  field and Cp, and its derivatives checked against finite differences. CI
+  executes it on every push. Committed without outputs.
 - **Multi-block 3D grids**: any number of point-matched blocks, from Plot3D or
   CGNS (HDF5; 3D zones read whole, with their families, BC types and 1-to-1
   interfaces). Interfaces are found from coincident faces in any relative
