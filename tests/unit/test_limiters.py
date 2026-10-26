@@ -16,7 +16,7 @@ from hypothesis import strategies as st
 from jaxrans.numerics import limiters
 
 ALL = sorted(limiters.LIMITERS)
-MONOTONE = [n for n in ALL if n != "none"]
+MONOTONE = [n for n in ALL if n not in ("none", "van_albada_smooth")]
 
 finite = st.floats(
     min_value=-1e3, max_value=1e3, allow_nan=False, allow_infinity=False, width=64

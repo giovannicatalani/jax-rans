@@ -30,7 +30,7 @@ that it is O(1) beside the flow variables; the stresses and heat flux use
   per block; ghost cells hold the neighbouring block's cells across an
   interface and the boundary condition's state on a patch.
 - **Convective flux**: MUSCL reconstruction of primitive variables from raw
-  index differences, limited by `minmod`, `van_albada` or none; then HLLC
+  index differences, limited by `minmod`, `van_albada` (or its smooth original form) or none; then HLLC
   (default) or Roe at each face.
 - **Viscous flux**: face gradients by the diamond construction, exact for a
   linear field on any quadrilateral.
@@ -54,6 +54,15 @@ that it is O(1) beside the flow variables; the stresses and heat flux use
 Both paths drive the same residual through the same on-device loop, so they
 share their converged solutions. A polar maps the step over the freestream
 and runs every angle at once, split over GPUs.
+
+## Derivatives
+
+At a converged state `R(U*(p), p) = 0` for every freestream `p` (angle of
+attack, Mach number), so `dR/dU dU/dp = -∂R/∂p`, and an output changes by
+`dJ/dp = ∂J/∂p + ∂J/∂U dU/dp`. The Jacobian is the exact one of the
+second-order residual, applied by `jax.linearize`; the system is solved by
+iterating the implicit solver's Newton step on it (defect correction). See
+[Derivatives](gradients.md).
 
 ## Grids
 

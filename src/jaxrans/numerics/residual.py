@@ -256,18 +256,20 @@ def make_residual(
     first_order: bool = False,
     freestream: Array | None = None,
     distance: Array | None = None,
+    mu_inf: Array | None = None,
 ) -> ResidualOperator:
     """The residual of one case. A ``Grid`` or a mesh is packed into an atlas.
 
-    ``freestream`` replaces ``flow``'s primitives ``(d+2,)`` and may be traced (a
-    polar maps the step over it); ``distance`` is a precomputed wall-distance
-    canvas (with SA). Registries are resolved here, before tracing.
+    ``freestream`` and ``mu_inf`` replace ``flow``'s primitives ``(d+2,)`` and
+    ``M / Re``, and may be traced (a polar maps the step over the freestream,
+    a sensitivity differentiates both); ``distance`` is a precomputed
+    wall-distance canvas (with SA). Registries are resolved here, before tracing.
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     if atlas.g != numerics.n_ghost:
         raise ValueError(f"the atlas has {atlas.g} ghost layers, the scheme needs {numerics.n_ghost}")
-    viscosity = Viscosity.of(flow)
-    model = SAModel.of(flow)
+    viscosity = Viscosity.of(flow, mu_inf)
+    model = SAModel.of(flow, mu_inf)
     dtype, gamma, g, dim = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim
     if numerics.far_field not in bc.far_field_models(dim):
         raise ValueError(f"far field model {numerics.far_field!r} is not available in {dim}D; "

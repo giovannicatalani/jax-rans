@@ -17,6 +17,7 @@ python -m jaxrans.polar my_case --alpha -2 10 1
 - [Your own airfoil](own-airfoil.md)
 - [A multi-element airfoil](multi-element.md)
 - [A 3D wing](wing-3d.md)
+- [Derivatives](gradients.md): dCL/dalpha and friends from a converged run
 - [Case reference](case_reference.md)
 - [Equations and method](theory.md)
 - [Developer guide](developer.md) and [design notes](dev/notes.md)

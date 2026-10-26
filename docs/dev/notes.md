@@ -151,6 +151,41 @@ each choice, grouped by module.
   than they started with; ten right-preconditioned ones 0.47x (0.18x with the
   lines continued through the wake cut).
 
+## derivatives.py, solvers/sensitivity.py
+
+- **Defect correction, not Krylov, for the tangent solves.** On the
+  converged `naca0012_laminar` and a 128x64 `clarky_sa`, GMRES on the exact
+  second-order Jacobian, right-preconditioned by the line solves, stalls:
+  GMRES(50) at 4.0e-4 (laminar) and 5.8e-3 (SA) relative residual, flat
+  from 4000 iterations on; 800 unrestarted vectors 4.1e-3; GCROT(30, 20) and
+  LGMRES 5e-3 and 2e-2 after 6200 products; an outer flexible GMRES around
+  the Newton solve 3e-4. The system is consistent (`A^T r` of the stalled
+  residual is not small) and its Ritz values have positive real parts
+  (smallest 0.008): the line preconditioner, a first-order upwind Jacobian,
+  does not see what the second-order one adds. Iterating the implicit
+  solver's own Newton solve, `x <- x + G (b - A x)`, converges instead,
+  about half an order every 50 steps: 1e-10 in ~1100 steps on SA. The
+  derivatives then match central differences to 6e-7 (SA dCL/dalpha) and
+  4e-6 (laminar).
+- **No adjoint yet.** The transposed iteration, `lambda <- lambda + G^T
+  (g - A^T lambda)` with `G^T` GMRES on the transposed Newton operator (the
+  line preconditioner's transpose from `jax.linear_transpose`, exact), stalls
+  at 0.62 for dCL/dU on the SA case after two steps: its inner GMRES makes no
+  progress on residuals concentrated in the second wall cell. A linear `G`
+  (the line solve alone, whose transpose would converge exactly as the
+  tangent) diverges at CFL 20. Reverse mode also needs the face-gradient
+  solve (numerics/gradients.py) guarded on degenerate canvas faces, whose
+  `1/det` is masked forward but gives `0 * inf` backward.
+- **A smooth limiter for derivatives.** `van_albada` cuts the slope to 0 at
+  `a*b <= 0`, a kink in its derivative. On a transonic NACA 0012 (Euler,
+  M 0.75, 2 deg, 96x48) the tangent then misses central differences by
+  2e-3 in dCL/dalpha whatever the step; with the unclipped form
+  (`van_albada_smooth`, `eps^2 = 1e-12`) by 5e-7 against differences
+  extrapolated from 0.005 and 0.0025 deg (7.7e-5 at 0.01, all truncation).
+- **Forces through one function.** `integrate_forces` converts
+  `force_coefficients` (JAX, traceable in the freestream); against the
+  NumPy sums it replaced, 1.1e-15 relative at most (2D, multi-body, 3D).
+
 ## mesh/atlas.py
 
 - **Line chains stop at other blocks.** Continued through every interface,

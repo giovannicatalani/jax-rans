@@ -1,0 +1,17 @@
+{
+    "convective_fluxes": {
+        "limiter": "van_albada_smooth",
+        "notes": "Van Albada without its cut at extrema: the solution is differentiable (docs/gradients.md)."
+    },
+    "time_integration": {
+        "solver": "implicit"
+    },
+    "implicit": {
+        "max_relative_update": 0.2
+    },
+    "convergence": {
+        "max_iters": 6000,
+        "forces_tol": null,
+        "notes": "Converged to round-off, not stopped when the forces settle: derivatives need R = 0."
+    }
+}

@@ -54,11 +54,12 @@ class Viscosity:
     sutherland_ratio: float | None = None
 
     @classmethod
-    def of(cls, flow: FlowConditions) -> "Viscosity | None":
-        """The law for a flow; ``None`` when inviscid."""
+    def of(cls, flow: FlowConditions, mu_inf=None) -> "Viscosity | None":
+        """The law for a flow, ``mu_inf`` (possibly traced) replacing its
+        ``M / Re``; ``None`` when inviscid."""
         if flow.inviscid:
             return None
-        return cls(flow.mu_inf, flow.sutherland_ratio)
+        return cls(flow.mu_inf if mu_inf is None else mu_inf, flow.sutherland_ratio)
 
     def __call__(self, T: Array) -> Array | float:
         """``mu`` at nondimensional temperature ``T`` (freestream: ``T = 1``)."""

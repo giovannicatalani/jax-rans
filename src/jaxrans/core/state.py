@@ -112,10 +112,16 @@ def freestream_primitive(flow: FlowConditions, dim: int = 2) -> tuple[float, ...
     first and the last axis (x-y in 2D, x-z in 3D, y the span):
     ``M (cos alpha, sin alpha)`` or ``M (cos alpha, 0, sin alpha)``.
     """
-    alpha = flow.alpha_rad
-    u, normal = float(flow.mach * np.cos(alpha)), float(flow.mach * np.sin(alpha))
-    velocity = (u, normal) if dim == 2 else (u, 0.0, normal)
-    return (1.0, *velocity, 1.0 / flow.gamma)
+    return tuple(float(c) for c in freestream_vector(flow.mach, flow.alpha_rad, flow.gamma, dim))
+
+
+def freestream_vector(mach, alpha_rad, gamma: float, dim: int = 2, xp=np):
+    """``freestream_primitive`` as an ``xp`` array ``(d+2,)``; with
+    ``xp = jax.numpy``, traceable in ``mach`` and ``alpha_rad`` (a
+    sensitivity's parameters)."""
+    u, normal = mach * xp.cos(alpha_rad), mach * xp.sin(alpha_rad)
+    velocity = [u, normal] if dim == 2 else [u, xp.zeros_like(u), normal]
+    return xp.stack([xp.ones_like(u), *velocity, xp.full_like(u, 1.0 / gamma)])
 
 
 def is_physical(U: Array, gamma: float, dim: int) -> Array:

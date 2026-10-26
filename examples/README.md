@@ -7,6 +7,7 @@
 | `clarky_sa` | SA RANS, M 0.2, 4 deg, Re 3e6 | C-grid round a downloaded coordinate file |
 | `naca0012_sa` | SA RANS, M 0.15, 10 deg, Re 6e6 | NASA TMR C-grid from file |
 | `rae2822_transonic_sa` | transonic SA RANS, M 0.729, 2.31 deg, Re 6.5e6 | NASA NPARC C-grid from file |
+| `rae2822_sensitivity` | the same flow, converged to round-off for derivatives | C-grid generated from the measured ordinates |
 | `flatplate_sa` | SA RANS boundary layer, M 0.2, Re 5e6 | NASA TMR flat-plate grid |
 | `30p30n_sa` | three-element high lift, M 0.17, 5.5 deg, Re 1.71e6 | JAXA 117-block grid from file |
 | `main_flap_sa` | two-element high lift (30P30N main and flap), M 0.17, 5.5 deg, Re 1.71e6 | generated multi-element grid |
@@ -20,4 +21,7 @@ downloaded separately (`data/grids/README.md`); `onera_m6_sa` carries its own.
 ([docs/own-airfoil.md](../docs/own-airfoil.md)); `main_flap_sa` for a slat,
 main element and flap from their coordinates, `30p30n_sa` for a grid from
 your own mesher ([docs/multi-element.md](../docs/multi-element.md));
-`onera_m6_sa` for a 3D wing ([docs/wing-3d.md](../docs/wing-3d.md)).
+`onera_m6_sa` for a 3D wing ([docs/wing-3d.md](../docs/wing-3d.md));
+`rae2822_sensitivity` for derivatives ([docs/gradients.md](../docs/gradients.md)):
+`python scripts/sensitivity_polar.py examples/rae2822_sensitivity --alpha 0.5 2.0 0.5`
+draws its polar with dCL/dalpha and dCD/dalpha.

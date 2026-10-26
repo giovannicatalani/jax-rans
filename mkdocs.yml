@@ -20,6 +20,7 @@ nav:
   - Your own airfoil: own-airfoil.md
   - Multi-element airfoil: multi-element.md
   - A 3D wing: wing-3d.md
+  - Derivatives: gradients.md
   - Case reference: case_reference.md
   - Equations and method: theory.md
   - Developer guide: developer.md

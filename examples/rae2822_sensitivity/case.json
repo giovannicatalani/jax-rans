@@ -1,0 +1,41 @@
+{
+    "general": {
+        "case_name": "rae2822_sensitivity",
+        "description": "Transonic RAE 2822 (AGARD case 6), SA: M 0.729, alpha 2.31 deg, Re 6.5e6, for derivatives",
+        "save_path": "results"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "../../validation/references/rae2822/rae2822.dat",
+        "cells_airfoil": 192,
+        "cells_wake": 48,
+        "cells_normal": 80,
+        "wall_spacing": 2e-06,
+        "far_field": 100.0,
+        "leading_edge_spacing": 0.0005,
+        "trailing_edge_spacing": 0.002,
+        "notes": "A C-grid generated from AR-138's measured ordinates, 288 x 80 cells: coarser than the validation case gen_rae2822_case6, so that a polar with derivatives runs in minutes."
+    },
+    "boundary_conditions": {
+        "wall": {
+            "type": "no_slip_wall"
+        },
+        "farfield": {
+            "type": "far_field",
+            "model": "point_vortex"
+        }
+    },
+    "freestream": {
+        "mach": 0.729,
+        "alpha_deg": 2.31,
+        "reynolds": 6500000.0,
+        "temperature": 460.0
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 198.6
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

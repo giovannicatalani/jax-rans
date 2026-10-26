@@ -7,12 +7,14 @@ Each layer only imports from the layers below it.
 ```
 simulation.py, __main__.py   load a case, build the operator, iterate, write the result
 polar.py      many angles at once: the step mapped over the freestream, split over GPUs
+derivatives.py  sensitivity: derivatives of the forces in the angle of attack and Mach number
 plot.py       figures from written results
 case/         schema (every key, declared once), loader, domain (where the grid comes from)
 io/           result files and provenance
 post/         forces: Cp, Cf, CL, CD, CM, per body (2D and 3D)
 solvers/      explicit (Runge-Kutta), implicit (Newton-Krylov), krylov (GMRES),
-              preconditioners (line-implicit), driver (the iteration loop, batches, GPUs)
+              preconditioners (line-implicit), driver (the iteration loop, batches, GPUs),
+              sensitivity (tangent derivatives of a converged solution)
 numerics/     residual, reconstruction, limiters, Riemann solvers, gradients,
               boundary conditions, SA source terms
 physics/      Euler, Navier-Stokes and SA pointwise functions

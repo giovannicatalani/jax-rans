@@ -102,12 +102,13 @@ class SAModel:
     c_cr1: float = 0.0
 
     @classmethod
-    def of(cls, flow) -> "SAModel | None":
-        """The model for a ``FlowConditions``; ``None`` when laminar.
-        ``c_cr1`` is QCR2000's 0.3 for ``sa_noft2_qcr``, else 0 (no QCR)."""
+    def of(cls, flow, mu_inf=None) -> "SAModel | None":
+        """The model for a ``FlowConditions``, ``mu_inf`` (possibly traced)
+        replacing its ``M / Re``; ``None`` when laminar. ``c_cr1`` is
+        QCR2000's 0.3 for ``sa_noft2_qcr``, else 0 (no QCR)."""
         if flow.turbulence is None:
             return None
-        return cls(nu_inf=flow.mu_inf, freestream_ratio=flow.nu_tilde_ratio,
+        return cls(nu_inf=flow.mu_inf if mu_inf is None else mu_inf, freestream_ratio=flow.nu_tilde_ratio,
                    c_cr1=0.3 if flow.turbulence == "sa_noft2_qcr" else 0.0)
 
     def eddy_viscosity(self, rho: Array, nu_hat: Array, mu: Array) -> Array:

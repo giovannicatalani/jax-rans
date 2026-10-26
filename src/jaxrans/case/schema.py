@@ -151,7 +151,8 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
     "convective_fluxes": (
         Key("riemann_solver", "string", _N.flux, "", choices=_sorted(FLUXES)),
         Key("limiter", "string", _N.limiter, "`minmod` where a shock may form; `none` for smooth flow "
-            "(minmod stalls viscous convergence); `van_albada` for a shock with a boundary layer",
+            "(minmod stalls viscous convergence); `van_albada` for a shock with a boundary layer; "
+            "`van_albada_smooth`, differentiable, for derivatives of a solution with a shock",
             choices=_sorted(LIMITERS)),
         Key("muscl_kappa", "number", _N.kappa, "unlimited MUSCL family: 0 Fromm (the default), 1/3 "
             "third-order upwind-biased (CFL3D's default), -1 fully upwind; other than 0 only with "

@@ -92,7 +92,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | key | type | default | meaning |
 |---|---|---|---|
 | `riemann_solver` | string | `hllc` | one of `hllc`, `roe` |
-| `limiter` | string | `minmod` | `minmod` where a shock may form; `none` for smooth flow (minmod stalls viscous convergence); `van_albada` for a shock with a boundary layer; one of `minmod`, `none`, `van_albada` |
+| `limiter` | string | `minmod` | `minmod` where a shock may form; `none` for smooth flow (minmod stalls viscous convergence); `van_albada` for a shock with a boundary layer; `van_albada_smooth`, differentiable, for derivatives of a solution with a shock; one of `minmod`, `none`, `van_albada`, `van_albada_smooth` |
 | `muscl_kappa` | number | `0.0` | unlimited MUSCL family: 0 Fromm (the default), 1/3 third-order upwind-biased (CFL3D's default), -1 fully upwind; other than 0 only with limiter `none` |
 
 ### `time_integration`

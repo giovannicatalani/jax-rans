@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
 from ..core.config import FlowConditions
-from ..core.state import RHO, Rows, conservative_to_primitive, freestream_primitive
+from ..core.state import RHO, Rows, conservative_to_primitive, freestream_primitive, magnitude, split
 from ..mesh.atlas import Atlas
 from ..numerics import boundary as bc
 from ..numerics.residual import primitive_from_conservative, viscous_fluxes
@@ -29,9 +30,11 @@ def dynamic_pressure(flow: FlowConditions) -> float:
     return 0.5 * flow.mach**2
 
 
-def wall_loads(U: Array, atlas: Atlas, flow: FlowConditions) -> tuple[Array, Array, Array]:
+def wall_loads(U: Array, atlas: Atlas, flow: FlowConditions, freestream: Array | None = None,
+               mu_inf: Array | None = None) -> tuple[Array, Array, Array]:
     """Per wall face: gauge pressure ``(n,)``, the area vector into the fluid
-    ``(d, n)``, and the viscous force on the body ``(d, n)`` (zero if inviscid)."""
+    ``(d, n)``, and the viscous force on the body ``(d, n)`` (zero if
+    inviscid); ``freestream`` and ``mu_inf`` (traceable) replace ``flow``'s."""
     gamma, dim = flow.gamma, atlas.dim
     rows = Rows(dim)
     q = primitive_from_conservative(U[:rows.n_flow], gamma, dim)
@@ -39,10 +42,11 @@ def wall_loads(U: Array, atlas: Atlas, flow: FlowConditions) -> tuple[Array, Arr
     S = bc.wall_vectors(atlas)
     shear = jnp.zeros((dim,) + p.shape, dtype=U.dtype)
     if not flow.inviscid:
-        q_inf = jnp.asarray(freestream_primitive(flow, dim), dtype=U.dtype)
+        q_inf = jnp.asarray(freestream_primitive(flow, dim) if freestream is None else freestream,
+                            dtype=U.dtype)
         conditions = bc.Conditions(q_inf, gamma, bc.uniform_far_field(q, atlas, q_inf, gamma))
         filled = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((1, 1),) * dim, mode="edge")
-        visc = viscous_fluxes(filled, atlas.grid, Viscosity.of(flow), gamma, centres=atlas.centres)
+        visc = viscous_fluxes(filled, atlas.grid, Viscosity.of(flow, mu_inf), gamma, centres=atlas.centres)
         shear = atlas.walls.into_fluid * atlas.wall_values(tuple(v[rows.velocity] for v in visc))
     return p, S, shear
 
@@ -84,58 +88,56 @@ class ForceReference:
     centre: tuple[float, ...] = (0.25, 0.0, 0.0)
 
 
+def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
+                       reference: ForceReference = ForceReference(),
+                       freestream: Array | None = None, mu_inf: Array | None = None) -> dict[str, Array]:
+    """``cl``, ``cd``, ``cm``, ``cd_friction``, ``cy`` (side force, 3D), the
+    total ``force`` ``(d,)`` and each body's ``(cl, cd, cm)``, ``bodies``
+    ``(n_bodies, 3)``; traceable in ``U`` and in ``freestream`` (primitives)
+    and ``mu_inf``, which replace ``flow``'s (a sensitivity's parameters).
+
+    Drag along the freestream velocity, lift normal to it in the plane of
+    incidence (the first and the last axis, core/state.py), per ``q_inf *
+    area`` (in 2D per unit span: the area is the length). The pitching moment
+    ``sum (r_up f_x - r_x f_up)`` about ``reference.centre``, nose-up
+    positive, per ``q_inf * area * length``: pressure only in 2D, pressure and
+    friction in 3D (as TMR's CMY)."""
+    dim = atlas.dim
+    if dim == 3 and reference.area is None:
+        raise ValueError("a 3D case needs domain.reference_area")
+    q = jnp.asarray(freestream_primitive(flow, dim) if freestream is None else freestream, dtype=U.dtype)
+    p, S, shear = wall_loads(U, atlas, flow, q, mu_inf)
+    faces = atlas.walls.faces
+    rho, velocity, _ = split(q, dim)
+    speed = magnitude(velocity)
+    drag = velocity / speed
+    lift = jnp.stack([-drag[1], drag[0]] if dim == 2 else [-drag[2], jnp.zeros_like(speed), drag[0]])
+    q_area = 0.5 * rho * speed**2 * (reference.length if dim == 2 else reference.area)
+    pressure = -p * S                                                   # (d, n)
+    load = pressure + shear
+    arm = pressure if dim == 2 else load
+    r = jnp.asarray(faces.mid - np.asarray(reference.centre[:dim]))
+    moment = r[:, -1] * arm[0] - r[:, 0] * arm[-1]
+    per_face = jnp.stack([lift @ load, drag @ load, moment / reference.length]) / q_area   # (3, n)
+    totals, force = per_face.sum(axis=1), load.sum(axis=1)
+    return {"cl": totals[0], "cd": totals[1], "cm": totals[2],
+            "cd_friction": drag @ shear.sum(axis=1) / q_area,
+            "cy": force[1] / q_area if dim == 3 else jnp.zeros_like(q_area),
+            "force": force,
+            "bodies": jax.ops.segment_sum(per_face.T, jnp.asarray(faces.body), faces.bodies)}
+
+
 def integrate_forces(U: Array, atlas: Atlas, flow: FlowConditions,
                      reference: ForceReference | float = ForceReference()) -> Forces:
-    """Force coefficients of every wall, and of each body; ``reference`` (or
-    the reference length alone)."""
+    """``force_coefficients`` as Python floats; ``reference`` (or the
+    reference length alone)."""
     if not isinstance(reference, ForceReference):
         reference = ForceReference(length=float(reference))
-    if atlas.dim == 3:
-        return _integrate_forces_3d(U, atlas, flow, reference)
-    reference_length = reference.length
-    xc, yc = reference.centre[:2]
-    p, (sx, sy), shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
-    faces = atlas.walls.faces
-    x, y = faces.mid[:, 0] - xc, faces.mid[:, 1] - yc
-    cos_a, sin_a = np.cos(flow.alpha_rad), np.sin(flow.alpha_rad)
-    q_inf = dynamic_pressure(flow) * reference_length
-
-    def coefficients(mask):
-        fx, fy = -np.sum(p[mask] * sx[mask]), -np.sum(p[mask] * sy[mask])
-        tx, ty = shear[0][mask].sum(), shear[1][mask].sum()
-        moment = -np.sum(x[mask] * (-p[mask] * sy[mask]) - y[mask] * (-p[mask] * sx[mask]))
-        fx, fy = fx + tx, fy + ty
-        return ((-fx * sin_a + fy * cos_a) / q_inf, (fx * cos_a + fy * sin_a) / q_inf,
-                moment / (q_inf * reference_length), fx, fy, (tx * cos_a + ty * sin_a) / q_inf)
-
-    cl, cd, cm, fx, fy, friction = coefficients(np.ones(len(p), dtype=bool))
-    bodies = tuple(tuple(float(c) for c in coefficients(faces.body == k)[:3])
-                   for k in range(faces.bodies)) if faces.bodies > 1 else ()
-    return Forces(float(cl), float(cd), float(cm), float(fx), float(fy), float(friction), bodies)
-
-
-def _integrate_forces_3d(U: Array, atlas: Atlas, flow: FlowConditions, reference: ForceReference) -> Forces:
-    """3D: lift along ``(-sin a, 0, cos a)``, drag along ``(cos a, 0, sin a)``
-    (incidence in x-z, core/state.py), side force along ``y``, per
-    ``q_inf * area``; the pitching moment ``sum (r x f)_y`` about the ``y``
-    axis through the centre (nose-up positive), pressure and friction (as
-    TMR's CMY; 2D is pressure only), per ``q_inf * area * length``."""
-    if reference.area is None:
-        raise ValueError("a 3D case needs domain.reference_area")
-    p, S, shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
-    r = atlas.walls.faces.mid - np.asarray(reference.centre, dtype=float)[:3]
-    cos_a, sin_a = np.cos(flow.alpha_rad), np.sin(flow.alpha_rad)
-    q_area = dynamic_pressure(flow) * reference.area
-    pressure = -p * S                                     # (3, n)
-    force = pressure.sum(axis=1) + shear.sum(axis=1)
-    friction = shear.sum(axis=1)
-    lift = np.array([-sin_a, 0.0, cos_a])
-    drag = np.array([cos_a, 0.0, sin_a])
-    load = pressure + shear
-    moment = np.sum(r[:, 2] * load[0] - r[:, 0] * load[2])
-    return Forces(float(force @ lift / q_area), float(force @ drag / q_area),
-                  float(moment / (q_area * reference.length)), float(force[0]), float(force[1]),
-                  float(friction @ drag / q_area), fz=float(force[2]), cy=float(force[1] / q_area))
+    c = {k: np.asarray(v) for k, v in force_coefficients(U, atlas, flow, reference).items()}
+    force = [float(f) for f in c["force"]] + [0.0]
+    bodies = tuple(tuple(float(x) for x in b) for b in c["bodies"]) if len(c["bodies"]) > 1 else ()
+    return Forces(float(c["cl"]), float(c["cd"]), float(c["cm"]), force[0], force[1],
+                  float(c["cd_friction"]), bodies, fz=force[2], cy=float(c["cy"]))
 
 
 def surface(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarray]:

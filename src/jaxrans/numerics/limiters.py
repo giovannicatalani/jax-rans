@@ -6,15 +6,18 @@ Every limiter here takes the two neighbouring *differences* ``a`` (backward) and
 a converged steady field is most of the domain -- and removes the need for an
 arbitrary guard epsilon in the denominator.
 
-All of them return 0 when ``a*b <= 0`` (a local extremum), which is what enforces
-monotonicity, and **must** return exactly ``a`` when ``a == b``: that is the
+All of them but ``none`` and ``van_albada_smooth`` return 0 when ``a*b <= 0``
+(a local extremum), which is what enforces monotonicity, and every one **must**
+return exactly ``a`` when ``a == b``: that is the
 condition for second-order accuracy in smooth flow, and a limiter that returns
 some fraction of the central slope instead degrades the scheme silently while
 still looking plausible. It is unit-tested for every registered limiter.
 
 ``minmod``: the most dissipative second-order TVD limiter, for shocks.
 ``van_albada``: smooth where active, for a shock meeting a boundary layer
-(what a Newton method wants). ``none``: smooth flow and order measurements.
+(what a Newton method wants). ``van_albada_smooth``: its original, unclipped
+form, differentiable everywhere, for derivatives of a solution with a shock
+(docs/gradients.md). ``none``: smooth flow and order measurements.
 """
 
 from __future__ import annotations
@@ -91,3 +94,23 @@ def van_albada(a: Array, b: Array) -> Array:
     same_sign = a * b > 0.0
     denom = jnp.where(same_sign, a * a + b * b, 1.0)
     return jnp.where(same_sign, a * b * (a + b) / denom, 0.0)
+
+
+VAN_ALBADA_EPSILON2 = 1e-12
+"""``eps^2`` of ``van_albada_smooth``: differences below ``eps = 1e-6`` (of
+nondimensional variables of order one) are treated as smooth."""
+
+
+@register_limiter("van_albada_smooth")
+def van_albada_smooth(a: Array, b: Array) -> Array:
+    """Van Albada's limiter in its original form,
+    ``((b^2 + eps^2) a + (a^2 + eps^2) b) / (a^2 + b^2 + 2 eps^2)``, with no
+    switch at an extremum: smooth in ``a`` and ``b`` everywhere, so the
+    discrete solution is differentiable (``van_albada``'s cut to 0 at ``a*b =
+    0`` is a kink, which moves a transonic derivative by 2e-3). Not monotone
+    at extrema, where it is close to the central slope.
+
+    Reference: van Albada, van Leer and Roberts (1982), as ``van_albada``.
+    """
+    e = VAN_ALBADA_EPSILON2
+    return ((b * b + e) * a + (a * a + e) * b) / (a * a + b * b + 2.0 * e)

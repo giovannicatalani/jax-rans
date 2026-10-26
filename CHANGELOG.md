@@ -5,6 +5,18 @@
 - **Renamed to JAX-RANS**: distribution `jax-rans`, import `jaxrans`, command
   `jaxrans` (formerly `jax-aero`, `jaxaero`; nothing had been released under
   the old name, so there is no alias).
+- **Derivatives of the forces** (`jaxrans.sensitivity(result, outputs,
+  parameters)`): dCL, dCD, dCM and the friction drag with respect to the
+  angle of attack and the Mach number (at fixed Reynolds number), exact for
+  the discrete solution, one linear solve per parameter on the exact Jacobian
+  of the converged residual, iterated with the implicit solver's own Newton
+  step (docs/gradients.md). Verified against central finite differences to
+  4e-6 (laminar NACA 0012) and 6e-7 (SA Clark Y) in dCL/dalpha;
+  `validation/check_sensitivity.py` repeats the check on any case. The force
+  coefficients are one JAX function now (`force_coefficients`),
+  `integrate_forces` its float conversion: the same values to 1e-15.
+  New limiter `van_albada_smooth` (van Albada's original form, no cut at
+  extrema): differentiable, for derivatives of a flow with a shock.
 - **Multi-block 3D grids**: any number of point-matched blocks, from Plot3D or
   CGNS (HDF5; 3D zones read whole, with their families, BC types and 1-to-1
   interfaces). Interfaces are found from coincident faces in any relative
