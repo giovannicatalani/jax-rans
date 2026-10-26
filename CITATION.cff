@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "JAX-RANS: differentiable compressible RANS in JAX"
+type: software
+authors:
+  - family-names: Catalani
+    given-names: Giovanni
+license: GPL-3.0-only
+repository-code: "https://github.com/giovannicatalani/jax-rans"
+url: "https://giovannicatalani.github.io/jax-rans/"
+version: 0.2.0
+keywords:
+  - CFD
+  - RANS
+  - JAX
+  - aerodynamics
+  - differentiable simulation

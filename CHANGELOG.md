@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - **Renamed to JAX-RANS**: distribution `jax-rans`, import `jaxrans`, command
   `jaxrans` (formerly `jax-aero`, `jaxaero`; nothing had been released under

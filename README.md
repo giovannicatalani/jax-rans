@@ -1,88 +1,116 @@
 # JAX-RANS
 
-JAX-RANS is a Computational Fluid Dynamics solver written in Jax, conceived for steady 2D and 3D flow solutions over airfoil and wings, on structured meshes.
-It implements the numerical solution of compressible Euler, laminar Navier-Stokes and RANS equations (Spalart-Allmaras turbulence model) with a
-cell-centred finite-volume method on structured grids, in double precision,
-on CPU or GPU.
+**Differentiable compressible RANS in JAX.** Euler, laminar Navier-Stokes and
+Spalart-Allmaras RANS on structured multi-block grids, 2D and 3D, in double
+precision on GPUs (one or several), validated against NASA, AGARD and JAXA
+reference data, with exact derivatives of the converged forces.
 
-It is conceived as a research code on differentiable, GPU based solvers written in Python. It has been developed with the use of Claude Code. It has been validated on several canonical cases, against existing solvers and experimental data ([validation/gallery](validation/gallery/README.md)). 
-
-In 2D, it supports automatic structured mesh generation around an airfoil from its coordinate file. Alternatively, an input mesh can be provided (Plot3D or CGNS, one block or many). Multi-element high-lift sections (a slat, main element and flap) can be meshed automatically from their coordinates too, or read as a multi-block structured mesh.
-For a 3D wing, a structured grid must be provided (Plot3D or CGNS, one block or many:
-[docs/wing-3d.md](docs/wing-3d.md)); a case too large for one GPU can be split over several.
-
-To launch a new case two config JSON files must be provided so you don't write any code. 
-
-
-
-## Install
-
-```bash
-pip install -e ".[plot,cgns]"
-```
-
-For a GPU, install jax with CUDA support first
-([instructions](https://docs.jax.dev/en/latest/installation.html)).
-
-## Run an existing example
-
-```bash
-jaxrans examples/naca0012_euler
-python -m jaxrans.plot examples/naca0012_euler/results/naca0012_euler
-```
-
-## Run your own airfoil
-
-1. Make a directory with your coordinate file (Selig or Lednicer `.dat`, as
-   downloaded) and copy `case.json` and `numerical.json` from
-   `examples/clarky_sa`.
-2. Set `domain.airfoil` to your file name, and set the freestream.
-3. `jaxrans my_airfoil --check` to see the grid, then `jaxrans my_airfoil`.
-
-The full walkthrough is [docs/own-airfoil.md](docs/own-airfoil.md). For a
-slat-main-flap section or any grid from your own mesher, see
-[docs/multi-element.md](docs/multi-element.md).
-
-## Documentation
-
-- [Running a case](docs/guide.md): examples, command line, output, polars, boundary conditions
-- [Your own airfoil](docs/own-airfoil.md), [a multi-element airfoil](docs/multi-element.md) and [a 3D wing](docs/wing-3d.md)
-- [Case reference](docs/case_reference.md): every key of the two files
-- [Equations and method](docs/theory.md)
-- [Developer guide](docs/developer.md)
-- [Validation](validation/README.md)
-
-`mkdocs serve` (after `pip install -e ".[docs]"`) shows the docs as a website.
-
-## Gallery
+[![tests](https://github.com/giovannicatalani/jax-rans/actions/workflows/tests.yml/badge.svg)](https://github.com/giovannicatalani/jax-rans/actions/workflows/tests.yml)
+[![docs](https://github.com/giovannicatalani/jax-rans/actions/workflows/docs.yml/badge.svg)](https://giovannicatalani.github.io/jax-rans/)
+[![PyPI](https://img.shields.io/pypi/v/jax-rans)](https://pypi.org/project/jax-rans/)
+[![licence: GPL v3](https://img.shields.io/badge/licence-GPL%20v3-blue)](LICENSE)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb)
 
 ![ONERA M6 wing, wall pressure and tip vortex](docs/figures/readme_m6.png)
 
-**ONERA M6 wing**, SA RANS, M 0.84, alpha 3.06 deg, Re 14.6 million (NASA TMR
-case 2308). 1,081,344 cells;
-57 minutes on one NVIDIA A100, 2,520 iterations.
+*ONERA M6 wing, SA RANS, M 0.84, 3.06 deg, Re 14.6 million (NASA TMR): 1.08
+million cells, 57 minutes on one NVIDIA A100.*
 
-![RAE 2822, Mach number](docs/figures/readme_rae2822.png)
+## Quickstart
 
-**RAE 2822 transonic airfoil**, SA RANS, M 0.729, alpha 2.31 deg, Re 6.5
-million (AGARD case 6): Mach number. 23,552 cells; 55 s on one NVIDIA A100, 760 iterations.
-
-![30P30N three-element airfoil, flow speed](docs/figures/readme_30p30n.png)
-
-**30P30N slat, main element and flap**, SA RANS, M 0.17, alpha 5.5 deg, Re 1.71
-million (JAXA's 117-block grid): 63,957 cells; 7
-minutes on one NVIDIA A100 (8,000 iterations).
-
-## Repository
-
-```
-src/jaxrans/   the solver
-docs/          documentation
-examples/      example cases
-validation/    cases against published data, reference data, gallery
-tests/         unit, verification and validation tests
-scripts/       benchmark and cluster job scripts
-data/grids/    downloaded grid files (not tracked; see its README)
+```bash
+pip install "jax-rans[plot] @ git+https://github.com/giovannicatalani/jax-rans"
+jaxrans examples/naca0012_euler            # solve; results/naca0012_euler/
+python -m jaxrans.plot results/naca0012_euler
 ```
 
-Licensed under the GNU GPL v3.
+For a GPU, install JAX with CUDA first
+([instructions](https://docs.jax.dev/en/latest/installation.html)). A case is
+two JSON files, the physics and the numerics; from Python:
+
+```python
+from jaxrans import load_case, run, sensitivity
+
+result = run(load_case("examples/rae2822_sensitivity"))
+print(result.forces.summary())
+print(sensitivity(result, outputs=("cl", "cd"), parameters=("alpha", "mach")).summary())
+```
+
+Or try it in the browser, a transonic airfoil and its derivatives on a free
+GPU: [quickstart notebook](notebooks/quickstart.ipynb)
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb).
+
+## What it does
+
+- **Physics**: compressible Euler, laminar Navier-Stokes, Spalart-Allmaras
+  (SA-noft2, SA-neg, QCR2000); cell-centred finite volumes, HLLC or Roe
+  fluxes, MUSCL reconstruction (minmod, van Albada, smooth van Albada or none).
+- **Grids**: generated O- and C-grids round any airfoil from its coordinate
+  file; generated slat-main-flap sections; any point-matched multi-block
+  Plot3D or CGNS grid, 2D or 3D, with interfaces and patches found from the
+  geometry.
+- **Solvers**: pseudo-transient Newton-Krylov with line-implicit
+  preconditioning, or explicit Runge-Kutta; grid sequencing; a polar's angles
+  batched on the GPU; one large case split over several GPUs.
+- **Derivatives**: dCL, dCD and dCM with respect to the angle of attack and
+  the Mach number, exact for the discrete solution, one linear solve each
+  ([how](docs/gradients.md)).
+
+## Validation
+
+| case | reference | this code |
+|---|---|---|
+| NACA 0012, SA, 10 deg, 897x257 (NASA TMR) | CFL3D, same grid: CL 1.09112, CD 0.012371 | CL 1.09076, CD 0.012349 |
+| flat plate, SA, 137x97 (NASA TMR) | CFL3D, 545x385: Cf(0.97) 2.70562e-3 | 2.70546e-3 |
+| RAE 2822 case 6, SA, 369x65 (AGARD) | WIND, same grid: CL 0.73096, CD 0.012117, shock 0.5455 c | CL 0.72118, CD 0.012452, shock 0.5455 c |
+| 30P30N, SA, 5.5 deg, 261k cells (JAXA) | JAXA's RANS: CL 2.877 | CL 2.8756 |
+| ONERA M6, SA, 1.08M cells (NASA TMR) | CFL3D, same grid | CL +0.19%, CD -1.74% |
+
+Every case, its sources and its figures: [validation gallery](validation/gallery/README.md).
+
+## Derivatives
+
+![RAE 2822 lift and drag polar with derivatives](docs/figures/readme_gradients.png)
+
+*RAE 2822, SA, M 0.729, Re 6.5 million: each point a converged run, each line
+its derivative from one linear solve.*
+
+```python
+from jaxrans import sensitivity
+
+s = sensitivity(result, outputs=("cl", "cd"), parameters=("alpha", "mach"))
+s.derivatives["cl"]["alpha"]               # per degree
+```
+
+Verified against central finite differences to 2e-5 or better
+([docs/gradients.md](docs/gradients.md)).
+
+## How it compares
+
+[JAX-CFD](https://github.com/google/jax-cfd) solves incompressible flow on
+Cartesian grids, for machine learning research;
+[JAX-Fluids](https://github.com/tumaer/JAXFLUIDS) compressible flow on
+Cartesian grids with immersed boundaries, for shocks and two-phase flow.
+JAX-RANS is for aerodynamics on body-fitted structured grids: wall-resolved
+RANS round airfoils and wings, the grids an aerodynamicist already has.
+[SU2](https://su2code.github.io) is the mature general-purpose code (C++,
+unstructured, a discrete adjoint for shape optimization); JAX-RANS is
+smaller, Python throughout, and differentiable through JAX.
+
+## Documentation
+
+[giovannicatalani.github.io/jax-rans](https://giovannicatalani.github.io/jax-rans/):
+running a case, your own airfoil, multi-element sections, 3D wings,
+derivatives, every case key, the equations and method, and a developer
+guide. Example cases are in [examples/](examples/README.md).
+
+JAX-RANS is a research code on differentiable GPU solvers written in Python,
+developed with the help of Claude Code and checked case by case against the
+references above.
+
+## Citing, licence, contributing
+
+If you use JAX-RANS, please cite it ([CITATION.cff](CITATION.cff)). Licensed
+under the GNU GPL v3. Issues and pull requests are welcome on
+[GitHub](https://github.com/giovannicatalani/jax-rans/issues); the
+[developer guide](docs/developer.md) explains the layout and the tests.

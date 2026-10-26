@@ -24,4 +24,4 @@ from .simulation import Result, run  # noqa: E402
 from .derivatives import Sensitivity, sensitivity  # noqa: E402
 
 __all__ = ["Case", "CaseError", "Result", "Sensitivity", "load_case", "run", "sensitivity"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"
