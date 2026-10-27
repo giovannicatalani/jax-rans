@@ -7,6 +7,20 @@ from the viscous flux the residual uses there; the force on the body is
     F = sum_faces [ -(p - p_inf) S + tau . S ],     S into the fluid,
 
 gauge pressure, so an open wall (a plate wetted on one side) is right too.
+
+Swept (2.5D, ``FlowConditions.sweep_deg``): the grid is the section normal to
+the sweep line, the loads per unit length along it. In the wing frame (``X``
+streamwise, ``Y`` up, ``S`` the span), per unit span, with ``c = cos(sweep)``
+and ``s = sin(sweep)``,
+
+    F_X = F_x + (s / c) F_z,    F_Y = F_y / c,    F_S = (c F_z - s F_x) / c
+
+and the coefficients are the 2D ones of the streamwise section, at streamwise
+positions ``x / c``: lift and drag in the plane ``X-Y``, per ``q_inf`` (of the
+whole freestream) times the reference length, the moment about the centre in
+streamwise coordinates, ``cy`` the spanwise force. The pressure part is the
+integral round the streamwise section: a face ``(dx, dy)`` of the normal one is
+``(dx / c, dy)`` there, area vector ``(S_x, S_y / c)``.
 """
 
 from __future__ import annotations
@@ -22,7 +36,7 @@ from ..core.config import FlowConditions
 from ..core.state import RHO, Rows, conservative_to_primitive, freestream_primitive, magnitude, split
 from ..mesh.atlas import Atlas
 from ..numerics import boundary as bc
-from ..numerics.residual import primitive_from_conservative, viscous_fluxes
+from ..numerics.residual import primitive_from_conservative, swept_atlas, viscous_fluxes
 from ..physics.navier_stokes import Viscosity
 
 
@@ -34,15 +48,17 @@ def wall_loads(U: Array, atlas: Atlas, flow: FlowConditions, freestream: Array |
                mu_inf: Array | None = None) -> tuple[Array, Array, Array]:
     """Per wall face: gauge pressure ``(n,)``, the area vector into the fluid
     ``(d, n)``, and the viscous force on the body ``(d, n)`` (zero if
-    inviscid); ``freestream`` and ``mu_inf`` (traceable) replace ``flow``'s."""
-    gamma, dim = flow.gamma, atlas.dim
-    rows = Rows(dim)
-    q = primitive_from_conservative(U[:rows.n_flow], gamma, dim)
+    inviscid); ``freestream`` and ``mu_inf`` (traceable) replace ``flow``'s.
+    Vectors have the atlas's components (3 swept, in the grid's frame)."""
+    atlas = swept_atlas(atlas, flow)
+    gamma, dim, nv = flow.gamma, atlas.dim, atlas.components
+    rows = Rows(nv)
+    q = primitive_from_conservative(U[:rows.n_flow], gamma, nv)
     p = q[rows.pressure].ravel()[atlas.walls.cell] - 1.0 / gamma
     S = bc.wall_vectors(atlas)
-    shear = jnp.zeros((dim,) + p.shape, dtype=U.dtype)
+    shear = jnp.zeros((nv,) + p.shape, dtype=U.dtype)
     if not flow.inviscid:
-        q_inf = jnp.asarray(freestream_primitive(flow, dim) if freestream is None else freestream,
+        q_inf = jnp.asarray(freestream_primitive(flow, nv) if freestream is None else freestream,
                             dtype=U.dtype)
         conditions = bc.Conditions(q_inf, gamma, bc.uniform_far_field(q, atlas, q_inf, gamma))
         filled = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((1, 1),) * dim, mode="edge")
@@ -101,28 +117,45 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
     area`` (in 2D per unit span: the area is the length). The pitching moment
     ``sum (r_up f_x - r_x f_up)`` about ``reference.centre``, nose-up
     positive, per ``q_inf * area * length``: pressure only in 2D, pressure and
-    friction in 3D (as TMR's CMY)."""
-    dim = atlas.dim
+    friction in 3D (as TMR's CMY). Swept: those of the streamwise section in
+    the wing frame (module docstring), ``cy`` and ``force[2]`` spanwise."""
+    atlas = swept_atlas(atlas, flow)
+    dim, nv = atlas.dim, atlas.components
     if dim == 3 and reference.area is None:
         raise ValueError("a 3D case needs domain.reference_area")
-    q = jnp.asarray(freestream_primitive(flow, dim) if freestream is None else freestream, dtype=U.dtype)
+    q = jnp.asarray(freestream_primitive(flow, nv) if freestream is None else freestream, dtype=U.dtype)
     p, S, shear = wall_loads(U, atlas, flow, q, mu_inf)
     faces = atlas.walls.faces
-    rho, velocity, _ = split(q, dim)
+    rho, velocity, _ = split(q, nv)
     speed = magnitude(velocity)
+    pressure = -p * S                                                   # (d, n)
+    load = pressure + shear
+    mid, side = faces.mid, None
+    if flow.swept:
+        c, s = float(np.cos(flow.sweep_rad)), float(np.sin(flow.sweep_rad))
+
+        def wing(f):
+            """Per unit length along the sweep line -> the wing frame per unit span, ``(X, Y)``."""
+            return jnp.stack([f[0] + (s / c) * f[2], f[1] / c])
+
+        side = (c * load[2] - s * load[0]) / c
+        load, pressure, shear = wing(load), wing(pressure), wing(shear)
+        velocity = jnp.stack([c * velocity[0] + s * velocity[2], velocity[1]])
+        mid = mid / np.array([c, 1.0])
     drag = velocity / speed
     lift = jnp.stack([-drag[1], drag[0]] if dim == 2 else [-drag[2], jnp.zeros_like(speed), drag[0]])
     q_area = 0.5 * rho * speed**2 * (reference.length if dim == 2 else reference.area)
-    pressure = -p * S                                                   # (d, n)
-    load = pressure + shear
     arm = pressure if dim == 2 else load
-    r = jnp.asarray(faces.mid - np.asarray(reference.centre[:dim]))
+    r = jnp.asarray(mid - np.asarray(reference.centre[:dim]))
     moment = r[:, -1] * arm[0] - r[:, 0] * arm[-1]
     per_face = jnp.stack([lift @ load, drag @ load, moment / reference.length]) / q_area   # (3, n)
     totals, force = per_face.sum(axis=1), load.sum(axis=1)
+    if side is not None:
+        force = jnp.concatenate([force, side.sum()[None]])
     return {"cl": totals[0], "cd": totals[1], "cm": totals[2],
             "cd_friction": drag @ shear.sum(axis=1) / q_area,
-            "cy": force[1] / q_area if dim == 3 else jnp.zeros_like(q_area),
+            "cy": force[-1] / q_area if side is not None else force[1] / q_area if dim == 3
+            else jnp.zeros_like(q_area),
             "force": force,
             "bodies": jax.ops.segment_sum(per_face.T, jnp.asarray(faces.body), faces.bodies)}
 
@@ -143,18 +176,26 @@ def integrate_forces(U: Array, atlas: Atlas, flow: FlowConditions,
 def surface(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarray]:
     """Per wall face, body by body in loop order: ``x``, ``y``, ``body``,
     ``cp`` and, viscous, ``cf`` (along the downstream-pointing tangent,
-    negative where separated)."""
+    negative where separated). Swept: ``x`` in the grid's (normal) section,
+    plus ``x_streamwise`` (``x / cos(sweep)``) and, viscous, ``cf_z``, the wall
+    shear along the sweep line; ``cp`` and ``cf`` over the whole ``q_inf``."""
     if atlas.dim == 3:
         return _surface_3d(U, atlas, flow)
-    p, (sx, sy), shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
+    p, S, shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
+    sx, sy = S[0], S[1]
     faces = atlas.walls.faces
     out = {"x": faces.mid[:, 0], "y": faces.mid[:, 1], "body": faces.body.astype(float),
            "cp": p / dynamic_pressure(flow)}
+    if flow.swept:
+        out = {"x": out["x"], "x_streamwise": out["x"] / np.cos(flow.sweep_rad),
+               **{k: out[k] for k in ("y", "body", "cp")}}
     if not flow.inviscid:
         length = np.hypot(sx, sy)
         tx, ty = sy / length, -sx / length
         sign = np.where(tx >= 0.0, 1.0, -1.0)
         out["cf"] = sign * (shear[0] * tx + shear[1] * ty) / length / dynamic_pressure(flow)
+        if flow.swept:
+            out["cf_z"] = shear[2] / length / dynamic_pressure(flow)
     return out
 
 
@@ -182,12 +223,12 @@ def pressure_lift(U: Array, atlas: Atlas, freestream: Array, gamma: float) -> Ar
     """Pressure lift coefficient per unit reference area, traceable, for
     freestream primitives ``(rho, V, p)``: a batched polar's per-block monitor.
     Lift is normal to the freestream in the plane of incidence, the first and
-    the last axis (core/state.py)."""
+    the last axis (core/state.py); swept, of the in-plane flow."""
     dim = atlas.dim
-    rows = Rows(dim)
-    p = conservative_to_primitive(U[:rows.n_flow], gamma, dim)[2].ravel()[atlas.walls.cell]
+    rows = Rows(atlas.components)
+    p = conservative_to_primitive(U[:rows.n_flow], gamma, atlas.components)[2].ravel()[atlas.walls.cell]
     force = bc.wall_pressure_force(p - freestream[rows.pressure], atlas)
-    fx, fy = force[0], force[-1]
+    fx, fy = force[0], force[dim - 1]
     u, v = freestream[1], freestream[dim]
     speed2 = u * u + v * v
     return (fy * u - fx * v) / jnp.sqrt(speed2) / (0.5 * freestream[RHO] * speed2)

@@ -257,8 +257,9 @@ def pole_sides(shape: tuple[int, int, int], *, wall: str = "wall", farfield: str
 
 def extruded_sides(sides: BlockSides, nk: int, ends: str = "symmetry") -> Sides3D:
     """A 2D block's sides carried across ``nk`` cells in ``k``, the two end
-    planes the patch ``ends``: the 2D segment ``[start, stop)`` along a side
-    becomes the rectangle ``[start, stop) x [0, nk)``."""
+    planes the patch ``ends``, or each other's partner for ``"periodic"``: the
+    2D segment ``[start, stop)`` along a side becomes the rectangle
+    ``[start, stop) x [0, nk)``."""
     def carry(seg):
         if isinstance(seg, Boundary):
             return BoundaryRect(seg.patch, (seg.start, 0), (seg.stop, nk), seg.kind)
@@ -267,6 +268,10 @@ def extruded_sides(sides: BlockSides, nk: int, ends: str = "symmetry") -> Sides3
                              (seg.partner_start + (seg.stop - seg.start - 1 if seg.reversed else 0), 0),
                              flip=(seg.reversed, False))
     rects = {s: tuple(carry(seg) for seg in sides.side(s)) for s in ("j_min", "j_max", "i_min", "i_max")}
+    if ends == "periodic":
+        whole = ((0, 0), (sides.ni, sides.nj))
+        return box_sides((sides.ni, sides.nj, nk), k_min=(InterfaceRect(*whole, 0, "k_max", (0, 0)),),
+                         k_max=(InterfaceRect(*whole, 0, "k_min", (0, 0)),), **rects)
     return box_sides((sides.ni, sides.nj, nk), k_min=ends, k_max=ends, **rects)
 
 

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Swept wing sections (2.5D)** (`freestream.sweep_deg`, `domain.section`):
+  an infinite swept wing on any 2D grid, the spanwise velocity a third
+  component with no derivative along the span (docs/swept.md). The section is
+  given streamwise (meshed normal to the sweep line, `x` scaled by
+  `cos(sweep)`) or normal; forces in the wing frame, per unit span, with the
+  spanwise force `CY`; the surface file adds `x_streamwise` and `cf_z`. Every
+  model (Euler, laminar, SA, SA-QCR), both far fields, the implicit and
+  explicit paths, polars, derivatives in alpha and Mach, several devices.
+  Verified against the 3D operator on a periodic extrusion (to 1e-11, every
+  model), and inviscid against the 2D solution at the in-plane Mach number
+  (to 4e-13, converged, transonic). Unswept 2D and 3D results unchanged
+  bitwise. New example `rae2822_swept_sa`.
 - Validation reduced to six main cases (flat plate, NACA 0012 at 10 deg, RAE 2822
   case 6, the 30P30N on JAXA's and on the generated grid, ONERA M6), with one
   page of results, `validation/README.md`. The gallery and `validation/report.py`

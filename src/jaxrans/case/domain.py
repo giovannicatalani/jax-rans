@@ -55,6 +55,7 @@ class GridSpec:
     reference_length: float = 1.0
     reference_area: float | None = None
     moment_centre: tuple[float, ...] = (0.25, 0.0, 0.0)
+    section: str = "streamwise"
 
     def force_reference(self) -> ForceReference:
         return ForceReference(self.reference_length, self.reference_area, tuple(self.moment_centre))

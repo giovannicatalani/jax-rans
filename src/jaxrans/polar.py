@@ -86,7 +86,7 @@ def run_polar(case: Case, alphas, grid: Atlas | None = None, devices: int | None
     use = jax.devices()[: devices or len(jax.devices())]
     # Pad to a multiple of the device count with copies of the last angle.
     padded = np.concatenate([alphas, np.repeat(alphas[-1:], -alphas.size % len(use))])
-    freestream = jnp.asarray([freestream_primitive(at_alpha(case, a).flow, grid.dim) for a in padded],
+    freestream = jnp.asarray([freestream_primitive(at_alpha(case, a).flow, grid.components) for a in padded],
                              dtype=case.numerics.dtype)
     distance = make_residual(grid, case.flow, case.numerics).distance
 

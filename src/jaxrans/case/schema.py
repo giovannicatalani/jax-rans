@@ -124,10 +124,16 @@ CASE: dict[str, tuple[Key, ...]] = {
             "coefficients are per; 2D coefficients are per unit span"),
         Key("moment_centre", "list", [0.25, 0.0, 0.0], "point the pitching moment is about, `[x, y]` or "
             "`[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D)"),
+        Key("section", "string", "streamwise", "swept cases (`freestream.sweep_deg`): the plane the 2D "
+            "section is given in; `streamwise` is meshed normal to the sweep line (x scaled by cos(sweep)), "
+            "`normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise "
+            "(docs/swept.md)", choices=("normal", "streamwise")),
     ),
     "freestream": (
-        Key("mach", "number", REQUIRED, "subsonic"),
-        Key("alpha_deg", "number", 0.0, "incidence, degrees"),
+        Key("mach", "number", REQUIRED, "subsonic (swept: in the plane of the grid)"),
+        Key("alpha_deg", "number", 0.0, "incidence, degrees (streamwise when swept)"),
+        Key("sweep_deg", "number|null", None, "2D grids: sweep of an infinite swept wing (2.5D), degrees, "
+            "the spanwise velocity M cos(alpha) sin(sweep); `null` is plain 2D (docs/swept.md)"),
         Key("reynolds", "number|null", None, "per unit length of the grid (per chord for a grid of unit "
             "chord); `null` is inviscid"),
         Key("temperature", "number", None, "absolute, in the unit of `sutherland_temperature`; "

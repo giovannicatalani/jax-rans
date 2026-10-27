@@ -34,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CASES = {
     "2d": ("examples/naca0012_laminar", ("case.domain.cells_airfoil=64", "case.domain.cells_wake=16",
                                          "case.domain.cells_normal=24")),
+    "2d_swept": ("examples/naca0012_laminar", ("case.domain.cells_airfoil=64", "case.domain.cells_wake=16",
+                                               "case.domain.cells_normal=24", "case.freestream.sweep_deg=30.0")),
     "3d": ("examples/onera_m6_sa", ()),
     "3d_blocks": ("examples/onera_m6_sa", ()),
     "3d_reindexed": ("examples/onera_m6_sa", ()),
@@ -102,7 +104,7 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
     done = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
                           capture_output=True, text=True, timeout=1800)
     assert done.returncode == 0, done.stderr[-3000:]
-    expected = "ChainLayout" if name in ("2d", "3d_reindexed") else "SliceChains"
+    expected = "ChainLayout" if name in ("2d", "2d_swept", "3d_reindexed") else "SliceChains"
     assert f"layout {expected}" in done.stdout, done.stdout
     out = np.load(tmp_path / "out.npz")
     assert np.max(np.abs(out["R4"] - out["R1"])) <= 1e-12 * np.max(np.abs(out["R1"]))

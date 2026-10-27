@@ -93,3 +93,14 @@ def face_gradients(phi: Array, centres: Array) -> tuple[Array, ...]:
         dphi = [phin[(slice(None),) + hi] - phin[(slice(None),) + lo] for lo, hi in diagonals]
         out.append(_solve3(d_cells, d[0], d[1], dphi_cells, dphi[0], dphi[1]))
     return tuple(out)
+
+
+def pad_directions(grads: tuple[Array, ...], components: int) -> tuple[Array, ...]:
+    """Face gradients ``(d, nvar, ...)`` with zero rows appended up to
+    ``components`` directions: on a swept flow's 2D grid (2.5D) nothing varies
+    along the span. Unchanged (the same arrays) when ``components == d``."""
+    if grads[0].shape[0] == components:
+        return grads
+    return tuple(jnp.concatenate([G, jnp.zeros((components - G.shape[0],) + G.shape[1:], G.dtype)])
+                 for G in grads)
+

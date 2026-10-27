@@ -137,6 +137,10 @@ class Grid:
     ``volume (*shape)`` (an area in 2D); ``faces[a]``, the area vectors of the
     faces normal to index direction ``a``, ``(d, *shape)`` with one more along
     ``a``. In 2D the named views ``x_node, xc, area, sx_i, ...`` read the same.
+
+    ``dim`` counts index axes, ``components`` the entries of a vector (face
+    vectors, velocity): equal, except on a grid ``lift``-ed for a swept flow
+    (2 axes, 3 components).
     """
 
     nodes: Array
@@ -148,6 +152,10 @@ class Grid:
     @property
     def dim(self) -> int:
         return self.volume.ndim
+
+    @property
+    def components(self) -> int:
+        return self.faces[0].shape[0]
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -195,6 +203,18 @@ class Grid:
 jax.tree_util.register_dataclass(
     Grid, data_fields=["nodes", "centres", "volume", "faces"], meta_fields=["sides"],
 )
+
+
+def lift(grid: Grid) -> Grid:
+    """A 2D block's geometry for an infinite swept wing (2.5D): every face
+    area vector ``(Sx, Sy, 0)``, so a 3-component flux or normal sees the
+    spanwise direction, with no face across it (no derivative along it).
+    Nodes and centres, positions in the plane, are kept. Idempotent."""
+    if grid.components == 3:
+        return grid
+    if grid.dim != 2:
+        raise ValueError(f"only a 2D grid is lifted, got {grid.dim}D")
+    return replace(grid, faces=tuple(jnp.concatenate([f, jnp.zeros_like(f[:1])]) for f in grid.faces))
 
 
 def sides_shape(sides) -> tuple[int, ...]:

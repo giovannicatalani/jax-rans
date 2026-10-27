@@ -68,19 +68,23 @@ def divergence(fluxes: tuple[Array, ...]) -> Array:
 
 
 def green_gauss(phi_faces: tuple[Array, ...], grid: Grid) -> Array:
-    """Cell gradient ``(1/V) sum_f phi_f S_f`` from face values, ``(d, ..., *shape)``."""
+    """Cell gradient ``(1/V) sum_f phi_f S_f`` from face values, one row per
+    vector component, ``(components, ..., *shape)`` (the spanwise row of a
+    swept flow's grid is zero: its faces have no spanwise component)."""
     return jnp.stack([divergence(tuple(phi * s[c] for phi, s in zip(phi_faces, grid.faces))) / grid.volume
-                      for c in range(grid.dim)])
+                      for c in range(grid.components)])
 
 
 def face_eddy_viscosity(
-    p1: Array, viscosity: Viscosity, gamma: float, model: sa.SAModel, dim: int
+    p1: Array, viscosity: Viscosity, gamma: float, model: sa.SAModel, dim: int, components: int | None = None
 ) -> tuple[Array, ...]:
-    """``mu_t`` on every face family from face-averaged ``rho``, ``nu~``, ``T``."""
-    nu = Rows(dim).nu
+    """``mu_t`` on every face family from face-averaged ``rho``, ``nu~``, ``T``;
+    ``dim`` index axes, ``components`` velocity rows (default ``dim``)."""
+    nv = dim if components is None else components
+    nu = Rows(nv).nu
 
     def at(face):
-        T = navier_stokes.temperature(face, gamma, dim)
+        T = navier_stokes.temperature(face, gamma, nv)
         return model.eddy_viscosity(face[RHO], face[nu], viscosity(T))
 
     return tuple(at(face) for face in face_averages(p1, dim))
@@ -101,7 +105,7 @@ def vorticity_magnitude(g: Array) -> Array:
 
 def vorticity(p1: Array, grid: Grid) -> Array:
     """Vorticity magnitude per cell, by Green-Gauss over face-averaged velocities."""
-    velocity = p1[Rows(grid.dim).velocity]
+    velocity = p1[Rows(grid.components).velocity]
     return vorticity_magnitude(green_gauss(face_averages(velocity, grid.dim), grid))
 
 
@@ -118,15 +122,15 @@ def sa_residual(
     """The scaled SA residual row, ``shape``, from ``p1`` (one ghost layer),
     every face's mass flux and ``grad nu_hat`` ``(d, *face shape)``, and the
     wall distance."""
-    c, nu_inf, dim = model.constants, model.nu_inf, grid.dim
-    nu_row = Rows(dim).nu
+    c, nu_inf, dim, nv = model.constants, model.nu_inf, grid.dim, grid.components
+    nu_row = Rows(nv).nu
     nu_hat = p1[nu_row]
 
     def face_flux(a, mass_f, face, grad, s):
         left = nu_hat[interior_index(nu_hat, dim, a, 0)]
         right = nu_hat[interior_index(nu_hat, dim, a, 1)]
         upwind = jnp.where(mass_f > 0.0, left, right)
-        mu = viscosity(navier_stokes.temperature(face, gamma, dim))
+        mu = viscosity(navier_stokes.temperature(face, gamma, nv))
         coefficient = sa.diffusion_coefficient(face[RHO], face[nu_row] * nu_inf, mu, c)
         return mass_f * upwind - coefficient * dot(grad, s)
 
@@ -135,7 +139,7 @@ def sa_residual(
 
     cell = p1[interior_index(p1, dim)]
     rho = cell[RHO]
-    mu = viscosity(navier_stokes.temperature(cell, gamma, dim))
+    mu = viscosity(navier_stokes.temperature(cell, gamma, nv))
     production, destruction = sa.source(
         cell[nu_row] * nu_inf, mu / rho, vorticity(p1, grid), distance, c
     )

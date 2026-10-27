@@ -105,22 +105,37 @@ def stack_primitive(rho: Array, velocity: Array, p: Array) -> Array:
 
 
 def freestream_primitive(flow: FlowConditions, dim: int = 2) -> tuple[float, ...]:
-    """Nondimensional freestream primitives ``(rho, V, p)``.
+    """Nondimensional freestream primitives ``(rho, V, p)``, ``V`` of ``dim``
+    components.
 
     With the rho_inf / a_inf / chord scaling of constants.py: rho = 1,
     p = 1/gamma, and the velocity at incidence alpha in the plane of the
     first and the last axis (x-y in 2D, x-z in 3D, y the span):
-    ``M (cos alpha, sin alpha)`` or ``M (cos alpha, 0, sin alpha)``.
+    ``M (cos alpha, sin alpha)`` or ``M (cos alpha, 0, sin alpha)``. Swept
+    (``flow.sweep_deg``, a 2D grid of 3 components), see ``freestream_vector``.
     """
-    return tuple(float(c) for c in freestream_vector(flow.mach, flow.alpha_rad, flow.gamma, dim))
+    if flow.swept and dim != 3:
+        raise ValueError(f"a swept flow has 3 velocity components, not {dim}")
+    return tuple(float(c) for c in freestream_vector(flow.mach, flow.alpha_rad, flow.gamma, dim,
+                                                     sweep_rad=flow.sweep_rad))
 
 
-def freestream_vector(mach, alpha_rad, gamma: float, dim: int = 2, xp=np):
+def freestream_vector(mach, alpha_rad, gamma: float, dim: int = 2, xp=np, sweep_rad=None):
     """``freestream_primitive`` as an ``xp`` array ``(d+2,)``; with
     ``xp = jax.numpy``, traceable in ``mach`` and ``alpha_rad`` (a
-    sensitivity's parameters)."""
+    sensitivity's parameters).
+
+    Swept (``sweep_rad`` not ``None``, ``dim = 3`` on a 2D grid): ``x`` along
+    the chord of the section normal to the sweep line, ``y`` up, ``z`` along
+    the sweep line; ``alpha`` is the streamwise incidence, so
+
+        V = M (cos alpha cos Lambda, sin alpha, cos alpha sin Lambda).
+    """
     u, normal = mach * xp.cos(alpha_rad), mach * xp.sin(alpha_rad)
-    velocity = [u, normal] if dim == 2 else [u, xp.zeros_like(u), normal]
+    if sweep_rad is not None:
+        velocity = [u * xp.cos(sweep_rad), normal, u * xp.sin(sweep_rad)]
+    else:
+        velocity = [u, normal] if dim == 2 else [u, xp.zeros_like(u), normal]
     return xp.stack([xp.ones_like(u), *velocity, xp.full_like(u, 1.0 / gamma)])
 
 

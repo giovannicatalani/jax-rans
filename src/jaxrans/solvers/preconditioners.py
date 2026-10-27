@@ -210,9 +210,9 @@ def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: A
                       gamma: float, layout: Layout):
     """``(lower, diag, upper)`` of the mean-flow chains, ``(L, n_lines, d+2, d+2)``."""
     grid = atlas.grid
-    dim = grid.dim
-    m = Rows(dim).n_flow
-    q = primitive_from_conservative(U, gamma, dim)
+    nv = grid.components
+    m = Rows(nv).n_flow
+    q = primitive_from_conservative(U, gamma, nv)
     eye = jnp.eye(m, dtype=U.dtype)
     d = jnp.where(layout.valid, layout.gather(diagonal(lambdas, cfl)), 1.0)
     diag = d.T[:, :, None, None] * eye
@@ -243,13 +243,14 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
     production) and the mean flow's ``V/dt`` complete the diagonal.
     """
     grid = atlas.grid
-    dim, rows = grid.dim, Rows(grid.dim)
+    dim, nv = grid.dim, grid.components
+    rows = Rows(nv)
     c, nu_inf = model.constants, model.nu_inf
-    q = primitive_from_conservative(U, gamma, dim)
+    q = primitive_from_conservative(U, gamma, nv)
     q_faces = atlas.face_averages(q)
 
     def face_terms(qf, s, vol):
-        mu = viscosity(navier_stokes.temperature(qf, gamma, dim))
+        mu = viscosity(navier_stokes.temperature(qf, gamma, nv))
         kappa = sa.diffusion_coefficient(qf[RHO], qf[rows.nu] * nu_inf, mu, c)
         return qf[RHO] * dot(qf[rows.velocity], s), kappa * dot(s, s) / vol
 
@@ -265,7 +266,7 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
 
     nu_hat = q[rows.nu]
     g = turbulence.green_gauss(tuple(qf[rows.velocity] for qf in q_faces), grid)
-    nu = viscosity(navier_stokes.temperature(q, gamma, dim)) / rho
+    nu = viscosity(navier_stokes.temperature(q, gamma, nv)) / rho
     s_t = sa.s_tilde(turbulence.vorticity_magnitude(g), nu_hat * nu_inf, nu, distance, c)
     f_w = sa.f_w(sa.r_of(nu_hat * nu_inf, s_t, distance, c), c)
     destruction = jnp.where(nu_hat > 0.0, 2.0 * c.c_w1 * f_w * nu_inf * nu_hat / distance**2, 0.0)
@@ -292,7 +293,7 @@ def line_implicit_j(atlas: Atlas, gamma: float, viscosity=None, model=None, dist
     own scalar chains, its coupling to the mean flow left to the Krylov
     iteration."""
     layout = chain_layout(atlas)
-    n_flow = Rows(atlas.dim).n_flow
+    n_flow = Rows(atlas.components).n_flow
 
     def prepare(U: Array, lambdas: tuple[Array, ...], cfl: Array):
         solve_flow = chain_solver(*flow_chain_blocks(U[:n_flow], lambdas, cfl, atlas, gamma, layout), layout)

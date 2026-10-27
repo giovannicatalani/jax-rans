@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from .block import OUTWARD, SIDES, WALL_KINDS, Grid, Interface, rectangle_sides
+from .block import OUTWARD, SIDES, WALL_KINDS, Grid, Interface, lift, rectangle_sides
 from .mesh import Mesh, WallFaces, as_mesh, wall_faces
 
 
@@ -117,7 +117,13 @@ class Atlas:
 
     @property
     def dim(self) -> int:
+        """Index axes of the canvas."""
         return self.interior.ndim
+
+    @property
+    def components(self) -> int:
+        """Entries of a vector (``mesh.block.Grid``): ``dim``, or 3 when lifted."""
+        return self.grid.components
 
     @property
     def ni(self) -> int:
@@ -220,6 +226,25 @@ def build_atlas(mesh: Mesh | Grid, g: int = 2) -> Atlas:
     return Atlas(tuple(mesh), g, tuple(origins), tuple(windows), grid, interior, padded_centres,
                  stages, _neighbour_map(mesh, pos, NI * NJ), _lines(mesh, pos, origins, g, NI, NJ),
                  walls, _quarter_chord(walls.faces))
+
+
+def lift_atlas(atlas: Atlas) -> Atlas:
+    """The atlas of a 2D mesh for an infinite swept wing (2.5D): the canvas
+    face vectors and the boundary-condition normals with a zero spanwise
+    component (``mesh.block.lift``); midpoints, centres and walls stay in the
+    plane. Idempotent."""
+    if atlas.components == 3:
+        return atlas
+    if atlas.dim != 2:
+        raise ValueError(f"only a 2D atlas is lifted, got {atlas.dim}D")
+
+    def pad(normal):
+        return np.concatenate([normal, np.zeros_like(normal[:1])])
+
+    stages = tuple(replace(stage, conditions=tuple((kind, source, pad(normal), midpoint)
+                                                   for kind, source, normal, midpoint in stage.conditions))
+                   for stage in atlas.stages)
+    return replace(atlas, grid=lift(atlas.grid), stages=stages)
 
 
 def _pack(shapes):

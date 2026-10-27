@@ -12,13 +12,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from ..core import constants
 from ..core.config import FlowConditions, ImplicitConfig, NumericsConfig
 from ..geometry.elements import ROLES
-from ..mesh.atlas import Atlas, build_atlas
+from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.coarsen import coarsen as coarsen_mesh
 from ..mesh.highlift import family
-from ..mesh.mesh import assign_conditions, patches
+from ..mesh.mesh import assign_conditions, patches, scale_x
 from ..mesh.quality import quality
 from . import schema
 from .domain import ELEMENT_KEYS, PATCH_RULE_KEYS, GridSpec
@@ -51,8 +53,15 @@ class Case:
 
     def grid(self, coarsen: int = 0) -> Atlas:
         """The grid, every patch given its condition, packed for the solver;
-        ``coarsen`` times with every other node (grid sequencing)."""
+        ``coarsen`` times with every other node (grid sequencing). Swept: a
+        streamwise section is meshed normal to the sweep line, and the atlas
+        lifted (``mesh.atlas.lift_atlas``)."""
         mesh = self.grid_spec.build(self.directory, self.numerics.dtype)
+        if self.flow.swept:
+            if mesh[0].dim != 2:
+                raise CaseError("'freestream.sweep_deg' needs a 2D grid (an infinite swept wing)")
+            if self.grid_spec.section == "streamwise":
+                mesh = scale_x(mesh, float(np.cos(self.flow.sweep_rad)))
         kinds = resolve_conditions(self.conditions, patches(mesh), self.flow)
         mesh = assign_conditions(mesh, kinds)
         for _ in range(coarsen):
@@ -60,7 +69,8 @@ class Case:
         report = quality(mesh)
         if report.folded:
             raise CaseError(f"the grid has folded cells: {report.summary()}")
-        return build_atlas(mesh, self.numerics.n_ghost)
+        atlas = build_atlas(mesh, self.numerics.n_ghost)
+        return lift_atlas(atlas) if self.flow.swept else atlas
 
 
 # --- Parsing ------------------------------------------------------------------
@@ -196,6 +206,7 @@ def _flow(case_doc: dict) -> FlowConditions:
         sutherland_ratio=sutherland_ratio,
         turbulence=None if model == "none" else model,
         nu_tilde_ratio=turbulence["freestream_nu_tilde_ratio"],
+        sweep_deg=freestream["sweep_deg"],
     )
 
 
@@ -267,6 +278,8 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
     general = _values(_section(case_doc, CASE_FILE, "general", required=True), CASE_FILE, "general")
     spec = _grid_spec(case_doc)
     flow = _flow(case_doc)
+    if "section" in case_doc["domain"] and not flow.swept:
+        raise CaseError("'domain.section' applies to a swept case only ('freestream.sweep_deg')")
     conditions, far_field = _boundaries(case_doc, flow)
 
     fluxes, stepping, implicit, convergence = (

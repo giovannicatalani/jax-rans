@@ -11,6 +11,7 @@
 | `flatplate_sa` | SA RANS boundary layer, M 0.2, Re 5e6 | NASA TMR flat-plate grid |
 | `30p30n_sa` | three-element high lift, M 0.17, 5.5 deg, Re 1.71e6 | JAXA 117-block grid from file |
 | `main_flap_sa` | two-element high lift (30P30N main and flap), M 0.17, 5.5 deg, Re 1.71e6 | generated multi-element grid |
+| `rae2822_swept_sa` | swept section (2.5D), SA RANS, M 0.842, 2 deg, sweep 30 deg, Re 6.5e6 | C-grid generated from the measured ordinates |
 | `onera_m6_sa` | 3D wing, transonic SA RANS, M 0.84, 3.06 deg, Re 14.6e6 | NASA TMR one-block 3D grid, in the example directory |
 
 Run one with `jaxrans examples/naca0012_euler`. The grid files of
@@ -22,6 +23,7 @@ downloaded separately (`data/grids/README.md`); `onera_m6_sa` carries its own.
 main element and flap from their coordinates, `30p30n_sa` for a grid from
 your own mesher ([docs/multi-element.md](../docs/multi-element.md));
 `onera_m6_sa` for a 3D wing ([docs/wing-3d.md](../docs/wing-3d.md));
+`rae2822_swept_sa` for a swept wing section ([docs/swept.md](../docs/swept.md));
 `rae2822_sensitivity` for derivatives ([docs/gradients.md](../docs/gradients.md)):
 `python scripts/sensitivity_polar.py examples/rae2822_sensitivity --alpha 0.5 2.0 0.5`
 draws its polar with dCL/dalpha and dCD/dalpha.

@@ -8,7 +8,11 @@ For cell ``c`` of volume ``V_c`` (an area in 2D), with face area vectors ``S``
 
 the last term the SA source (numerics/turbulence.py). Everything runs on an
 atlas canvas (mesh/atlas.py): ghosts filled, the single-block assembly applied
-once, the result kept on interior cells. The dimension is the grid's.
+once, the result kept on interior cells. The dimension is the grid's: ``dim``
+index axes, ``components`` entries per vector (velocity rows, face vectors),
+3 on the 2D grid of a swept flow (``mesh.atlas.lift_atlas``), where the face
+vectors and gradients have a zero spanwise component and the spanwise
+velocity is carried as a third component with no derivative along it.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from ..core.state import (
     RHO, Rows, conservative_to_primitive, dot, freestream_primitive, magnitude,
     primitive_to_conservative, split, stack_primitive,
 )
-from ..mesh.atlas import Atlas, build_atlas
+from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.block import Grid
 from ..mesh.mesh import wall_distance
 from ..physics import euler, navier_stokes
@@ -55,8 +59,8 @@ def block_residual(
     """Net flux of every cell of ``grid`` from its ghosted primitive state
     ``(nvar, *(shape + 2g))``; ``centres`` (cell centres with one ghost
     layer, ``(d, *(shape + 2))``) are needed when viscous."""
-    dim, shape = grid.dim, grid.shape
-    rows = Rows(dim)
+    dim, shape, nv = grid.dim, grid.shape, grid.components
+    rows = Rows(nv)
     flow_rows = padded[:rows.n_flow]
 
     def reconstruct(axis: int) -> tuple[Array, Array]:
@@ -72,13 +76,13 @@ def block_residual(
         if model is None:
             visc = viscous_fluxes(p1, grid, viscosity, gamma, centres=centres)
         else:
-            phi = jnp.concatenate([p1[rows.velocity], navier_stokes.temperature(p1, gamma, dim)[None],
+            phi = jnp.concatenate([p1[rows.velocity], navier_stokes.temperature(p1, gamma, nv)[None],
                                    p1[rows.nu][None]])
-            grads = gradients.face_gradients(phi, centres)
-            mu_t = turbulence.face_eddy_viscosity(p1, viscosity, gamma, model, dim)
+            grads = gradients.pad_directions(gradients.face_gradients(phi, centres), nv)
+            mu_t = turbulence.face_eddy_viscosity(p1, viscosity, gamma, model, dim, nv)
             visc = viscous_fluxes(p1, grid, viscosity, gamma, mu_t, grads, c_cr1=model.c_cr1)
             sa_row = turbulence.sa_residual(
-                p1, tuple(f[0] for f in fluxes), tuple(G[:, dim + 1] for G in grads),
+                p1, tuple(f[0] for f in fluxes), tuple(G[:, nv + 1] for G in grads),
                 grid, viscosity, gamma, model, distance,
             )
         fluxes = [f - v for f, v in zip(fluxes, visc)]
@@ -97,25 +101,25 @@ def viscous_fluxes(
     is not 0. Face velocity and temperature are two-cell means, so a
     no-slip wall's face velocity is exactly zero, and its heat flux zero to
     round-off (the ghost centre is the reflected cell centre)."""
-    dim = grid.dim
-    rows = Rows(dim)
+    dim, nv = grid.dim, grid.components
+    rows = Rows(nv)
     if grads is None:
-        phi = jnp.concatenate([q[rows.velocity], navier_stokes.temperature(q, gamma, dim)[None]])
-        grads = gradients.face_gradients(phi, centres)
+        phi = jnp.concatenate([q[rows.velocity], navier_stokes.temperature(q, gamma, nv)[None]])
+        grads = gradients.pad_directions(gradients.face_gradients(phi, centres), nv)
     eddies = (None,) * dim if mu_t is None else mu_t
 
     def flux(a, grad, s, eddy):
         left = q[turbulence.interior_index(q, dim, a, 0)]
         right = q[turbulence.interior_index(q, dim, a, 1)]
         velocity = 0.5 * (left[rows.velocity] + right[rows.velocity])
-        T = 0.5 * (navier_stokes.temperature(left, gamma, dim) + navier_stokes.temperature(right, gamma, dim))
+        T = 0.5 * (navier_stokes.temperature(left, gamma, nv) + navier_stokes.temperature(right, gamma, nv))
         mu = viscosity(T)
         k = navier_stokes.conductivity(mu, gamma, constants.PRANDTL_LAMINAR)
         if eddy is not None:
             mu, k = mu + eddy, k + turbulence.turbulent_conductivity(eddy, gamma)
-        grad_v = jnp.swapaxes(grad[:, :dim], 0, 1)          # [component, direction]
+        grad_v = jnp.swapaxes(grad[:, :nv], 0, 1)           # [component, direction]
         extra = qcr_stress(grad_v, eddy, c_cr1) if eddy is not None and c_cr1 else None
-        return navier_stokes.viscous_flux(velocity, grad_v, grad[:, dim], s, mu, k, extra)
+        return navier_stokes.viscous_flux(velocity, grad_v, grad[:, nv], s, mu, k, extra)
 
     return tuple(flux(a, grad, s, eddy) for a, (grad, s, eddy) in enumerate(zip(grads, grid.faces, eddies)))
 
@@ -141,8 +145,8 @@ def local_time_step(U: Array, grid: Grid, gamma: float, cfl: float,
     at the cell state, plus the diffusive limit when viscous (Blazek, 3rd ed.,
     eq. 6.22: ``(gamma/Pr)(mu/rho) sum_a S_a^2 / V``, x4, ``S_a`` the mean area
     of the two faces normal to ``a``)."""
-    dim = grid.dim
-    q = primitive_from_conservative(U, gamma, dim)
+    dim, nv = grid.dim, grid.components
+    q = primitive_from_conservative(U, gamma, nv)
     total = None
     for a, s in enumerate(grid.faces):
         lo, hi = lower_upper(s, a - dim)
@@ -154,9 +158,9 @@ def local_time_step(U: Array, grid: Grid, gamma: float, cfl: float,
         squares = mean_area[0] ** 2
         for m in mean_area[1:]:
             squares = squares + m ** 2
-        mu = viscosity(navier_stokes.temperature(q, gamma, dim))
+        mu = viscosity(navier_stokes.temperature(q, gamma, nv))
         if model is not None:
-            mu = mu + model.eddy_viscosity(q[RHO], q[Rows(dim).nu], mu)
+            mu = mu + model.eddy_viscosity(q[RHO], q[Rows(nv).nu], mu)
         factor = gamma / constants.PRANDTL_LAMINAR * mu / q[RHO]
         total = total + 4.0 * factor * squares / grid.volume
     return cfl * grid.volume / jnp.maximum(total, 1e-300)
@@ -171,8 +175,8 @@ def face_wave_speeds(U: Array, atlas: Atlas, gamma: float,
     thin-layer ``2 (gamma/Pr) mu |S|^2 / (rho V)``, ``V`` the two cells' mean
     volume, with the eddy viscosity in RANS."""
     grid = atlas.grid
-    dim = grid.dim
-    q = primitive_from_conservative(U, gamma, dim)
+    nv = grid.components
+    q = primitive_from_conservative(U, gamma, nv)
     q_faces = atlas.face_averages(q)
     lambdas = tuple(spectral_radius(qf, s, gamma) for qf, s in zip(q_faces, grid.faces))
     if viscosity is None:
@@ -181,9 +185,9 @@ def face_wave_speeds(U: Array, atlas: Atlas, gamma: float,
     factor = 2.0 * gamma / constants.PRANDTL_LAMINAR
     out = []
     for lam, qf, s, vol in zip(lambdas, q_faces, grid.faces, volumes):
-        mu = viscosity(navier_stokes.temperature(qf, gamma, dim))
+        mu = viscosity(navier_stokes.temperature(qf, gamma, nv))
         if model is not None:
-            mu = mu + model.eddy_viscosity(qf[RHO], qf[Rows(dim).nu], mu)
+            mu = mu + model.eddy_viscosity(qf[RHO], qf[Rows(nv).nu], mu)
         out.append(lam + factor * mu * dot(s, s) / (qf[RHO] * vol))
     return tuple(out)
 
@@ -225,6 +229,11 @@ class ResidualOperator:
     def dim(self) -> int:
         return self.grid.dim
 
+    @property
+    def components(self) -> int:
+        """Velocity components of the state (``dim``, or 3 swept)."""
+        return self.grid.components
+
     def norm(self, residual: Array, variable: int = RHO) -> Array:
         """Volume-weighted L2 norm of one component over the block cells."""
         weight = jnp.where(self.atlas.interior, self.grid.volume, 0.0)
@@ -240,13 +249,25 @@ class ResidualOperator:
 
 def uniform_canvas(q: Array, grid: Grid, gamma: float, dtype=jnp.float64) -> Array:
     """The primitive state ``q (nvar,)`` on every cell, conservative."""
-    rows, ones = Rows(grid.dim), jnp.ones(grid.shape, dtype=dtype)
+    rows, ones = Rows(grid.components), jnp.ones(grid.shape, dtype=dtype)
     cells = (slice(None),) + (None,) * grid.dim
-    rho, velocity, p = split(q, grid.dim)
+    rho, velocity, p = split(q, grid.components)
     U = primitive_to_conservative(rho * ones, velocity[cells] * ones, p * ones, gamma)
     if q.shape[0] > rows.n_flow:
         U = jnp.concatenate([U, (q[RHO] * q[rows.n_flow:][cells]) * ones], axis=0)
     return U.astype(dtype)
+
+
+def swept_atlas(atlas: Atlas, flow: FlowConditions) -> Atlas:
+    """``atlas`` as ``flow`` needs it: lifted when swept, unchanged otherwise
+    (where a lifted one is refused)."""
+    if flow.swept:
+        if atlas.dim != 2:
+            raise ValueError("a swept flow (sweep_deg) needs a 2D grid")
+        return lift_atlas(atlas)
+    if atlas.components != atlas.dim:
+        raise ValueError("a lifted (swept) atlas needs a swept flow")
+    return atlas
 
 
 def make_residual(
@@ -264,17 +285,19 @@ def make_residual(
     ``M / Re``, and may be traced (a polar maps the step over the freestream,
     a sensitivity differentiates both); ``distance`` is a precomputed
     wall-distance canvas (with SA). Registries are resolved here, before tracing.
+    A swept ``flow`` lifts the atlas (``mesh.atlas.lift_atlas``).
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
+    atlas = swept_atlas(atlas, flow)
     if atlas.g != numerics.n_ghost:
         raise ValueError(f"the atlas has {atlas.g} ghost layers, the scheme needs {numerics.n_ghost}")
     viscosity = Viscosity.of(flow, mu_inf)
     model = SAModel.of(flow, mu_inf)
-    dtype, gamma, g, dim = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim
+    dtype, gamma, g, dim, nv = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim, atlas.components
     if numerics.far_field not in bc.far_field_models(dim):
         raise ValueError(f"far field model {numerics.far_field!r} is not available in {dim}D; "
                          f"available: {bc.far_field_models(dim)}")
-    q_inf = jnp.asarray(freestream_primitive(flow, dim) if freestream is None else freestream, dtype=dtype)
+    q_inf = jnp.asarray(freestream_primitive(flow, nv) if freestream is None else freestream, dtype=dtype)
     if model is not None:
         q_inf = jnp.concatenate([q_inf, jnp.asarray([model.freestream_ratio], dtype=dtype)])
         if distance is None:
@@ -299,7 +322,7 @@ def make_residual(
             return stencil(padded, canvas, atlas.centres, distance)
 
     def residual(U: Array) -> Array:
-        q = primitive_from_conservative(U, gamma, dim)
+        q = primitive_from_conservative(U, gamma, nv)
         conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
         return jnp.where(atlas.interior, net_flux(q, conditions), U - U_0)
 

@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
               f"{level['iterations']} iterations, {level['seconds']:.1f} s")
     print(f"{result.history.summary()}\n{result.forces.summary()}\n{result.timing.summary()}\n"
           f"written to {directory}")
-    physical, cell = first_bad_cell(result.U, case.flow.gamma, grid.dim)
+    physical, cell = first_bad_cell(result.U, case.flow.gamma, grid.components)
     if not physical:
         at = ", ".join(f"{float(c):.4f}" for c in grid.grid.centres[(slice(None),) + cell])
         print(f"non-physical state, first at canvas cell {cell}: ({at})", file=sys.stderr)

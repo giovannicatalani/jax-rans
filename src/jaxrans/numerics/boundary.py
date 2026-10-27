@@ -1,6 +1,9 @@
 """Boundary conditions: ghost-cell states, and the ghost fill of an atlas.
 
-Conditions act on primitive variables ``(rho, V, p[, nu_hat])``, in 2D or 3D.
+Conditions act on primitive variables ``(rho, V, p[, nu_hat])``, in 2D or 3D,
+and on the 2D grid of a swept flow, where ``V`` has a spanwise third component
+and the normals a zero one (``mesh.atlas.lift_atlas``): the walls, symmetry
+and characteristic conditions then treat it as a tangential velocity.
 Each boundary kind is one pointwise function of the cell it reads (the cell as
 far inside the face as the ghost is outside it, for walls and symmetry planes;
 the cell on the face otherwise) and of the face's outward unit normal and
@@ -23,7 +26,8 @@ from ..mesh.atlas import Atlas
 
 @dataclass(frozen=True)
 class Face:
-    """Outward unit normals and midpoints of the faces ghosts lie across, ``(d, n)`` each."""
+    """Outward unit normals ``(components, n)`` and midpoints ``(d, n)`` of the
+    faces ghosts lie across."""
 
     normal: Array
     midpoint: Array
@@ -174,7 +178,8 @@ def uniform_far_field(q: Array, atlas: Atlas, q_inf: Array, gamma: float) -> Ref
     return lambda midpoint: jnp.broadcast_to(q_inf[:, None], (q_inf.shape[0], midpoint.shape[1]))
 
 
-def point_vortex_state(dx: Array, dy: Array, q_inf: Array, gamma: float, circulation: Array) -> Array:
+def point_vortex_state(dx: Array, dy: Array, q_inf: Array, gamma: float, circulation: Array,
+                       components: int = 2) -> Array:
     """Freestream plus the Prandtl-Glauert-scaled compressible vortex of
     circulation ``Gamma`` (clockwise positive), isentropic at the freestream
     total enthalpy, at ``(dx, dy)`` from its centre (2D):
@@ -182,9 +187,12 @@ def point_vortex_state(dx: Array, dy: Array, q_inf: Array, gamma: float, circula
         u = u_inf + Gamma beta sin(theta) / (2 pi r (1 - M^2 sin^2(theta - alpha)))
         v = v_inf - Gamma beta cos(theta) / (2 pi r (1 - M^2 sin^2(theta - alpha)))
 
-    Thomas and Salas, AIAA J. 24 (1986) 1074-1080.
+    Thomas and Salas, AIAA J. 24 (1986) 1074-1080. Swept (``components = 3``)
+    the vortex is the in-plane flow's: ``M`` and ``alpha`` in-plane, the
+    spanwise ``w`` carried unchanged (it cancels from the isentropic ratio).
     """
-    rho_f, (u_f, v_f), p_f = split(q_inf, 2)
+    rho_f, velocity_f, p_f = split(q_inf, components)
+    u_f, v_f = velocity_f[0], velocity_f[1]
     a2_f = gamma * p_f / rho_f
     speed2_f = u_f * u_f + v_f * v_f
     mach2 = speed2_f / a2_f
@@ -198,9 +206,10 @@ def point_vortex_state(dx: Array, dy: Array, q_inf: Array, gamma: float, circula
     ratio = 1.0 + 0.5 * (gamma - 1.0) * (speed2_f - u * u - v * v) / a2_f
     rho = rho_f * ratio ** (1.0 / (gamma - 1.0))
     p = p_f * ratio ** (gamma / (gamma - 1.0))
-    n_flow = Rows(2).n_flow
+    n_flow = Rows(components).n_flow
     scalars = jnp.broadcast_to(q_inf[n_flow:, None], (q_inf.shape[0] - n_flow, dx.shape[0]))
-    return _with_scalars(stack_primitive(rho, jnp.stack([u, v]), p), scalars)
+    spanwise = [jnp.broadcast_to(w, u.shape) for w in velocity_f[2:]]
+    return _with_scalars(stack_primitive(rho, jnp.stack([u, v, *spanwise]), p), scalars)
 
 
 def wall_vectors(atlas: Atlas) -> Array:
@@ -217,15 +226,18 @@ def wall_pressure_force(p_gauge: Array, atlas: Atlas) -> tuple[Array, ...]:
 
 def point_vortex_far_field(q: Array, atlas: Atlas, q_inf: Array, gamma: float) -> Reference:
     """The vortex of the current pressure lift of all walls (Kutta-Joukowski),
-    at the quarter chord of the longest body (``Atlas.quarter_chord``); 2D."""
-    pressure = Rows(2).pressure
+    at the quarter chord of the longest body (``Atlas.quarter_chord``); 2D,
+    swept or not (the circulation of the in-plane flow, per unit span)."""
+    nv = atlas.components
+    pressure = Rows(nv).pressure
     p = q[pressure].ravel()[atlas.walls.cell] - q_inf[pressure]
-    fx, fy = wall_pressure_force(p, atlas)
-    _, (u_f, v_f), _ = split(q_inf, 2)
+    fx, fy = wall_pressure_force(p, atlas)[:2]
+    _, velocity_f, _ = split(q_inf, nv)
+    u_f, v_f = velocity_f[0], velocity_f[1]
     speed = jnp.hypot(u_f, v_f)
     circulation = (fy * u_f - fx * v_f) / speed / (q_inf[RHO] * speed)
     xc, yc = atlas.quarter_chord
-    return lambda m: point_vortex_state(m[0] - xc, m[1] - yc, q_inf, gamma, circulation)
+    return lambda m: point_vortex_state(m[0] - xc, m[1] - yc, q_inf, gamma, circulation, nv)
 
 
 FAR_FIELDS: dict[str, FarFieldModel] = {

@@ -1,0 +1,44 @@
+{
+    "general": {
+        "case_name": "rae2822_swept_sa",
+        "description": "Swept RAE 2822 section (2.5D), SA: M 0.842, alpha 2 deg, sweep 30 deg, Re 6.5e6",
+        "save_path": "results"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "../../validation/references/rae2822/rae2822.dat",
+        "cells_airfoil": 192,
+        "cells_wake": 48,
+        "cells_normal": 80,
+        "wall_spacing": 2e-06,
+        "far_field": 100.0,
+        "leading_edge_spacing": 0.0005,
+        "trailing_edge_spacing": 0.002,
+        "section": "normal",
+        "notes": "The RAE 2822 as the section normal to the sweep line, so the in-plane Mach number and incidence are those of AGARD case 6 (0.730, 2.31 deg). For a wing defined by streamwise sections, leave 'section' at its default, 'streamwise': the grid is then scaled by cos(sweep) along x. docs/swept.md."
+    },
+    "boundary_conditions": {
+        "wall": {
+            "type": "no_slip_wall"
+        },
+        "farfield": {
+            "type": "far_field",
+            "model": "point_vortex"
+        }
+    },
+    "freestream": {
+        "mach": 0.842,
+        "alpha_deg": 2.0,
+        "sweep_deg": 30.0,
+        "reynolds": 6500000.0,
+        "temperature": 460.0,
+        "notes": "Mach number and incidence of the whole freestream, in the streamwise plane; the spanwise velocity is M cos(alpha) sin(sweep)."
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 198.6
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

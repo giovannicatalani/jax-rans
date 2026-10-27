@@ -127,7 +127,7 @@ def make_newton_step(
         )
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
-        dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.dim)
+        dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
 
         # The ramp keys off how well the linear system was solved (one more
         # matvec), not the residual history: a stagnated GMRES returns a null
@@ -139,7 +139,7 @@ def make_newton_step(
         # Reject a step that leaves the physical domain or that GMRES failed to
         # solve, and resume at a lower CFL: one wasted step, not a lost run.
         candidate = U + dU
-        physical = jnp.all(is_physical(candidate, gamma, operator.dim)) & jnp.all(jnp.isfinite(dU))
+        physical = jnp.all(is_physical(candidate, gamma, operator.components)) & jnp.all(jnp.isfinite(dU))
         accept = physical & (linear_reduction < 1.0)
 
         # Switched evolution relaxation: grow the CFL by the residual reduction

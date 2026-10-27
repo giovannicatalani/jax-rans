@@ -115,7 +115,7 @@ class ResultWriter:
         """Wall distributions, one row per wall face:
         ``x_over_c y_over_c body cp [cf]``, body by body in loop order from each
         trailing edge (post/forces.py, ``atlas_surface``)."""
-        names = {"x": "x_over_c", "y": "y_over_c", "z": "z_over_c"}
+        names = {"x": "x_over_c", "y": "y_over_c", "z": "z_over_c", "x_streamwise": "x_streamwise_over_c"}
         path = self.directory / f"{self.case_name}_surface.dat"
         np.savetxt(path, np.column_stack([np.asarray(v) for v in surface.values()]),
                    header=" ".join(names.get(k, k) for k in surface), fmt="%.12e")

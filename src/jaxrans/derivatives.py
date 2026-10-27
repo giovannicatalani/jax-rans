@@ -64,8 +64,9 @@ class Sensitivity:
 
 def flow_inputs(flow: FlowConditions, dim: int, p: dict) -> tuple[Array, Array | None]:
     """Freestream primitives ``(d+2,)`` and ``mu_inf`` (``None`` if inviscid)
-    at parameters ``p`` (``alpha`` in degrees, ``mach``), traceable."""
-    q = freestream_vector(p["mach"], jnp.deg2rad(p["alpha"]), flow.gamma, dim, xp=jnp)
+    at parameters ``p`` (``alpha`` in degrees, ``mach``), traceable; a swept
+    flow keeps its sweep (``dim``: the velocity components)."""
+    q = freestream_vector(p["mach"], jnp.deg2rad(p["alpha"]), flow.gamma, dim, xp=jnp, sweep_rad=flow.sweep_rad)
     return q, None if flow.inviscid else p["mach"] / flow.reynolds
 
 
@@ -79,11 +80,11 @@ def steady_problem(result: Result, outputs: tuple[str, ...]) -> tuple[Callable, 
     distance = make_residual(atlas, flow, numerics).distance
 
     def residual(U: Array, p: dict) -> Array:
-        q, mu_inf = flow_inputs(flow, atlas.dim, p)
+        q, mu_inf = flow_inputs(flow, atlas.components, p)
         return make_residual(atlas, flow, numerics, freestream=q, mu_inf=mu_inf, distance=distance).residual(U)
 
     def coefficients(U: Array, p: dict) -> dict:
-        c = force_coefficients(U, atlas, flow, reference, *flow_inputs(flow, atlas.dim, p))
+        c = force_coefficients(U, atlas, flow, reference, *flow_inputs(flow, atlas.components, p))
         return {name: c[name] for name in outputs}
 
     p = {"alpha": jnp.asarray(flow.alpha_deg, numerics.dtype), "mach": jnp.asarray(flow.mach, numerics.dtype)}

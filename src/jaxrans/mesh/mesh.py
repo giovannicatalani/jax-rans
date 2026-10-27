@@ -42,6 +42,18 @@ def assign_conditions(mesh: Grid | Mesh, kinds: dict[str, str]) -> Mesh:
     return tuple(replace(block, sides=block.sides.with_conditions(kinds)) for block in as_mesh(mesh))
 
 
+def scale_x(mesh: Grid | Mesh, factor: float) -> Mesh:
+    """Every block with ``x`` scaled by ``factor`` about ``x = 0``, ``y``
+    kept: the section normal to a sweep line from the streamwise one, with
+    ``factor = cos(sweep)`` (the same thickness on a shorter chord)."""
+    out = []
+    for block in as_mesh(mesh):
+        nodes = np.asarray(block.nodes)
+        out.append(Grid.from_node_array(nodes * np.array([factor, 1.0], dtype=nodes.dtype)[:, None, None],
+                                        block.sides, nodes.dtype))
+    return tuple(out)
+
+
 def side_nodes(grid: Grid, side: str, segment: Boundary | Interface) -> tuple[np.ndarray, np.ndarray]:
     """Node coordinates along a segment of a side, ``(n + 1,)`` each, in the
     side's running index."""

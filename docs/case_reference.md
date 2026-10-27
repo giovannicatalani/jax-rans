@@ -41,6 +41,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `reference_length` | number | `1.0` | all | length the force coefficients are per (3D: the moment's) |
 | `reference_area` | number or null | `null` | all | 3D grids (required there): area the force coefficients are per; 2D coefficients are per unit span |
 | `moment_centre` | list | `[0.25, 0.0, 0.0]` | all | point the pitching moment is about, `[x, y]` or `[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D) |
+| `section` | string | `streamwise` | all | swept cases (`freestream.sweep_deg`): the plane the 2D section is given in; `streamwise` is meshed normal to the sweep line (x scaled by cos(sweep)), `normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise (docs/swept.md); one of `normal`, `streamwise` |
 
 ### `boundary_conditions`
 
@@ -64,8 +65,9 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 
 | key | type | default | meaning |
 |---|---|---|---|
-| `mach` | number | required | subsonic |
-| `alpha_deg` | number | `0.0` | incidence, degrees |
+| `mach` | number | required | subsonic (swept: in the plane of the grid) |
+| `alpha_deg` | number | `0.0` | incidence, degrees (streamwise when swept) |
+| `sweep_deg` | number or null | `null` | 2D grids: sweep of an infinite swept wing (2.5D), degrees, the spanwise velocity M cos(alpha) sin(sweep); `null` is plain 2D (docs/swept.md) |
 | `reynolds` | number or null | `null` | per unit length of the grid (per chord for a grid of unit chord); `null` is inviscid |
 | `temperature` | number |  | absolute, in the unit of `sutherland_temperature`; Sutherland's law needs it |
 

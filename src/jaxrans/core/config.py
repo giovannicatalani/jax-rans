@@ -21,7 +21,12 @@ quadratic constitutive relation QCR2000 (physics/spalart_allmaras.py)."""
 class FlowConditions:
     """Freestream and gas, nondimensional (constants.py). ``reynolds=None`` is
     inviscid; ``sutherland_ratio`` is ``S / T_inf`` (``None``: constant
-    viscosity); ``nu_tilde_ratio`` is ``nu~_inf / nu_inf``."""
+    viscosity); ``nu_tilde_ratio`` is ``nu~_inf / nu_inf``.
+
+    ``sweep_deg`` makes a 2D grid an infinite swept wing (2.5D): the grid is the
+    section normal to the sweep line, ``alpha`` is streamwise, and the velocity
+    gains a spanwise component (core/state.py, ``freestream_vector``).
+    ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep."""
 
     mach: float
     alpha_deg: float = 0.0
@@ -30,16 +35,21 @@ class FlowConditions:
     sutherland_ratio: float | None = None
     turbulence: str | None = None
     nu_tilde_ratio: float = 3.0
+    sweep_deg: float | None = None
 
     def __post_init__(self) -> None:
         if not self.mach > 0.0:
             raise ValueError(f"mach must be positive, got {self.mach}")
-        if self.mach >= 1.0:
+        if self.sweep_deg is not None and not abs(self.sweep_deg) < 90.0:
+            raise ValueError(f"sweep_deg must lie in (-90, 90), got {self.sweep_deg}")
+        if self.in_plane_mach >= 1.0:
             # Subsonic/transonic freestream only: the characteristic far-field
-            # BC assumes a subsonic outer boundary.
+            # BC assumes a subsonic outer boundary. Swept, its characteristics
+            # are in the grid's plane: the in-plane Mach number counts.
             raise ValueError(
                 f"freestream mach must be subsonic for the characteristic "
                 f"far-field BC, got {self.mach}"
+                + (f" (in-plane {self.in_plane_mach:.4g})" if self.swept else "")
             )
         if not self.gamma > 1.0:
             raise ValueError(f"gamma must exceed 1, got {self.gamma}")
@@ -68,6 +78,24 @@ class FlowConditions:
     @property
     def alpha_rad(self) -> float:
         return float(np.deg2rad(self.alpha_deg))
+
+    @property
+    def swept(self) -> bool:
+        """An infinite swept wing on a 2D grid (2.5D)."""
+        return self.sweep_deg is not None
+
+    @property
+    def sweep_rad(self) -> float | None:
+        return None if self.sweep_deg is None else float(np.deg2rad(self.sweep_deg))
+
+    @property
+    def in_plane_mach(self) -> float:
+        """Mach number of the velocity in the grid's plane: ``M`` unswept,
+        ``M sqrt(cos^2 alpha cos^2 Lambda + sin^2 alpha)`` swept."""
+        if not self.swept:
+            return self.mach
+        a, sweep = self.alpha_rad, self.sweep_rad
+        return float(self.mach * np.hypot(np.cos(a) * np.cos(sweep), np.sin(a)))
 
     @property
     def mu_inf(self) -> float:
