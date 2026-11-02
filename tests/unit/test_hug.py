@@ -15,6 +15,8 @@ from jaxrans.mesh.coarsen import coarsen
 from jaxrans.mesh.mesh import assign_conditions, interface_node_mismatch, patches, wall_faces
 from jaxrans.mesh.quality import quality
 
+NACA0012_HUG = Path(__file__).resolve().parents[1] / "resources/naca0012_blunt.hug"
+
 
 def _hug(path, foils):
     rows = [str(len(foils))]
@@ -67,11 +69,8 @@ def test_a_single_hug_element_keeps_its_explicit_corners(tmp_path) -> None:
     np.testing.assert_allclose(got.airfoil.y, 0.3 * foil.y, atol=1e-15)
 
 
-def test_blunt_c_grid_preserves_the_base_and_resolves_its_wall_layer(tmp_path) -> None:
-    foil = naca4("0012", sharp=False)
-    path = tmp_path / "clean.hug"
-    _hug(path, [foil])
-    spec = GridSpec(grid="c_grid", airfoil=path.name, trailing_edge_topology="blunt_c",
+def test_naca0012_hug_resource_generates_a_grid_with_its_base_and_wall_layer(tmp_path) -> None:
+    spec = GridSpec(grid="c_grid", airfoil=str(NACA0012_HUG), trailing_edge_topology="blunt_c",
                     cells_airfoil=128, cells_wake=64, cells_normal=64,
                     wall_spacing=1e-5, far_field=20.0)
     mesh = spec.build(tmp_path)
@@ -89,7 +88,7 @@ def test_blunt_c_grid_preserves_the_base_and_resolves_its_wall_layer(tmp_path) -
     base = (np.isclose(faces.a[:, 0], 1.0, atol=1e-12)
             & np.isclose(faces.b[:, 0], 1.0, atol=1e-12))
     assert base.sum() >= 2
-    assert sum(np.hypot(*(faces.b[base] - faces.a[base]).T)) == pytest.approx(foil.trailing_edge_gap)
+    assert sum(np.hypot(*(faces.b[base] - faces.a[base]).T)) == pytest.approx(0.00252)
     assert len(coarsen(coarsen(wall))) == 3
 
 
