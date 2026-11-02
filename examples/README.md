@@ -6,6 +6,7 @@
 | `naca0012_laminar` | laminar, M 0.5, 1 deg, Re 5000 | generated C-grid |
 | `clarky_sa` | SA RANS, M 0.2, 4 deg, Re 3e6 | C-grid round a downloaded coordinate file |
 | `naca0012_sa` | SA RANS, M 0.15, 10 deg, Re 6e6 | NASA TMR C-grid from file |
+| `naca0012_cgrid_sa` | swept SA RANS, M 0.8, 1.25 deg, sweep 25 deg, Re 6e6 | generated blunt-base C-grid from bundled `.hug`, three blocks |
 | `rae2822_transonic_sa` | transonic SA RANS, M 0.729, 2.31 deg, Re 6.5e6 | NASA NPARC C-grid from file |
 | `rae2822_sensitivity` | the same flow, converged to round-off for derivatives | C-grid generated from the measured ordinates |
 | `flatplate_sa` | SA RANS boundary layer, M 0.2, Re 5e6 | NASA TMR flat-plate grid |
