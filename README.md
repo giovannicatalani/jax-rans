@@ -10,10 +10,12 @@ precision on GPUs (one or several), with exact derivatives of the converged forc
 [![licence: GPL v3](https://img.shields.io/badge/licence-GPL%20v3-blue)](LICENSE)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb)
 
-<img src="docs/figures/readme_m6.png" alt="ONERA M6 wing, wall pressure and tip vortex" width="500">
+<p align="center">
+  <img src="docs/figures/readme_m6.png" alt="ONERA M6 wing, wall pressure and tip vortex" width="500">
+  <br>
+  <em>ONERA M6 wing, SA RANS, M 0.84, 3.06 deg, Re 14.6 million (NASA TMR): 1.08 million cells, 57 minutes on one NVIDIA A100.</em>
+</p>
 
-*ONERA M6 wing, SA RANS, M 0.84, 3.06 deg, Re 14.6 million (NASA TMR): 1.08
-million cells, 57 minutes on one NVIDIA A100.*
 
 ## Quickstart
 
