@@ -3,6 +3,8 @@ validation/sections.py, post/forces.py)."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -15,7 +17,7 @@ from jaxrans.mesh.block3d import BoundaryRect, InterfaceRect
 from jaxrans.mesh.cgns import RawBlock3D
 from jaxrans.mesh.mesh import assign_conditions
 from jaxrans.numerics.residual import make_residual
-from jaxrans.post.forces import ForceReference, integrate_forces, surface
+from jaxrans.post.forces import ForceReference, force_coefficients, integrate_forces, surface
 from validation.sections import section
 
 from .test_grid3d import M6_SAMPLE, warped_box
@@ -103,10 +105,9 @@ def test_3d_forces_of_a_uniform_overpressure() -> None:
 
 
 def test_a_3d_case_needs_a_reference_area() -> None:
-    from jaxrans.post.forces import _integrate_forces_3d
-
+    atlas = SimpleNamespace(dim=3, components=3)     # the check comes before any use of the grid
     with pytest.raises(ValueError, match="reference_area"):
-        _integrate_forces_3d(jnp.zeros(1), None, FlowConditions(mach=0.5), ForceReference())
+        force_coefficients(jnp.zeros(1), atlas, FlowConditions(mach=0.5), ForceReference())
 
 
 @needs_sample
