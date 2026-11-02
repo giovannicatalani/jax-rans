@@ -8,14 +8,16 @@ import numpy as np
 import pytest
 
 from jaxrans.case import parse_case
+from jaxrans import load_case
 from jaxrans.case.domain import GridSpec
 from jaxrans.geometry.airfoil import Airfoil, naca4
-from jaxrans.geometry.elements import read_element, read_elements, read_hug
+from jaxrans.geometry.elements import corners, fan_points, read_element, read_elements, read_hug
 from jaxrans.mesh.coarsen import coarsen
 from jaxrans.mesh.mesh import assign_conditions, interface_node_mismatch, patches, wall_faces
 from jaxrans.mesh.quality import quality
 
 NACA0012_HUG = Path(__file__).resolve().parents[1] / "resources/naca0012_blunt.hug"
+HIGH_LIFT_CASE = Path(__file__).resolve().parents[1] / "resources/30p30n_blunt"
 
 
 def _hug(path, foils):
@@ -169,3 +171,55 @@ def test_three_blunt_hug_elements_build_with_three_closed_walls(tmp_path) -> Non
         base = (np.abs((a - start) @ normal) < 1e-12) & (np.abs((b - start) @ normal) < 1e-12)
         assert base.sum() >= 2
         assert np.linalg.norm(b[base] - a[base], axis=1).sum() == pytest.approx(e.airfoil.trailing_edge_gap)
+
+
+@pytest.mark.slow
+def test_public_30p30n_hug_case_generates_three_bodies_with_unpinched_bases() -> None:
+    """Exercise the static public geometry through the complete case loader."""
+    case = load_case(HIGH_LIFT_CASE)
+    atlas = case.grid()
+    mesh = atlas.mesh
+    faces = wall_faces(mesh)
+    foils = read_hug(HIGH_LIFT_CASE / "30p30n_blunt.hug")
+    assert [len(a.x) for a in foils] == [201, 641, 201]
+    assert faces.bodies == 3
+    assert set(patches(mesh)) == {"wall", "farfield"}
+    assert interface_node_mismatch(mesh) < 1e-12
+    report = quality(mesh)
+    assert not report.folded
+    assert report.wall_spacing[0] == pytest.approx(1.5e-5, rel=0.05)
+    # At corner fans the nodal displacement includes tangential motion.
+    # Check the requested height away from those corners, as for other high-lift grids.
+    elements = case.grid_spec.placed_elements(case.directory)
+    fans = np.concatenate([fan_points(e) for e in elements])
+    corner_points = np.concatenate([np.stack([e.airfoil.x[corners(e)], e.airfoil.y[corners(e)]], axis=1)
+                                    for e in elements])
+    checked = 0
+    for g in mesh:
+        for side, segment in g.sides.walls():
+            assert side == "j_min"
+            p = np.stack([np.asarray(g.x_node), np.asarray(g.y_node)], axis=-1)
+            wall_nodes = p[segment.start:segment.stop + 1, 0]
+            inner_nodes = p[segment.start:segment.stop + 1, 1]
+            away = np.linalg.norm(wall_nodes[:, None] - fans[None], axis=2).min(axis=1) > 0.02
+            if len(corner_points):
+                away &= np.linalg.norm(wall_nodes[:, None] - corner_points[None], axis=2).min(axis=1) > 1e-7
+            away[[0, -1]] = False
+            height = np.linalg.norm(inner_nodes - wall_nodes, axis=1)[away]
+            np.testing.assert_allclose(height, 1.5e-5, rtol=0.05)
+            checked += len(height)
+    assert checked > 0
+    coarsen(coarsen(mesh))
+    for k, foil in enumerate(foils):
+        a, b = faces.a[faces.body == k], faces.b[faces.body == k]
+        assert len(set(faces.block[faces.body == k])) == 2  # surface C-layer and base block
+        np.testing.assert_allclose((b - a).sum(axis=0), 0.0, atol=1e-12)
+        start, stop = np.array([foil.x[0], foil.y[0]]), np.array([foil.x[-1], foil.y[-1]])
+        direction = (stop - start) / foil.trailing_edge_gap
+        normal = np.array([-direction[1], direction[0]])
+        base = (np.abs((a - start) @ normal) < 1e-12) & (np.abs((b - start) @ normal) < 1e-12)
+        assert base.sum() >= 2
+        assert np.linalg.norm(b[base] - a[base], axis=1).sum() == pytest.approx(foil.trailing_edge_gap)
+        endpoints = np.concatenate([a[base], b[base]])
+        assert np.linalg.norm(endpoints - start, axis=1).min() < 1e-12
+        assert np.linalg.norm(endpoints - stop, axis=1).min() < 1e-12
