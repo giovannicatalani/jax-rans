@@ -10,7 +10,7 @@ precision on GPUs (one or several), with exact derivatives of the converged forc
 [![licence: GPL v3](https://img.shields.io/badge/licence-GPL%20v3-blue)](LICENSE)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb)
 
-![ONERA M6 wing, wall pressure and tip vortex](docs/figures/readme_m6.png)
+<img src="docs/figures/readme_m6.png" alt="ONERA M6 wing, wall pressure and tip vortex" width="500">
 
 *ONERA M6 wing, SA RANS, M 0.84, 3.06 deg, Re 14.6 million (NASA TMR): 1.08
 million cells, 57 minutes on one NVIDIA A100.*
@@ -40,9 +40,13 @@ GPU: [quickstart notebook](notebooks/quickstart.ipynb)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb).
 
 
-# Examples
+## Examples and Validation cases
 
 Example cases are in [examples/](examples/README.md).
+
+Validation cases can be found in the validation folder.
+
+How to rerun them, with their sources: [validation/](validation/README.md).
 
 ## What it does
 
@@ -60,10 +64,6 @@ Example cases are in [examples/](examples/README.md).
   the Mach number, exact for the discrete solution, one linear solve each
   ([how](docs/gradients.md)).Still quite experimental for general inputs.
 
-## Validation
-Validation cases can be found in the validation folder.
-
-How to rerun them, with their sources: [validation/](validation/README.md).
 
 ## Derivatives
 
