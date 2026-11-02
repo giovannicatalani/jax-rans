@@ -19,12 +19,13 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | key | type | default | grids | meaning |
 |---|---|---|---|---|
 | `grid` | string | required | all | where the grid comes from: generated round one airfoil (`o_grid`, `c_grid`) or round a slat, main element and flap (`multi_element`), or read from a file; one of `c_grid`, `file`, `multi_element`, `o_grid` |
-| `airfoil` | string | required | `o_grid`, `c_grid` | `naca` + 4 digits (closed trailing edge; `naca0012_blunt` for the standard open one), or a coordinate file (Selig, Lednicer or two columns), scaled to unit chord |
+| `airfoil` | string | required | `o_grid`, `c_grid` | `naca` + 4 digits (closed trailing edge; `naca0012_blunt` for the standard open one), or a coordinate file (Selig, Lednicer, two columns or one-element `.hug`), scaled to unit chord |
 | `cells_airfoil` | integer | required | `o_grid`, `c_grid` | cells round the airfoil |
 | `cells_wake` | integer | required | `c_grid` | cells along each side of the wake cut |
 | `cells_normal` | integer | required | `o_grid`, `c_grid` | cells from the wall to the far field |
 | `wall_spacing` | number | required | `o_grid`, `c_grid`, `multi_element` | first-cell height, chords; for y+ ~ 1 see docs/own-airfoil.md |
-| `trailing_edge` | string | `as_given` | `o_grid`, `c_grid` | `close` closes an open trailing edge (needed for a C-grid); `as_given` keeps it, and an O-grid meshes its base; one of `as_given`, `close` |
+| `trailing_edge` | string | `as_given` | `o_grid`, `c_grid` | `close` closes an open trailing edge for the original C-grid; `as_given` keeps it for an O-grid or the `blunt_c` C topology; one of `as_given`, `close` |
+| `trailing_edge_topology` | string | `legacy` | `c_grid`, `multi_element` | `blunt_c` opens the surface layer into a C and meshes the base in a separate block connected to the wake; `legacy` keeps the original topology; one of `legacy`, `blunt_c` |
 | `far_field` | number | `100.0` | `o_grid`, `c_grid`, `multi_element` | distance of the outer boundary from the airfoil, chords |
 | `leading_edge_spacing` | number | `0.002` | `o_grid`, `c_grid`, `multi_element` | surface cell length at the leading edge, chords |
 | `trailing_edge_spacing` | number | `0.002` | `o_grid`, `c_grid`, `multi_element` | surface cell length at the trailing edge, chords |
@@ -34,7 +35,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `layer_thickness` | number | `0.02` | `multi_element` | near-wall layer thickness, chords; thinner in gaps and concave corners |
 | `gap_cells` | integer | `16` | `multi_element` | least cells across a gap between elements |
 | `even_cells` | integer | `4` | `multi_element` | every edge's cell count a multiple of this (4: two grid-sequencing levels) |
-| `file` | string | required | `file`, `multi_element` | the grid file: Plot3D (formatted or unformatted, either byte order, 2D or 3D, single- or multi-block, iblank, gzip) or CGNS in HDF5 storage (structured zones; `pip install h5py`); for `multi_element`, a file of curves holding every element (a point count, then the points, per curve; curves join into closed contours) |
+| `file` | string | required | `file`, `multi_element` | the grid file: Plot3D (formatted or unformatted, either byte order, 2D or 3D, single- or multi-block, iblank, gzip) or CGNS in HDF5 storage (structured zones; `pip install h5py`); for `multi_element`, a file of curves holding every element (a point count, then the points, per curve; curves join into closed contours), or a `.hug` file with one ordered lower-TE to upper-TE contour per element |
 | `format` | string | `auto` | `file` | `auto` reads it from the contents; one of `auto`, `cgns`, `plot3d` |
 | `coordinate_scale` | number | `1.0` | `file`, `multi_element` | factor on every coordinate, to the length the Reynolds number is per (1/18 for a grid in inches with an 18 in chord) |
 | `patches` | list | `[]` | `file` | rules naming the boundary faces the file does not name, first match wins: `{"name": N, "x_min": .., "x_max": .., "y_min": .., "y_max": ..}` (3D grids: also `z_min`, `z_max`), every bound optional |

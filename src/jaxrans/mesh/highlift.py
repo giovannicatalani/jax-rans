@@ -786,7 +786,28 @@ def _ring(nodes, loop: _Loop, walls, settings: Settings, h_ml: float, size: floa
 # --- The grid ------------------------------------------------------------------------------------
 
 
-def multi_element(elements: list[Element], settings: Settings) -> tuple[list[RawBlock], dict]:
+def _layer_blocks(layers: list[_Layer], walls: list[_Wall], topology: str) -> list[RawBlock]:
+    """Open each blunt O-layer at its base into a C-layer and a base block.
+
+    The two corner lines become interfaces; the base block's outer face joins
+    the existing wake/slot blocks. Coordinates and cell counts are preserved.
+    """
+    raw = []
+    for k, (layer, wall) in enumerate(zip(layers, walls)):
+        if topology == "blunt_c" and wall.base:
+            lower, upper = layer.index["te_l"], layer.index["te_u"]
+            surface_nodes = layer.nodes[lower:upper + 1]
+            base_nodes = np.concatenate([layer.nodes[upper:], layer.nodes[1:lower + 1]])
+            pieces = ((f"layer{k}", surface_nodes), (f"base{k}", base_nodes))
+        else:
+            pieces = ((f"layer{k}", layer.nodes),)
+        raw.extend(RawBlock(nodes[..., 0].copy(), nodes[..., 1].copy(), name=name)
+                   for name, nodes in pieces)
+    return raw
+
+
+def multi_element(elements: list[Element], settings: Settings, *,
+                  trailing_edge_topology: str = "legacy") -> tuple[list[RawBlock], dict]:
     """The grid's blocks (layers, fill blocks, outer ring) and a record of
     what was built (family, blocks, cells).
 
@@ -794,6 +815,8 @@ def multi_element(elements: list[Element], settings: Settings) -> tuple[list[Raw
         ValueError: a configuration the template does not take (with the
         cause), or a grid that folds.
     """
+    if trailing_edge_topology not in ("legacy", "blunt_c"):
+        raise ValueError("trailing_edge_topology must be legacy or blunt_c")
     name = family([e.role for e in elements])
     extent = float(np.ptp(_points(elements)[:, 0]))
     if not SECTION_SIZE[0] <= extent <= SECTION_SIZE[1]:
@@ -831,8 +854,7 @@ def multi_element(elements: list[Element], settings: Settings) -> tuple[list[Raw
     grids = smooth(fill(blocks, nodes), _off_wall(blocks, nodes, layers, walls, h_ml))
     ring = _ring(nodes, loop, walls, settings, h_ml, size)
 
-    raw = [RawBlock(layer.nodes[..., 0].copy(), layer.nodes[..., 1].copy(), name=f"layer{k}")
-           for k, layer in enumerate(layers)]
+    raw = _layer_blocks(layers, walls, trailing_edge_topology)
     raw += raw_blocks(grids)
     raw.append(RawBlock(ring[..., 0].copy(), ring[..., 1].copy(), name="ring"))
     cells = int(sum((b.x.shape[0] - 1) * (b.x.shape[1] - 1) for b in raw))

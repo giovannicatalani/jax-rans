@@ -251,3 +251,47 @@ def c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_normal: 
     layers = march_to(line, np.stack([x, y], axis=1), cells_normal, wall_spacing * c, far_field * c,
                       periodic=False, outflow=direction, smoothing=smoothing)
     return layers[..., 0], layers[..., 1]
+
+
+def blunt_c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_normal: int,
+                 wall_spacing: float, far_field: float = 100.0, spacing: Spacing = Spacing(),
+                 smoothing: float = 3.0, cells_base: int | None = None):
+    """Conforming C-type blocks: airfoil, base layer and finite-width wake.
+
+    The body block follows the lower wake, both surfaces, then the upper
+    wake. A short base layer resolves its wall-normal spacing; the wake block
+    continues it downstream. Returns three ``(x, y)`` pairs.
+    """
+    if airfoil.sharp:
+        raise ValueError("blunt_c_grid needs two distinct trailing-edge corners; use c_grid for a sharp edge")
+    if cells_base is None:
+        cells_base = max(4, 4 * ((cells_airfoil // 32 + 3) // 4))
+    if cells_base < 4 or cells_base % 4:
+        raise ValueError("cells_base must be a multiple of 4 and at least 4")
+    c = airfoil.chord
+    # The two branches start with a wall-height step. Match the adjacent
+    # surface cells there or the body block turns too sharply at the corners.
+    local_spacing = Spacing(spacing.leading_edge, min(spacing.trailing_edge, wall_spacing))
+    x, y = surface(airfoil, cells_airfoil, local_spacing)
+    lower = np.array([x[0], y[0]])
+    upper = np.array([x[-1], y[-1]])
+    first_surface = min(np.hypot(x[1] - x[0], y[1] - y[0]),
+                        np.hypot(x[-1] - x[-2], y[-1] - y[-2]))
+    _, _, direction = wake(airfoil, *lower, cells_wake, first_surface, far_field * c)
+    near_cells = 4
+    near_length = max(1.1 * near_cells * wall_spacing * c,
+                      min(first_surface, 0.5 * airfoil.trailing_edge_gap))
+    near_s = geometric(near_cells, wall_spacing * c, near_length)
+    far_s = near_length + geometric(cells_wake, np.diff(near_s)[-1], far_field * c - near_length)
+    s = np.concatenate([near_s[:-1], far_s])
+    lower_wake = lower + s[:, None] * direction
+    upper_wake = lower_wake + (upper - lower)
+    contour = np.stack([x, y], axis=1)
+    line = np.concatenate([lower_wake[::-1], contour[1:-1], upper_wake])
+    body = march_to(line, contour, cells_normal, wall_spacing * c, far_field * c,
+                    periodic=False, outflow=direction, smoothing=smoothing)
+    across = np.linspace(0.0, 1.0, cells_base + 1)
+    wake_nodes = lower_wake[:, None, :] + across[None, :, None] * (upper - lower)
+    base_layer, wake_block = wake_nodes[:near_cells + 1], wake_nodes[near_cells:]
+    return ((body[..., 0], body[..., 1]), (base_layer[..., 0], base_layer[..., 1]),
+            (wake_block[..., 0], wake_block[..., 1]))

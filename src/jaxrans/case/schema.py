@@ -75,7 +75,8 @@ CASE: dict[str, tuple[Key, ...]] = {
             "(`o_grid`, `c_grid`) or round a slat, main element and flap (`multi_element`), or read from a file",
             choices=_sorted(GRIDS)),
         Key("airfoil", "string", None, "`naca` + 4 digits (closed trailing edge; `naca0012_blunt` for the "
-            "standard open one), or a coordinate file (Selig, Lednicer or two columns), scaled to unit chord",
+            "standard open one), or a coordinate file (Selig, Lednicer, two columns or one-element `.hug`), "
+            "scaled to unit chord",
             grids=GENERATED, required_for=GENERATED),
         Key("cells_airfoil", "integer", None, "cells round the airfoil", grids=GENERATED, required_for=GENERATED),
         Key("cells_wake", "integer", None, "cells along each side of the wake cut",
@@ -84,9 +85,12 @@ CASE: dict[str, tuple[Key, ...]] = {
             grids=GENERATED, required_for=GENERATED),
         Key("wall_spacing", "number", None, "first-cell height, chords; for y+ ~ 1 see docs/own-airfoil.md",
             grids=MADE, required_for=MADE),
-        Key("trailing_edge", "string", "as_given", "`close` closes an open trailing edge (needed for a C-grid); "
-            "`as_given` keeps it, and an O-grid meshes its base",
+        Key("trailing_edge", "string", "as_given", "`close` closes an open trailing edge for the original C-grid; "
+            "`as_given` keeps it for an O-grid or the `blunt_c` C topology",
             choices=("as_given", "close"), grids=GENERATED),
+        Key("trailing_edge_topology", "string", "legacy", "`blunt_c` opens the surface layer into a C "
+            "and meshes the base in a separate block connected to the wake; `legacy` keeps the original topology",
+            choices=("legacy", "blunt_c"), grids=("c_grid", "multi_element")),
         Key("far_field", "number", 100.0, "distance of the outer boundary from the airfoil, chords",
             grids=MADE),
         Key("leading_edge_spacing", "number", Spacing.leading_edge, "surface cell length at the leading edge, "
@@ -110,7 +114,8 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("file", "string", None, "the grid file: Plot3D (formatted or unformatted, either byte order, "
             "2D or 3D, single- or multi-block, iblank, gzip) or CGNS in HDF5 storage (structured zones; "
             "`pip install h5py`); for `multi_element`, a file of curves holding every element (a point count, "
-            "then the points, per curve; curves join into closed contours)", grids=("file", "multi_element"),
+            "then the points, per curve; curves join into closed contours), or a `.hug` file with one ordered "
+            "lower-TE to upper-TE contour per element", grids=("file", "multi_element"),
             required_for=("file",)),
         Key("format", "string", "auto", "`auto` reads it from the contents", choices=_sorted(FORMATS),
             grids=("file",)),
