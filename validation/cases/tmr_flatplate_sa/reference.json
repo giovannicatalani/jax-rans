@@ -28,8 +28,5 @@
         ],
         "notes": "CFL3D on the 545x385 grid; FUN3D gives Cf 0.00270540, CD 0.00285247. Per grid, CFL3D at 137x97: Cf 0.00271115, CD 0.00286621; at 69x49: 0.00272835, 0.00288438; at 35x25: 0.00279569, 0.00295438. The tolerances are about CFL3D's own distance from its finest value at 137x97."
     },
-    "settled_cl_spread": 1e-06,
-    "gallery": {
-        "fields": false
-    }
+    "settled_cl_spread": 1e-06
 }

@@ -12,8 +12,7 @@ that compares devices and grid sizes. ``JAX_PLATFORMS=cpu`` forces the CPU.
 With ``--batches`` it measures instead the throughput of a batched polar
 (``jaxrans.polar``) for each batch size on each device count: the same
 ``--iterations`` Newton steps every time (the residual tolerance is made
-unreachable), steady rate, compilation excluded, written as JSON for
-validation/report.py:
+unreachable), steady rate, compilation excluded, written as JSON:
 
     python scripts/benchmark.py validation/cases/nparc_rae2822_case6 --batches 1,4,16,64 \
         --devices 1,4 --out results/polar/benchmark_a100.json

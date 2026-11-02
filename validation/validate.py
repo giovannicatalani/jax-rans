@@ -11,12 +11,10 @@ by the solver as any other) plus a ``reference.json``, read only here:
                           the spread between sources, tolerances, citations
     settled_cl_spread     largest CL range over the last quarter of blocks
                           that counts as settled
-    gallery               how report.py draws the case: plot "window", the
-                          "surface_reference" set of compare_surface.py, "fields"
 
 Examples:
-    python validation/validate.py --suite ladder
-    python validation/validate.py hiocfd_c12 --levels 0,1,2
+    python validation/validate.py --suite rans
+    python validation/validate.py nparc_rae2822_case6
     python validation/validate.py tmr_naca0012_sa_a10 --levels 449-129 --set numerical.convergence.max_iters=6000
     python validation/validate.py tmr_flatplate_sa --grids-only
 
@@ -73,7 +71,6 @@ class Validation:
     levels: tuple[dict, ...]
     reference: Reference | None
     settled_cl_spread: float = 1e-4
-    gallery: dict | None = None
     notes: str = ""
 
 
@@ -93,7 +90,7 @@ def load_validation(name: str) -> Validation:
     return Validation(name=directory.name, directory=directory, suite=doc["suite"],
                       order=int(doc["order"]), levels=tuple(doc["levels"]), reference=ref,
                       settled_cl_spread=float(doc.get("settled_cl_spread", 1e-4)),
-                      gallery=doc.get("gallery"), notes=doc.get("notes", ""))
+                      notes=doc.get("notes", ""))
 
 
 def suite(name: str) -> list[Validation]:

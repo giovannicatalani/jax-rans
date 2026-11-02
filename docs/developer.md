@@ -77,10 +77,7 @@ JAX_PLATFORMS=cpu python -m pytest tests -q -m slow         # manufactured solut
   against single runs.
 - `tests/validation/`: the validation scripts.
 
-Tests that need downloaded grids skip when `data/grids` is missing. Run
-`python validation/grids/make_grids.py` once to write the grids the
-validation tests generate themselves.
+Tests that need downloaded grids skip when `data/grids` is missing.
 
 Comparisons with published data are in `validation/`
-(`python validation/validate.py --suite rans`), with figures in
-`validation/gallery/`.
+(`python validation/validate.py --suite rans`).

@@ -26,7 +26,7 @@ from jaxrans.mesh.block import BlockSides, Boundary, Grid, Interface
 from jaxrans.mesh.mesh import assign_conditions, wall_distance
 
 from ..single import Single, read_grid
-from validation.grids.karman_trefftz import TMR, make_o_grid
+from tests.karman_trefftz import TMR, make_o_grid
 from jaxrans.mesh.atlas import build_atlas
 from jaxrans.numerics.residual import make_residual
 from jaxrans.solvers import implicit

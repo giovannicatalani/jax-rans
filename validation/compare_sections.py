@@ -16,7 +16,7 @@ with the upper-surface shock position (where Cp rises through the sonic
 value, compare_surface.py) of each. Sources: references/tmr_onera_m6/README.md.
 
 Examples:
-    python validation/compare_sections.py results/validation/tmr_onera_m6_euler_n135168
+    python validation/compare_sections.py results/validation/tmr_onera_m6_sa_2308_n1081344
     python validation/compare_sections.py RESULT --plot sections.png
 """
 

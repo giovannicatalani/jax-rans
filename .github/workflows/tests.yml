@@ -22,9 +22,7 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,cgns]"
       - run: pyflakes src
-      # The validation O-grids are ours: write them. Third-party grids are not in
-      # the repository, and the tests that read them skip.
-      - run: python validation/grids/make_grids.py
+      # Third-party grids are not in the repository, and the tests that read them skip.
       - run: pytest -q -m "not slow"
 
   notebook:

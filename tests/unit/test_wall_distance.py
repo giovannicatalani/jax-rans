@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from jaxrans.mesh.mesh import wall_distance
-from validation.grids.karman_trefftz import TMR, make_o_grid
+from tests.karman_trefftz import TMR, make_o_grid
 
 from ..single import c_layout, read_grid, wall_slice, with_conditions
 

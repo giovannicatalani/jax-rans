@@ -27,7 +27,7 @@ Where the upper surface is supersonic the shock position is printed too: where t
 
 Examples:
     python validation/compare_surface.py results/validation/tmr_naca0012_sa_a10_n896 --reference tmr_naca0012:10
-    python validation/compare_surface.py results/validation/nparc_rae2822_case6_n368 --reference rae2822
+    python validation/compare_surface.py results/validation/nparc_rae2822_case6_n368 --reference rae2822 --plot cp.png
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jaxrans.plot import read_table
+from jaxrans.plot import load_result, plot_surface, read_table
 
 REFERENCES = Path(__file__).resolve().parent / "references"
 GAMMA = 1.4
@@ -168,6 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("result", type=Path, help="a result directory written by a run")
     p.add_argument("--reference", required=True, help="rae2822 | tmr_naca0012:0|10|15")
+    p.add_argument("--plot", type=Path, help="also draw Cp against the references to this file")
     args = p.parse_args(argv)
     references = reference_set(args.reference)
     surface = read_table(Path(glob.glob(str(args.result / "*_surface.dat"))[0]))
@@ -189,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
         shock = shock_position(curves["Cp upper"], cp_star)
         print(f"  {label}: suction peak {curves['Cp upper'][1].min():+.3f}"
               + ("" if np.isnan(shock) else f", shock (Cp rises through Cp* = {cp_star:+.4f}) at {shock:.4f}"))
+    if args.plot:
+        cp_curves = {label: joined(curves, "Cp upper", "Cp lower") for label, curves in references.items()}
+        plot_surface(load_result(args.result), "cp", cp_curves, args.plot)
     return 0
 
 

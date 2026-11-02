@@ -16,7 +16,7 @@ import pytest
 from jaxrans.mesh.assemble import PatchRule, RawBlock, assemble, load_grid
 from jaxrans.mesh.block import Interface, o_grid_sides
 from jaxrans.mesh.cgns import Declared
-from validation.grids.karman_trefftz import make_o_grid
+from tests.karman_trefftz import make_o_grid
 from jaxrans.mesh.plot3d import read_plot3d
 
 GRIDS = Path(__file__).resolve().parents[2] / "data" / "grids"

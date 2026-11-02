@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 
 from jaxrans import load_case
-from jaxrans.mesh.block import cell_widths
 from jaxrans.post.forces import Forces
 from jaxrans.solvers.driver import ConvergenceHistory
 
@@ -31,18 +30,9 @@ def test_every_validation_case_and_level_parses(name) -> None:
 
 
 def test_suites_are_ordered() -> None:
-    assert [c.name for c in v.suite("ladder")] == ["vj_m05a0", "vj_m05a125", "vj_m08a0", "vj_m08a125"]
-    assert [c.name for c in v.suite("rans")][0] == "tmr_flatplate_sa"
-    with pytest.raises(KeyError, match="ladder"):
+    assert [c.name for c in v.suite("rans")] == ["tmr_flatplate_sa", "tmr_naca0012_sa_a10"]
+    with pytest.raises(KeyError, match="rans"):
         v.suite("nope")
-
-
-def test_the_laminar_family_is_n_by_11n_over_8_with_halving_spacing() -> None:
-    val = v.load_validation("hiocfd_c12")
-    grid = load_case(val.directory, v.level_overrides(val.levels[0])).grid().mesh[0]
-    assert (grid.ni, grid.nj) == (32, 44)
-    _, width_j = cell_widths(grid.x_node, grid.y_node)
-    assert float(np.mean(width_j[:, 0])) == pytest.approx(1.28e-2 / 32, rel=0.01)
 
 
 def test_levels_are_selected_by_index_or_name() -> None:
@@ -63,15 +53,15 @@ def test_richardson_recovers_order_and_limit() -> None:
 def judged(cl_history):
     from jaxrans.simulation import Result
 
-    case = load_case(ROOT / "validation" / "cases" / "hiocfd_c12")
-    result = Result(case, None, None, Forces(cl=0.0183, cd=0.0553, cm=0.0, fx=0.0, fy=0.0),
+    case = load_case(ROOT / "validation" / "cases" / "tmr_naca0012_sa_a10")
+    result = Result(case, None, None, Forces(cl=1.091, cd=0.012273, cm=0.0, fx=0.0, fy=0.0),
                     ConvergenceHistory(residual=np.ones(3), reason="converged", n_iters=3),
                     np.asarray(cl_history), 0.0)
-    return v.Judged(result, v.load_validation("hiocfd_c12").reference, 1e-4)
+    return v.Judged(result, v.load_validation("tmr_naca0012_sa_a10").reference, 1e-4)
 
 
 def test_a_short_run_never_counts_as_settled() -> None:
-    assert not judged([0.02, 0.02]).settled
-    assert judged([0.02] * 16).settled
-    assert not judged([0.02] * 12 + [0.02, 0.03, 0.02, 0.03]).settled
-    assert judged([0.0183] * 16).failures() == []
+    assert not judged([1.091, 1.091]).settled
+    assert judged([1.091] * 16).settled
+    assert not judged([1.091] * 12 + [1.091, 1.1, 1.091, 1.1]).settled
+    assert judged([1.091] * 16).failures() == []

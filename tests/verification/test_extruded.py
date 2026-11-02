@@ -23,7 +23,7 @@ from jaxrans.core.config import FlowConditions, NumericsConfig
 from jaxrans.mesh.atlas import build_atlas
 from jaxrans.mesh.mesh import assign_conditions
 from jaxrans.numerics.residual import make_residual
-from validation.grids.karman_trefftz import TMR, make_o_grid
+from tests.karman_trefftz import TMR, make_o_grid
 
 from ..single import PLATE_RULES, conditions, extrude, read_grid
 

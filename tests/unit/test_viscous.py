@@ -15,7 +15,7 @@ import pytest
 
 from jaxrans.core import constants
 from jaxrans.core.config import FlowConditions, NumericsConfig
-from validation.grids.karman_trefftz import make_o_grid
+from tests.karman_trefftz import make_o_grid
 from jaxrans.core.state import freestream_primitive
 from jaxrans.numerics.gradients import face_gradients
 from jaxrans.numerics.residual import local_time_step, viscous_fluxes

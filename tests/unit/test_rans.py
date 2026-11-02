@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from jaxrans.core.config import FlowConditions, NumericsConfig
-from validation.grids.karman_trefftz import TMR, make_o_grid
+from tests.karman_trefftz import TMR, make_o_grid
 
 from ..single import PLATE_RULES, Single, atlas_of, fill_ghosts, from_canvas, n_symmetry, read_grid, to_canvas, wall_slice
 from jaxrans.numerics.residual import make_residual, primitive_from_conservative

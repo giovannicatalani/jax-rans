@@ -14,10 +14,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # validation/ (Karman-Trefftz grids)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # tests.karman_trefftz, validation.sections
 
 from jaxrans.core.config import FlowConditions, NumericsConfig
-from validation.grids.karman_trefftz import make_o_grid
+from tests.karman_trefftz import make_o_grid
 from jaxrans.core.state import freestream_primitive, primitive_to_conservative, split
 
 

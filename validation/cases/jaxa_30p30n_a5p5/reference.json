@@ -18,6 +18,5 @@
         ],
         "notes": "Provisional tolerances, to be revised once per-level results exist: the RANS reference is one code on an unstated grid, not a grid-converged value. Judge Cp per element against the experiment and the RANS."
     },
-    "settled_cl_spread": 0.0001,
-    "gallery": {}
+    "settled_cl_spread": 0.0001
 }

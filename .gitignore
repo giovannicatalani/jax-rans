@@ -11,7 +11,7 @@ dist/
 results/
 *.npz
 *.png
-!validation/gallery/**/*.png
+!validation/figures/*.png
 !docs/figures/*.png
 *.pdf
 

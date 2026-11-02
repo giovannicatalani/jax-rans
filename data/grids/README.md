@@ -4,21 +4,15 @@ Input grids from public sources, kept locally, never in git
 (see `.gitignore`). Every case that reads one names it in its `case.json`;
 grids the library generates (`o_grid`, `c_grid`) are never stored.
 
-The validation cases' Karman-Trefftz NACA 0012 O-grids (`kt_*.p2dfmt`) are
-not third-party but are files too: `python validation/grids/make_grids.py`
-writes them here (the generator, `validation/grids/karman_trefftz.py`, is
-validation code, not library).
-
 | files | source | used by |
 |---|---|---|
-| `n0012_113-33` ... `n0012_1793-513` (`.p2dfmt[.gz]`, `.nmf`, CGNS) | NASA TMR NACA 0012 grids, family I: <https://tmbwg.github.io/turbmodels/naca0012_grids.html> | `tmr_naca0012_sa_*`, `tmr_laminar_cgrid` |
+| `n0012_113-33` ... `n0012_1793-513` (`.p2dfmt[.gz]`, `.nmf`, CGNS) | NASA TMR NACA 0012 grids, family I: <https://tmbwg.github.io/turbmodels/naca0012_grids.html> | `tmr_naca0012_sa_a10` |
 | `flatplate_clust2_*levelsdown_*.p2dfmt` (35x25, 69x49, 137x97) | NASA TMR 2DZP flat plate: <https://tmbwg.github.io/turbmodels/flatplate_grids.html> (finer levels: the zip there) | `tmr_flatplate_sa` |
 | `rae2822_nparc.x.fmt` (369x65 C-grid) | NASA NPARC archive, RAE 2822 study 1: <https://www.grc.nasa.gov/www/wind/valid/raetaf/raetaf01/raetaf01.html> (`raetaf.x.fmt`) | `nparc_rae2822_case6` |
 | `2Ddomain_L{1..5}_*_r1.p3d` (30P30N, 117 blocks, 64k-1.04M cells) | JAXA APC-V, 2D section grids: <https://cfdws.chofu.jaxa.jp/apc/apc5/external/2D_domain.tar.gz> (`2D_domain/plot3d/`) | `jaxa_30p30n_*` |
-| `onera_m6/om6_strct_{4x11x6 .. 64x176x96}.ufmt` (ONERA M6, one 3D block, 264-1.08M cells) | generated with NASA TMR's program, see below | `tmr_onera_m6_*` |
+| `onera_m6/om6_strct_{4x11x6 .. 64x176x96}.ufmt` (ONERA M6, one 3D block, 264-1.08M cells) | generated with NASA TMR's program, see below | `tmr_onera_m6_sa_2308` |
 | `onera_m6/om6_sample_40x64x48.ufmt` (+ `.nmf`, `.mapbc`) | the same program's sample input (`input.nml_strct`, y+ 1): small, for tests | `tests/unit/test_grid3d.py`, `test_freestream3d.py` |
-| `crm_adodg/crm_450k_hdf5.cgns` (NASA CRM wing, 26 blocks, 450,560 cells) | Lyu, Kenway and Martins, AIAA ADODG Case 4: Mendeley Data, doi 10.17632/7jnyjdbvf9.1 (CC BY 4.0), `CRM-baseline.zip`, see below | `adodg_crm_wing`, `tests/unit/test_assemble3d.py` |
-| `dpw5_crm/L{1,2,3}.*.rev01.p3d` (NASA CRM wing-body, 5 blocks, 0.64M / 2.16M / 5.11M cells) | 5th AIAA Drag Prediction Workshop common structured grids: <https://dpw.larc.nasa.gov/DPW5/multiblock_grids.REV01/> (big-endian unformatted Plot3D, in inches) | `dpw5_crm_wb` |
+| `crm_adodg/crm_450k_hdf5.cgns` (NASA CRM wing, 26 blocks, 450,560 cells) | Lyu, Kenway and Martins, AIAA ADODG Case 4: Mendeley Data, doi 10.17632/7jnyjdbvf9.1 (CC BY 4.0), `CRM-baseline.zip`, see below | `tests/unit/test_assemble3d.py` |
 
 TMR airfoil grids: C-grids; the wrap index runs downstream wake -> trailing
 edge -> lower surface -> leading edge -> upper surface -> trailing edge ->

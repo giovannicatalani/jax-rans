@@ -36,7 +36,7 @@ import sympy as sp
 
 from jaxrans.core import constants
 from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
-from validation.grids.karman_trefftz import make_o_grid
+from tests.karman_trefftz import make_o_grid
 from jaxrans.core.state import primitive_to_conservative, split
 from jaxrans.numerics import boundary as bc
 

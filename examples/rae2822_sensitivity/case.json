@@ -14,7 +14,7 @@
         "far_field": 100.0,
         "leading_edge_spacing": 0.0005,
         "trailing_edge_spacing": 0.002,
-        "notes": "A C-grid generated from AR-138's measured ordinates, 288 x 80 cells: coarser than the validation case gen_rae2822_case6, so that a polar with derivatives runs in minutes."
+        "notes": "A C-grid generated from AR-138's measured ordinates, 288 x 80 cells, so that a polar with derivatives runs in minutes."
     },
     "boundary_conditions": {
         "wall": {

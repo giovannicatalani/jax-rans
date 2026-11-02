@@ -1,4 +1,5 @@
-"""Conformal Karman-Trefftz O-meshes around the NACA 0012.
+"""Conformal Karman-Trefftz O-meshes around the NACA 0012: smooth curved test
+grids in closed form, for the tests only.
 
 Why this module exists
 ----------------------

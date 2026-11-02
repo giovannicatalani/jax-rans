@@ -7,7 +7,7 @@ Reads only what ``Result.write`` / ``Polar.write`` saved, never the solver, so
 results computed on a cluster are plotted anywhere. Writes PNGs to
 ``<dir>/figures/``: ``mach.png``, ``cp_field.png``, ``cp.png``, ``cf.png``
 (viscous), ``convergence.png``; for a polar ``polar.png`` and ``cp_family.png``.
-Comparison curves are the caller's (``validation/report.py``); this module
+Comparison curves are the caller's (``validation/compare_surface.py``); this module
 knows no reference. Needs matplotlib (``pip install -e .[plot]``).
 
 Colours: magnitudes (Mach) on a one-hue sequential ramp; Cp, whose sign is the

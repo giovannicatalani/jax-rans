@@ -13,7 +13,6 @@ Resource conditions (case 2308), on a small grid that ships with the example.
   converts the older ADF storage).
 - **One block or many**, point-matched: a face of one block meets whole faces
   of others, node for node (a block side may face several blocks).
-  `validation/cases/adodg_crm_wing` runs the NASA CRM wing on a 26-block grid.
 - **What lies on each block side** is found from the coordinates:
     - faces whose four corners coincide become an interface, in whatever
       orientation the two blocks' indices have (between blocks, or within one:

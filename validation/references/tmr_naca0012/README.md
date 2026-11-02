@@ -7,7 +7,7 @@ redirects there). The files are unmodified.
 **Case:** M = 0.15, Re = 6e6 per chord, T_ref = 540 °R, Sutherland's law
 (T0 = 491.6 °R, S = 198.6 °R, mu0 = 1.716e-5 kg/m/s; White 1974, p. 28),
 Pr = 0.72, Pr_t = 0.9, gamma = 1.4, far-field ν̃ = 3 ν∞, fully turbulent.
-Airfoil: the TMR section (`karman_trefftz.TMR`), far field ~500 chords.
+Airfoil: TMR's NACA 0012 section (`naca0012_tmr.dat`), far field ~500 chords.
 
 | file | source page | content |
 |---|---|---|

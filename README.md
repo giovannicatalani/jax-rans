@@ -66,7 +66,7 @@ GPU: [quickstart notebook](notebooks/quickstart.ipynb)
 | 30P30N, SA, 5.5 deg, 261k cells (JAXA) | JAXA's RANS: CL 2.877 | CL 2.8756 |
 | ONERA M6, SA, 1.08M cells (NASA TMR) | CFL3D, same grid | CL +0.19%, CD -1.74% |
 
-Every case, its sources and its figures: [validation gallery](validation/gallery/README.md).
+How to rerun them, with their sources: [validation/](validation/README.md).
 
 ## Derivatives
 

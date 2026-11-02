@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Validation reduced to six main cases (flat plate, NACA 0012 at 10 deg, RAE 2822
+  case 6, the 30P30N on JAXA's and on the generated grid, ONERA M6), with one
+  page of results, `validation/README.md`. The gallery and `validation/report.py`
+  are gone; `compare_surface.py --plot` draws Cp against the references.
+- The Karman-Trefftz grid generator moved to `tests/`, its only user.
+- `docs/multi-element.md` explains the multi-block template and what it takes.
+
 ## 0.2.0
 
 - **Renamed to JAX-RANS**: distribution `jax-rans`, import `jaxrans`, command

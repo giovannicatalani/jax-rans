@@ -1,17 +1,30 @@
 # A multi-element airfoil
 
-For a slat, main element and flap the solver can generate the grid
-(`"grid": "multi_element"`, [below](#generated-grids)); for any other
-geometry with coves and gaps, make a structured multi-block grid with your
-mesher and point the case at the file. The worked
-example is `examples/30p30n_sa`: the 30P30N three-element airfoil on JAXA's
-117-block grid (download instructions in `data/grids/README.md`).
+A single O-grid or C-grid cannot wrap several bodies with narrow slots between
+them, so a multi-element section needs a multi-block grid. There are two ways
+to get one:
+
+| | **The built-in template** | **Your own grid** |
+|---|---|---|
+| Case key | `"grid": "multi_element"` | `"grid": "file"` |
+| You provide | the coordinates of each element | a Plot3D or CGNS grid from your mesher |
+| Geometry | a main element with a slat, a flap or both | anything |
+| Blocks | one fixed layout, fitted to your elements | whatever you made |
+| Read | [Generated grids](#generated-grids) | sections 1 to 4 below |
+
+The template is not a general mesher: it only fits sections arranged the way
+it expects, and refuses the others. For those, such as a double-slotted flap
+or a Krueger flap, use your own grid.
+
+Sections 1 to 4 follow the worked example for your own grid,
+`examples/30p30n_sa`: the 30P30N three-element airfoil on JAXA's 117-block grid
+(download instructions in `data/grids/README.md`).
 
 ## 1. What the grid file must be
 
 - **Format**: Plot3D (any variant: formatted or binary, single or double
   precision, 2D, or 3D with one plane used) or CGNS saved in HDF5. Pointwise,
-  ICEM CFD and most structured meshers write one of these.
+  ICEM CFD and most structured meshers can write one of these.
 - **Blocks meet node to node.** Interfaces are found by matching coincident
   block faces, so no connectivity file is needed, but the nodes on both sides
   of an interface must coincide. Non-matching (patched) interfaces are not
@@ -124,37 +137,83 @@ trailing edge, with a `body` column to tell them apart.
 
 ## Generated grids
 
-`"grid": "multi_element"` builds the multi-block grid of a slat, main element
-and flap from their coordinates alone, in about a minute on a CPU. The
-examples are `examples/main_flap_sa` (the 30P30N without its slat, one file
-per element) and `validation/cases/gen_30p30n_a5p5` (the full 30P30N from
-one curve file).
+`"grid": "multi_element"` builds a multi-block grid from the coordinates of the
+elements alone, in about a minute on a CPU. The examples are
+`examples/main_flap_sa` (the 30P30N without its slat, one file per element) and
+`validation/cases/gen_30p30n_a5p5` (the full 30P30N from one curve file).
 
-### When it applies
+### The template
 
-- **The arrangement**: a main element with a flap behind it, a slat ahead of
-  it, or both (`main`+`flap`, `slat`+`main`, `slat`+`main`+`flap`, listed
-  front to back), each trailing edge over the nose of the element behind it,
-  as deployed in a single-slotted high-lift section. Not covered: two slats
-  or two flaps (double- and triple-slotted systems), Krueger flaps, vanes,
-  tabs, or elements side by side; for those, mesh with your own tool and use
-  `"grid": "file"`.
-- **Each element** a closed contour that does not cross itself or another
+The generator does not search for a block layout. It has **one fixed layout for
+each of three arrangements**, and fits that layout to your elements:
+`main`+`flap`, `slat`+`main` and `slat`+`main`+`flap`.
+
+![generated 30P30N grid](figures/grid_generated_30p30n.png)
+
+1. It finds landmarks on each element's contour: the leading and trailing
+   edges, the cove lip and the corners.
+2. It marches a near-wall layer round each element, `j` from its wall.
+3. It places the blocks between the layers, anchored on the landmarks: a front
+   block wraps the first element's nose, a block runs over the first element
+   and its wake, a slot block over each downstream element under the upstream
+   wake (its left side the gap), a cove block in each cove, and blocks under
+   the elements, split at each cove lip.
+4. It adds a ring that carries the grid to `far_field`.
+
+So the shapes can change, but the layout cannot. A section fits when its
+landmarks fall in the order the layout expects and its blocks do not fold. If
+not, the grid is refused with the reason, never built folded.
+`python scripts/plot_blocks.py CASE --window x0 x1 y0 y1` draws the blocks.
+
+### What the template takes
+
+These are checked on every build:
+
+- **The arrangement**: one of the three above, listed front to back, each
+  trailing edge over the nose of the element behind it, as in a single-slotted
+  high-lift section. Not covered: two slats or two flaps (double- and
+  triple-slotted systems), Krueger flaps, vanes, tabs, or elements side by
+  side; for those, use `"grid": "file"`.
+- **Each element**: a closed contour that does not cross itself or another
   element. Sharp or blunt trailing edges (a blunt base of any thickness),
-  smooth or stepped coves, a cusp on the slat: all taken.
-- **Gaps** wide enough for the near-wall layers: each layer is at least
-  1.5 `wall_spacing` x `layer_cells` thick and at most 0.3 of the distance
-  to the nearest other element, so a gap needs at least 5 `wall_spacing` x
+  smooth or stepped coves and a cusp on the slat are all taken.
+- **Gaps**: wide enough for the near-wall layers. Each layer is at least
+  1.5 `wall_spacing` x `layer_cells` thick and at most 0.3 of the distance to
+  the nearest other element, so a gap needs at least 5 `wall_spacing` x
   `layer_cells` (0.24 % of the chord at the defaults, 1.5e-5 and 32).
-- **Units**: coordinates in the length the Reynolds number is per, the
-  section between 0.1 and 10 of it along x; otherwise set
-  `coordinate_scale`.
-- **Settings** measured to build (round the 30P30N's, below): flap deflection
-  20 to 40 deg, gap 0.5 to 3 % of the chord, overlap -1 to +0.14 % (+2 %
-  with a 3 % gap); slat deflection 20 to 30 deg, gap 1.5 to 4 %.
+- **Units**: coordinates in the length the Reynolds number is per, the section
+  between 0.1 and 10 of it along x; otherwise set `coordinate_scale`.
 
-Outside these the grid is refused with the reason (below), never built
-folded.
+### Which settings were tried
+
+No deflection, gap or overlap has a limit of its own: only the checks above
+refuse a grid. To show how far the template reaches, it was built at these
+settings of the 30P30N (`validation/highlift_envelope.py`), with gaps and
+overlaps in % of the stowed chord:
+
+| | Deflection (deg) | Gap | Overlap | Outcome |
+|---|---|---|---|---|
+| Flap | 20, 30, 40 | 0.5, 1.27, 3 | -1, +0.14, +2 | builds, except as below |
+| Slat | 20, 25, 30 | 1.5, 2.95, 4 | -2.4 (-1 for the 1.5 gap) | builds |
+
+- A 0.5 % flap gap is out of reach at -1 % overlap: the message gives the
+  smallest gap there.
+- A +2 % flap overlap builds only with the 3 % gap. Under a narrower gap it
+  folds the cove block and is refused.
+- A slat gap under 2.4 % is out of reach at the slat's given -2.4 % overlap:
+  bring the overlap to -1 %.
+
+How to read this:
+
+- **These are samples of one section**, not guarantees. Inside the ranges,
+  another section may still be refused; outside them, it may still build. Other
+  shapes have been tried only as a few NACA-based sections
+  (`tests/verification/test_highlift_shapes.py`).
+- **Building is not accuracy.** The table says a grid can be made, not that the
+  flow on it is right. The comparison with reference data is the 30P30N at
+  5.5 deg ([Quality and runs](#quality-and-runs)).
+- **To try your section**, set it up and run `jaxrans CASE --check`: it builds
+  the grid, reports its quality, and does not run the solver.
 
 ### The coordinate files
 
@@ -225,17 +284,6 @@ Start high-lift cases from freestream (`grid_sequencing` 0): coarsened 30P30N
 grids settle on a separated flow (CL 1.5-1.6, CD 0.3-0.4) that the fine grid
 then takes thousands of iterations to wash out.
 
-### What is built
-
-![generated 30P30N grid](figures/grid_generated_30p30n.png)
-
-Each element has a near-wall layer, `j` from its wall; a front block wraps
-the first element's nose, a block runs over the first element and its wake,
-a slot block over each downstream element under the upstream wake (its left
-side the gap), a cove block in each cove, and blocks under the elements,
-split at each cove lip; a ring carries the grid to `far_field`.
-`python scripts/plot_blocks.py CASE --window x0 x1 y0 y1` draws the blocks.
-
 ### When the grid is refused
 
 | message | meaning |
@@ -265,11 +313,3 @@ iteration on a V100. The generated 30P30N at 5.5 deg: CL 2.535, 2.808,
 2.846 on 75k, 113k and 165k cells, its Cp on JAXA's RANS on all three
 elements (`validation/compare_30p30n.py`); this code on JAXA's grids: 2.787
 on 64k cells, 2.8756 on 261k.
-
-The settings round the 30P30N's (`validation/highlift_envelope.py`): every
-flap deflection from 20 to 40 deg with gaps 0.5 to 3 % and overlaps -1 to
-+0.14 % builds (but a 0.5 % gap, out of reach at -1 % overlap), and +2 %
-with a 3 % gap; a 2 % overlap under a narrower gap folds the cove block and
-is refused. Every slat deflection from 20 to 30 deg
-with gaps 1.5 to 4 % builds (under 2.4 % the overlap must come to -1 %: at
-its given -2.4 % the slat cannot come nearer).

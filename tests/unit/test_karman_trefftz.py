@@ -24,13 +24,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from validation.grids import karman_trefftz as kt
+from tests import karman_trefftz as kt
 from jaxrans.mesh.block import o_grid_sides, validate_metrics
 
 from ..single import body_area, wall_slice
 
 LEVELS = (32, 64, 128)
-"""Sizes exercised by the fast suite. 256 is left to the validation script."""
+"""Sizes exercised by the fast suite."""
 
 
 # --- The section ------------------------------------------------------------
