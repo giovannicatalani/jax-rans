@@ -1,7 +1,6 @@
 # Running a case
 
-A case is a directory with two files, following
-[JAX-Fluids](https://github.com/tumaer/JAXFLUIDS): `case.json` describes the
+A case is a directory with two files: `case.json` describes the
 problem (grid, freestream, gas, turbulence model, boundary conditions) and
 `numerical.json` the method (flux, limiter, solver, iterations). Every key is
 listed in the [case reference](case_reference.md). To set up your own

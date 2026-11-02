@@ -2,10 +2,7 @@
 
 One station of a swept wing, computed as an **infinite swept wing**: the
 section is the same all along the sweep line, so nothing varies along it. The
-grid is an ordinary 2D grid; the flow has three velocity components. This
-captures what simple sweep theory (a 2D solution at `M cos(sweep)`) leaves
-out: the spanwise boundary layer, its heating, and its effect on the eddy
-viscosity, hence on shock-boundary-layer interaction and separation. It does
+grid is an ordinary 2D grid; the flow has three velocity components. It does
 not capture taper, the root or the tip: a wing assembled from 2.5D stations
 needs the stations' effective incidence from a lifting-line or vortex-lattice
 model of the planform.
@@ -76,27 +73,8 @@ carries `rho w` as a fifth mean-flow row (`U = (rho, rho u, rho v, rho w, E[, rh
   3D wing's `cp` at the station, plotted at `x_streamwise`.
 - **Fields** (`*_fields.npz`): `U` with its `rho w` row.
 
-## 4. Checks
 
-`tests/verification/test_swept.py`:
-
-- At zero sweep the 2.5D residual is the 2D residual (Euler, laminar, SA,
-  SA-QCR, both far-field models, first and second order), with no spanwise
-  momentum, and the forces are the 2D forces.
-- On a 2D grid extruded in `z` with periodic ends, any spanwise-uniform state
-  with a nonzero spanwise velocity has a 3D residual equal to the 2.5D one
-  times the cell depth, to 1e-11: every spanwise term of the 2.5D operator
-  against the (separately validated) 3D one.
-- The wing-frame pressure coefficients are the 2D integral round the
-  streamwise section.
-
-Inviscid, the swept solution is exactly the 2D one at the in-plane Mach number
-and incidence, with `w` uniform (the independence principle): converged
-transonic NACA 0012 solutions at `M = 0.9`, 2 degrees, 30 degrees of sweep agree
-with the 2D solution at `M = 0.7796`, 2.309 degrees to 4e-13 in every field,
-with either far field.
-
-## 5. Limits
+## 4. Limits
 
 - Fully turbulent (SA, SA-QCR): no crossflow transition.
 - An infinite wing: no taper, root or tip effects.

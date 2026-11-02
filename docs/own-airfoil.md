@@ -25,11 +25,9 @@ The reader accepts the usual formats:
 
 Either direction round the contour is fine, and commas are read as spaces.
 The airfoil is scaled to unit chord, with its leading edge at the origin.
-That way a file in millimetres or a file offset from the origin give the
-same grid and the same coefficients as one in chords. Nothing is rotated: set
-the incidence with `alpha_deg`.
+Nothing is rotated: set the incidence with `alpha_deg`.
 
-Most downloaded files have a slightly open trailing edge (0.1 to 0.3 % of
+When downloaded files have a slightly open trailing edge (0.1 to 0.3 % of
 the chord). A C-grid needs a sharp one, so add `"trailing_edge": "close"`.
 This moves each surface by a small amount that grows linearly from zero at
 the leading edge to half the gap at the trailing edge. If you want to keep
@@ -59,10 +57,10 @@ The generated grid has two patches, `wall` and `farfield`. With a Reynolds
 number set, the wall defaults to no-slip and the far field to the
 characteristic condition, so `boundary_conditions` can be left out.
 
-**Which grid.** A C-grid for viscous flow round a sharp trailing edge; an
+**Grid Type.** A C-grid for viscous flow round a sharp trailing edge; an
 O-grid for inviscid flow, or to keep a blunt trailing edge.
 
-**How many cells.** For RANS, 256 round the airfoil, 64 along the wake and
+**Cells count.** For RANS, 256 round the airfoil, 64 along the wake and
 96 to 128 outward is a reasonable first grid (40 to 50 thousand cells).
 Double `cells_airfoil`, `cells_wake` and `cells_normal` and halve
 `wall_spacing` to see how much the answer still depends on the grid.
@@ -142,19 +140,7 @@ settled after 1160 iterations, residual peak 1.704433e-05 -> 6.698344e-09 (3.41 
 CL = +0.801215   CD = +0.011022 (friction +0.007529)   CM = -0.075400
 ```
 
-The drag is for a fully turbulent boundary layer: SA has no transition
-model, so expect more drag than a wind tunnel at this Reynolds number.
-
-![Clark Y wall pressure](figures/cp_clarky.png)
-
-The small bumps near the leading edge are in the coordinate file, not the
-flow. The file has 61 points per surface with four or five digits, and its
-curvature jumps between neighbouring points (on the upper surface at x/c
-0.02, 0.08 and 0.16). The solver follows the geometry it is given. If you
-see this in your own results, use a file with more points, or smooth it
-before running.
-
-## 5. Is it converged?
+## 5. Convergence
 
 The forces are printed every block, and the log ends with the reason the
 run stopped and the orders the residual dropped from its peak. A run whose
