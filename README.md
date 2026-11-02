@@ -1,9 +1,8 @@
 # JAX-RANS
 
-**Differentiable compressible RANS in JAX.** Euler, laminar Navier-Stokes and
+**Reynolds Averaged Navier Stokes solver in Jax.** Euler, laminar Navier-Stokes and
 Spalart-Allmaras RANS on structured multi-block grids, 2D and 3D, in double
-precision on GPUs (one or several), validated against NASA, AGARD and JAXA
-reference data, with exact derivatives of the converged forces.
+precision on GPUs (one or several), with exact derivatives of the converged forces.
 
 [![tests](https://github.com/giovannicatalani/jax-rans/actions/workflows/tests.yml/badge.svg)](https://github.com/giovannicatalani/jax-rans/actions/workflows/tests.yml)
 [![docs](https://github.com/giovannicatalani/jax-rans/actions/workflows/docs.yml/badge.svg)](https://giovannicatalani.github.io/jax-rans/)
@@ -40,6 +39,11 @@ Or try it in the browser, a transonic airfoil and its derivatives on a free
 GPU: [quickstart notebook](notebooks/quickstart.ipynb)
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb).
 
+
+# Examples
+
+Example cases are in [examples/](examples/README.md).
+
 ## What it does
 
 - **Physics**: compressible Euler, laminar Navier-Stokes, Spalart-Allmaras
@@ -54,26 +58,14 @@ GPU: [quickstart notebook](notebooks/quickstart.ipynb)
   batched on the GPU; one large case split over several GPUs.
 - **Derivatives**: dCL, dCD and dCM with respect to the angle of attack and
   the Mach number, exact for the discrete solution, one linear solve each
-  ([how](docs/gradients.md)).
+  ([how](docs/gradients.md)).Still quite experimental for general inputs.
 
 ## Validation
-
-| case | reference | this code |
-|---|---|---|
-| NACA 0012, SA, 10 deg, 897x257 (NASA TMR) | CFL3D, same grid: CL 1.09112, CD 0.012371 | CL 1.09076, CD 0.012349 |
-| flat plate, SA, 137x97 (NASA TMR) | CFL3D, 545x385: Cf(0.97) 2.70562e-3 | 2.70546e-3 |
-| RAE 2822 case 6, SA, 369x65 (AGARD) | WIND, same grid: CL 0.73096, CD 0.012117, shock 0.5455 c | CL 0.72118, CD 0.012452, shock 0.5455 c |
-| 30P30N, SA, 5.5 deg, 261k cells (JAXA) | JAXA's RANS: CL 2.877 | CL 2.8756 |
-| ONERA M6, SA, 1.08M cells (NASA TMR) | CFL3D, same grid | CL +0.19%, CD -1.74% |
+Validation cases can be found in the validation folder.
 
 How to rerun them, with their sources: [validation/](validation/README.md).
 
 ## Derivatives
-
-![RAE 2822 lift and drag polar with derivatives](docs/figures/readme_gradients.png)
-
-*RAE 2822, SA, M 0.729, Re 6.5 million: each point a converged run, each line
-its derivative from one linear solve.*
 
 ```python
 from jaxrans import sensitivity
@@ -81,11 +73,9 @@ from jaxrans import sensitivity
 s = sensitivity(result, outputs=("cl", "cd"), parameters=("alpha", "mach"))
 s.derivatives["cl"]["alpha"]               # per degree
 ```
-
-Verified against central finite differences to 2e-5 or better
 ([docs/gradients.md](docs/gradients.md)).
 
-## How it compares
+## Existing CFD solvers and differences with them
 
 [JAX-CFD](https://github.com/google/jax-cfd) solves incompressible flow on
 Cartesian grids, for machine learning research;
@@ -100,13 +90,9 @@ smaller, Python throughout, and differentiable through JAX.
 ## Documentation
 
 [giovannicatalani.github.io/jax-rans](https://giovannicatalani.github.io/jax-rans/):
-running a case, your own airfoil, multi-element sections, 3D wings,
-derivatives, every case key, the equations and method, and a developer
-guide. Example cases are in [examples/](examples/README.md).
+running a case, meshing and simulating your own airfoil, simulating multi-element sections, 3D wings,
+derivatives, including the equations and method.
 
-JAX-RANS is a research code on differentiable GPU solvers written in Python,
-developed with the help of Claude Code and checked case by case against the
-references above.
 
 ## Citing, licence, contributing
 

@@ -1,13 +1,11 @@
 # JAX-RANS
 
-Differentiable compressible RANS in JAX: Euler, laminar Navier-Stokes and
+RANS solver in JAX: Euler, laminar Navier-Stokes and
 Spalart-Allmaras RANS on structured grids, in 2D and 3D, on CPU or GPU (one
-or several), with exact derivatives of the converged forces. Grids are
-generated round a single airfoil or a slat, main element and flap from their
-coordinates, or read from Plot3D and CGNS files with any number of blocks. A
+or several), with exact derivatives of the converged forces. Grids are automatically generated round a single airfoil and can be generated for multi-element airfoils using a template block structure. Alternatively it supports user input grids from Plot3D and CGNS files with any number of blocks. A
 case is two JSON files.
 
-Try a transonic airfoil and its derivatives in the browser:
+Try a quickstart notebook simulating transonic airfoil and its derivatives in the browser:
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/giovannicatalani/jax-rans/blob/main/notebooks/quickstart.ipynb)
 
 ```bash
