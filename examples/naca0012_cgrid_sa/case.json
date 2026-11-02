@@ -1,0 +1,33 @@
+{
+    "general": {
+        "case_name": "naca0012_cgrid_sa",
+        "description": "NACA 0012 from .hug, blunt-base C-grid, SA RANS: M 0.8, alpha 1.25 deg, sweep 25 deg, Re 6e6"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "naca0012_blunt.hug",
+        "trailing_edge": "as_given",
+        "trailing_edge_topology": "blunt_c",
+        "cells_airfoil": 256,
+        "cells_wake": 64,
+        "cells_normal": 96,
+        "wall_spacing": 5e-6,
+        "far_field": 100.0,
+        "section": "streamwise"
+    },
+    "freestream": {
+        "mach": 0.8,
+        "alpha_deg": 1.25,
+        "sweep_deg": 25.0,
+        "reynolds": 6000000.0,
+        "temperature": 288.15
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 110.4
+    },
+    "turbulence": {
+        "model": "sa_noft2",
+        "freestream_nu_tilde_ratio": 3.0
+    }
+}
