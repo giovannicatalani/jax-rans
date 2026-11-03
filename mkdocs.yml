@@ -17,6 +17,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Running a case: guide.md
+  - Install troubleshooting: install-troubleshooting.md
   - Your own airfoil: own-airfoil.md
   - Multi-element airfoil: multi-element.md
   - A 3D wing: wing-3d.md

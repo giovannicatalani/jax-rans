@@ -28,10 +28,15 @@ The airfoil is scaled to unit chord, with its leading edge at the origin.
 Nothing is rotated: set the incidence with `alpha_deg`.
 
 When downloaded files have a slightly open trailing edge (0.1 to 0.3 % of
-the chord). A C-grid needs a sharp one, so add `"trailing_edge": "close"`.
-This moves each surface by a small amount that grows linearly from zero at
-the leading edge to half the gap at the trailing edge. If you want to keep
-the blunt base, use an O-grid instead.
+the chord). To close it, add `"trailing_edge": "close"`. This moves each
+surface by a small amount that grows linearly from zero at the leading edge
+to half the gap at the trailing edge. Otherwise the base is kept: an O-grid
+meshes it, and a C-grid adds a block off the base and one in the wake, with
+cells for their ramps on top of `cells_airfoil` and `cells_wake`.
+
+A `.hug` file gives the two corners explicitly: `1` (the element count), the
+point count, then `x y` rows from the lower to the upper trailing-edge corner,
+with no points on the base.
 
 ## 2. case.json
 
@@ -57,8 +62,8 @@ The generated grid has two patches, `wall` and `farfield`. With a Reynolds
 number set, the wall defaults to no-slip and the far field to the
 characteristic condition, so `boundary_conditions` can be left out.
 
-**Grid Type.** A C-grid for viscous flow round a sharp trailing edge; an
-O-grid for inviscid flow, or to keep a blunt trailing edge.
+**Grid Type.** A C-grid for viscous flow, sharp or blunt trailing edge; an
+O-grid for inviscid flow.
 
 **Cells count.** For RANS, 256 round the airfoil, 64 along the wake and
 96 to 128 outward is a reasonable first grid (40 to 50 thousand cells).

@@ -26,7 +26,8 @@ python -m jaxrans.plot results/naca0012_euler
 ```
 
 For a GPU, install JAX with CUDA first
-([instructions](https://docs.jax.dev/en/latest/installation.html)). A case is
+([instructions](https://docs.jax.dev/en/latest/installation.html);
+[if it crashes](docs/install-troubleshooting.md)). A case is
 two JSON files, the physics and the numerics; from Python:
 
 ```python

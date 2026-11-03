@@ -1,0 +1,29 @@
+{
+    "general": {
+        "case_name": "naca0012_blunt_sa",
+        "description": "NACA 0012 with its blunt trailing edge, three-block C-grid, swept SA RANS: M 0.8, alpha 1.25 deg, sweep 25 deg, Re 6e6"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "naca0012_blunt",
+        "cells_airfoil": 256,
+        "cells_wake": 64,
+        "cells_normal": 96,
+        "wall_spacing": 5e-06,
+        "far_field": 100.0
+    },
+    "freestream": {
+        "mach": 0.8,
+        "alpha_deg": 1.25,
+        "sweep_deg": 25.0,
+        "reynolds": 6000000.0,
+        "temperature": 288.15
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 110.4
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

@@ -22,7 +22,7 @@ from ..geometry.airfoil import Airfoil, airfoil_source
 from ..geometry.elements import Element, place, read_element, read_elements
 from ..mesh.assemble import PatchRule, RawBlock, assemble, load_grid
 from ..mesh.assemble3d import is_3d, load_grid_3d
-from ..mesh.generate import Spacing, c_grid, o_grid
+from ..mesh.generate import Spacing, blunt_c_grid, c_grid, o_grid
 from ..mesh.highlift import Settings, multi_element
 from ..mesh.mesh import Mesh
 from ..post.forces import ForceReference
@@ -56,6 +56,7 @@ class GridSpec:
     reference_area: float | None = None
     moment_centre: tuple[float, ...] = (0.25, 0.0, 0.0)
     section: str = "streamwise"
+    base_blocks: bool = False
 
     def force_reference(self) -> ForceReference:
         return ForceReference(self.reference_length, self.reference_area, tuple(self.moment_centre))
@@ -91,6 +92,8 @@ class GridSpec:
         if self.trailing_edge == "close" and not airfoil.sharp:
             notes.append(f"trailing-edge gap {airfoil.trailing_edge_gap:.3g} closed")
             airfoil = airfoil.closed()
+        if self.grid == "c_grid" and not airfoil.sharp:
+            notes.append("blunt trailing edge: base and wake blocks")
         return airfoil, notes
 
     def placed_elements(self, base: Path) -> list[Element]:
@@ -114,7 +117,7 @@ class GridSpec:
     def settings(self) -> Settings:
         return Settings(self.wall_spacing, self.cells_per_chord, self.layer_cells, self.layer_thickness,
                         self.far_field, self.leading_edge_spacing, self.trailing_edge_spacing, self.gap_cells,
-                        self.even_cells)
+                        self.even_cells, self.base_blocks)
 
     def resolve(self, base: Path, name: str | None = None) -> Path:
         """A file, relative to ``base`` (the case directory) or the working directory."""
@@ -132,10 +135,13 @@ def _generated(spec: GridSpec, base: Path, dtype) -> Mesh:
     common = dict(cells_normal=spec.cells_normal, wall_spacing=spec.wall_spacing,
                   far_field=spec.far_field, spacing=spacing)
     if spec.grid == "o_grid":
-        x, y = o_grid(airfoil, spec.cells_airfoil, **common)
+        raw = [RawBlock(*o_grid(airfoil, spec.cells_airfoil, **common))]
+    elif airfoil.sharp:
+        raw = [RawBlock(*c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common))]
     else:
-        x, y = c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common)
-    mesh, _ = assemble([RawBlock(x, y)], dtype=dtype, source=spec.describe())
+        blocks = blunt_c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common)
+        raw = [RawBlock(x, y, name=name) for name, (x, y) in blocks.items()]
+    mesh, _ = assemble(raw, dtype=dtype, source=spec.describe())
     return mesh
 
 

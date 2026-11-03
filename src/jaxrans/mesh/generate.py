@@ -11,7 +11,8 @@ solving the linearized orthogonality and cell-area equations
 implicit second-difference smoothing of each step in ``xi`` (after Chan and
 Steger, Appl. Math. Comput. 51 (1992) 181-205). Steps grow geometrically from
 the wall spacing to the far-field distance. A C-grid's outflow planes are
-kept straight and normal to the wake.
+kept straight and normal to the wake. A blunt trailing edge gets a C-grid of
+three blocks: the same marching, a block off the base, a block in the wake.
 
 What it is for: one body, convex or mildly concave. A deep concavity (a
 slat cove, a flap gap) folds the marching; the quality report then refuses
@@ -28,6 +29,15 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.linalg import spsolve
 
 from ..geometry.airfoil import Airfoil
+
+
+RAMP_GROWTH = 1.3
+"""Largest cell growth in a blunt C-grid's ramps along the wall line."""
+
+CORNER_SMOOTHING = 3000.0
+"""Added smoothing at the corners of a blunt C-grid, far from the wall, where the
+tightly spaced lines leaving the surface and the wake converge and fold (set on
+NACA 0012, 2412 and 4415 sections, 0.25 to 1 % bases, wall spacings 1e-6 to 1e-4)."""
 
 
 # --- Distributions -------------------------------------------------------------------
@@ -73,8 +83,8 @@ class Spacing:
     trailing_edge: float = 2e-3
 
 
-def surface(airfoil: Airfoil, n: int, spacing: Spacing) -> tuple[np.ndarray, np.ndarray]:
-    """``n + 1`` nodes round the contour, trailing edge to trailing edge,
+def _arcs(airfoil: Airfoil, n: int, spacing: Spacing) -> np.ndarray:
+    """``n + 1`` arc lengths round the contour, trailing edge to trailing edge,
     ``n / 2`` cells on each side of the leading edge (``n`` even)."""
     if n % 2:
         raise ValueError(f"cells round the airfoil must be even, got {n}")
@@ -83,7 +93,13 @@ def surface(airfoil: Airfoil, n: int, spacing: Spacing) -> tuple[np.ndarray, np.
     lower = s_le * vinokur(n // 2, spacing.trailing_edge * c / s_le, spacing.leading_edge * c / s_le)
     upper = s_le + (L - s_le) * vinokur(n // 2, spacing.leading_edge * c / (L - s_le),
                                          spacing.trailing_edge * c / (L - s_le))
-    x, y = airfoil.points(np.concatenate([lower, upper[1:]]))
+    return np.concatenate([lower, upper[1:]])
+
+
+def surface(airfoil: Airfoil, n: int, spacing: Spacing) -> tuple[np.ndarray, np.ndarray]:
+    """``n + 1`` nodes round the contour, trailing edge to trailing edge,
+    ``n / 2`` cells on each side of the leading edge (``n`` even)."""
+    x, y = airfoil.points(_arcs(airfoil, n, spacing))
     if airfoil.sharp:
         x[-1], y[-1] = x[0], y[0]
     return x, y
@@ -239,7 +255,7 @@ def c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_normal: 
     the two wake lines coincide (the cut). Needs a sharp trailing edge."""
     if not airfoil.sharp:
         raise ValueError(f"airfoil {airfoil.name!r} has a blunt trailing edge "
-                         f"(gap {airfoil.trailing_edge_gap:.3g}); use an O-grid, or close it "
+                         f"(gap {airfoil.trailing_edge_gap:.3g}); use blunt_c_grid or an O-grid, or close it "
                          f"(case key domain.trailing_edge = \"close\")")
     c = airfoil.chord
     x, y = surface(airfoil, cells_airfoil, spacing)
@@ -251,3 +267,59 @@ def c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_normal: 
     layers = march_to(line, np.stack([x, y], axis=1), cells_normal, wall_spacing * c, far_field * c,
                       periodic=False, outflow=direction, smoothing=smoothing)
     return layers[..., 0], layers[..., 1]
+
+
+def _ramp(first: float, last: float) -> np.ndarray:
+    """Steps from ``first`` towards ``last``, growing by at most ``RAMP_GROWTH``,
+    in a multiple of 4 cells (two grid-sequencing levels), at least 8."""
+    n = 4 * max(2, int(np.ceil(abs(np.log(last / first)) / np.log(RAMP_GROWTH) / 4)))
+    return first * (last / first) ** (np.arange(n) / n)
+
+
+def _folded(layers: np.ndarray) -> bool:
+    """Whether marched layers ``(ni + 1, nj + 1, 2)`` hold cells of both signs."""
+    d1, d2 = layers[1:, 1:] - layers[:-1, :-1], layers[:-1, 1:] - layers[1:, :-1]
+    return np.ptp(np.sign(d1[..., 0] * d2[..., 1] - d1[..., 1] * d2[..., 0])) > 0.0
+
+
+def blunt_c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_normal: int, wall_spacing: float,
+                 far_field: float = 100.0, spacing: Spacing = Spacing(),
+                 smoothing: float = 3.0) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Node arrays of a C-grid round a blunt trailing edge, by block: ``body``,
+    as ``c_grid`` with its wake lines leaving the two corners; ``base``, off the
+    base wall; ``wake``, between the wake lines. ``j`` is the stiff direction in
+    each, the one line-implicit relaxation follows: off the wall, across the wake.
+
+    The first step off the base is the wall spacing, so the wall line ramps down
+    to it next to the corners, in cells added to ``cells_airfoil`` and ``cells_wake``.
+    """
+    if airfoil.sharp:
+        raise ValueError(f"airfoil {airfoil.name!r} has a sharp trailing edge; use c_grid")
+    c, L = airfoil.chord, airfoil.length
+    first, last = wall_spacing * c, spacing.trailing_edge * c
+    ramp = _ramp(first, last)
+    near = np.cumsum(ramp)
+    s_le = float(airfoil.s[airfoil.leading_edge])
+    s = np.interp(_arcs(airfoil, cells_airfoil, spacing), [0.0, s_le, L], [near[-1], s_le, L - near[-1]])
+    contour = np.stack(airfoil.points(np.concatenate([[0.0], near[:-1], s, L - near[-2::-1], [L]])), axis=1)
+    lower, upper = contour[0], contour[-1]
+    _, _, direction = wake(airfoil, *lower, cells_wake, last, far_field * c)
+    along = np.concatenate([[0.0], near, near[-1] + geometric(cells_wake, last, far_field * c - near[-1])[1:]])
+    lower_wake = lower + along[:, None] * direction
+    line = np.concatenate([lower_wake[::-1], contour[1:-1], lower_wake + upper - lower])
+
+    corners = np.array([len(along) - 1, len(line) - len(along)])
+    around = np.exp(-(np.abs(np.arange(len(line))[:, None] - corners).min(axis=1) / len(ramp)) ** 2)
+    outward = (np.arange(cells_normal) / cells_normal) ** 2
+    body = march_to(line, contour, cells_normal, first, far_field * c, periodic=False, outflow=direction,
+                    smoothing=smoothing + CORNER_SMOOTHING * around[:, None] * outward)
+    if _folded(body):
+        raise ValueError(f"the C-grid round the blunt trailing edge of {airfoil.name!r} folds at its corners; "
+                         f"try more cells_wake (now {cells_wake}) or cells_normal (now {cells_normal})")
+
+    # Uniform across the wake: clustering it to the body's first cell, to avoid the
+    # jump at the interface, stalled the residual ~3 orders higher for the same forces.
+    across = np.linspace(0.0, 1.0, 4 * max(2, int(np.ceil(cells_airfoil / 128))) + 1)
+    nodes = lower_wake[:, None] + across[None, :, None] * (upper - lower)
+    blocks = {"body": body, "base": nodes[:len(ramp) + 1, ::-1].transpose(1, 0, 2), "wake": nodes[len(ramp):]}
+    return {name: (b[..., 0], b[..., 1]) for name, b in blocks.items()}

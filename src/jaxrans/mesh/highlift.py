@@ -118,6 +118,7 @@ class Settings:
     trailing_edge_spacing: float = 2e-3
     gap_cells: int = 16
     even_cells: int = 4
+    base_blocks: bool = False
 
     @property
     def nj(self) -> int:
@@ -786,6 +787,12 @@ def _ring(nodes, loop: _Loop, walls, settings: Settings, h_ml: float, size: floa
 # --- The grid ------------------------------------------------------------------------------------
 
 
+def _split_at_base(nodes: np.ndarray, lower: int, upper: int) -> list[tuple[str, np.ndarray]]:
+    """A blunt element's O-layer as a C-layer and a block behind its base, the
+    two corner lines interfaces; the same nodes."""
+    return [("layer", nodes[lower:upper + 1]), ("base", np.concatenate([nodes[upper:], nodes[1:lower + 1]]))]
+
+
 def multi_element(elements: list[Element], settings: Settings) -> tuple[list[RawBlock], dict]:
     """The grid's blocks (layers, fill blocks, outer ring) and a record of
     what was built (family, blocks, cells).
@@ -831,8 +838,11 @@ def multi_element(elements: list[Element], settings: Settings) -> tuple[list[Raw
     grids = smooth(fill(blocks, nodes), _off_wall(blocks, nodes, layers, walls, h_ml))
     ring = _ring(nodes, loop, walls, settings, h_ml, size)
 
-    raw = [RawBlock(layer.nodes[..., 0].copy(), layer.nodes[..., 1].copy(), name=f"layer{k}")
-           for k, layer in enumerate(layers)]
+    raw = []
+    for k, (layer, wall) in enumerate(zip(layers, walls)):
+        pieces = (_split_at_base(layer.nodes, layer.index["te_l"], layer.index["te_u"])
+                  if settings.base_blocks and wall.base else [("layer", layer.nodes)])
+        raw += [RawBlock(p[..., 0].copy(), p[..., 1].copy(), name=f"{name}{k}") for name, p in pieces]
     raw += raw_blocks(grids)
     raw.append(RawBlock(ring[..., 0].copy(), ring[..., 1].copy(), name="ring"))
     cells = int(sum((b.x.shape[0] - 1) * (b.x.shape[1] - 1) for b in raw))

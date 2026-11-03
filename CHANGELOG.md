@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Blunt trailing edges on a C-grid** (contributed by Xavier Bertrand): a C-grid
+  round a blunt section now keeps its base, with a block off the base and one in
+  the wake (example `naca0012_blunt_sa`). `.hug` coordinate files give the two
+  corners explicitly, and `domain.base_blocks` splits a multi-element grid's
+  blunt layers at their bases. Sharp sections and closed trailing edges unchanged.
 - **Swept wing sections (2.5D)** (`freestream.sweep_deg`, `domain.section`):
   an infinite swept wing on any 2D grid, the spanwise velocity a third
   component with no derivative along the span (docs/swept.md). The section is

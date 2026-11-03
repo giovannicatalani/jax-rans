@@ -233,6 +233,11 @@ edge) or a plain two-column table, in either direction. A blunt trailing
 edge is left open: the file runs from one end of the base round to the
 other, and the base is the straight line between them.
 
+Or **one `.hug` file** (`domain.file`, `elements` then roles only): the element
+count, then per element a point count and `x y` rows from its lower to its upper
+trailing-edge corner, no points on the base. `"base_blocks": true` puts each
+base in a block of its own, on the same nodes.
+
 Or **one curve file** for all elements (`domain.file`, `elements` then
 roles only):
 

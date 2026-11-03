@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from .airfoil import Airfoil, from_points, read_airfoil
+from .airfoil import Airfoil, from_points, read_airfoil, read_curves, read_hug
 
 ROLES = ("slat", "main", "flap")
 
@@ -88,23 +88,6 @@ class Element:
 
 
 # --- Reading ------------------------------------------------------------------------------
-
-
-def read_curves(path: str | Path) -> list[np.ndarray]:
-    """The curves of a counted-curve file: per curve a line holding its point
-    count, then its points, one per line (``x y`` or ``x y z``; ``z`` dropped)."""
-    lines = [ln.split() for ln in Path(path).read_text().splitlines() if ln.strip()]
-    curves, k = [], 0
-    while k < len(lines):
-        if len(lines[k]) != 1:
-            raise ValueError(f"{Path(path).name}: expected a point count on line {k + 1}, got {' '.join(lines[k])!r}")
-        n = int(lines[k][0])
-        rows = lines[k + 1:k + 1 + n]
-        if len(rows) < n or any(len(r) not in (2, 3) for r in rows):
-            raise ValueError(f"{Path(path).name}: curve {len(curves)} (line {k + 1}) has fewer than {n} points")
-        curves.append(np.array([[float(r[0]), float(r[1])] for r in rows]))
-        k += 1 + n
-    return curves
 
 
 def join_contours(curves: list[np.ndarray], tol: float = 1e-6) -> list[np.ndarray]:
@@ -181,11 +164,14 @@ def open_at_trailing_edge(points: np.ndarray, name: str) -> Airfoil:
 def read_elements(path: str | Path, roles: list[str], scale: float = 1.0) -> list[Element]:
     """Elements from one counted-curve file, its contours given ``roles`` in
     the order of their leading edges' ``x`` (front to back)."""
-    loops = join_contours(read_curves(path))
-    if len(loops) != len(roles):
-        raise ValueError(f"{Path(path).name} holds {len(loops)} closed contours, the case lists "
-                         f"{len(roles)} elements")
-    foils = [open_at_trailing_edge(scale * p, f"{Path(path).stem}[{k}]") for k, p in enumerate(loops)]
+    if Path(path).suffix.lower() == ".hug":
+        foils = read_hug(path, scale, len(roles))
+    else:
+        loops = join_contours(read_curves(path))
+        if len(loops) != len(roles):
+            raise ValueError(f"{Path(path).name} holds {len(loops)} closed contours, the case lists "
+                             f"{len(roles)} elements")
+        foils = [open_at_trailing_edge(scale * p, f"{Path(path).stem}[{k}]") for k, p in enumerate(loops)]
     foils.sort(key=lambda a: a.x[a.leading_edge])
     return [Element(a, r) for a, r in zip(foils, roles)]
 
@@ -193,7 +179,10 @@ def read_elements(path: str | Path, roles: list[str], scale: float = 1.0) -> lis
 def read_element(path: str | Path, role: str, scale: float = 1.0) -> Element:
     """One element from a coordinate file (``read_airfoil``'s formats), as
     placed in it: its points taken as a closed contour (a repeated first point
-    dropped) and opened at the trailing edge, so the file may start anywhere."""
+    dropped) and opened at the trailing edge, so the file may start anywhere
+    (a ``.hug`` is taken as given)."""
+    if Path(path).suffix.lower() == ".hug":
+        return Element(read_hug(path, scale, count=1)[0], role)
     a = read_airfoil(path)
     p = np.stack([a.x, a.y], axis=1)
     if np.hypot(*(p[-1] - p[0])) <= 1e-9 * np.ptp(p, axis=0).max():
