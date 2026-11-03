@@ -8,8 +8,8 @@ trailing edge is sharp when the two ends coincide, blunt otherwise.
 
 Sources: a coordinate file (Selig: a name line, then the points round the
 contour; Lednicer: a name line, the point counts, the upper then the lower
-surface from the leading edge; or a plain two-column table either way), or
-the NACA 4-digit formula. Grids are built round ``unit_chord()``, closed
+surface from the leading edge; a plain two-column table either way; or a
+one-element ``.hug``), or the NACA 4-digit formula. Grids are built round ``unit_chord()``, closed
 with ``closed()`` on request.
 """
 
@@ -119,13 +119,70 @@ def from_points(x, y, name: str = "airfoil") -> Airfoil:
     return Airfoil(name, x, y)
 
 
+def _counted_curves(lines: list[list[str]], name: str, start: int = 0) -> list[np.ndarray]:
+    curves, k = [], start
+    while k < len(lines):
+        if len(lines[k]) != 1:
+            raise ValueError(f"{name}: expected a point count on line {k + 1}, got {' '.join(lines[k])!r}")
+        n = int(lines[k][0])
+        rows = lines[k + 1:k + 1 + n]
+        if len(rows) < n or any(len(r) not in (2, 3) for r in rows):
+            raise ValueError(f"{name}: curve {len(curves)} (line {k + 1}) has fewer than {n} points")
+        curves.append(np.array([[float(r[0]), float(r[1])] for r in rows]))
+        k += 1 + n
+    return curves
+
+
+def _rows(path: Path) -> list[list[str]]:
+    return [ln.split() for ln in path.read_text().splitlines() if ln.strip()]
+
+
+def read_curves(path: str | Path) -> list[np.ndarray]:
+    """The curves of a counted-curve file: per curve a line holding its point
+    count, then its points, one per line (``x y`` or ``x y z``; ``z`` dropped)."""
+    path = Path(path)
+    return _counted_curves(_rows(path), path.name)
+
+
+def read_hug(path: str | Path, scale: float = 1.0, count: int | None = None) -> list[Airfoil]:
+    """A ``.hug`` file: its element count, then each element as a counted curve
+    from its lower to its upper trailing-edge corner, taken as given (no points
+    on the base, the straight line between the corners). ``count``: how many
+    elements it must hold.
+
+    Raises:
+        ValueError: for another count, too few points, non-finite coordinates
+        or an element running the other way.
+    """
+    path = Path(path)
+    lines = _rows(path)
+    if not lines or len(lines[0]) != 1:
+        raise ValueError(f"{path.name}: expected the element count on line 1")
+    curves = _counted_curves(lines, path.name, start=1)
+    if len(curves) != int(lines[0][0]) or count not in (None, len(curves)):
+        raise ValueError(f"{path.name} holds {len(curves)} elements, its first line says {lines[0][0]}"
+                         + ("" if count is None else f", the case lists {count}"))
+    foils = []
+    for k, p in enumerate(curves):
+        x, y = scale * p.T
+        if len(x) < 5 or not np.isfinite(x + y).all():
+            raise ValueError(f"{path.name}: element {k} needs at least 5 points, all finite")
+        if np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y) >= 0.0:
+            raise ValueError(f"{path.name}: element {k} must run from the lower to the upper trailing edge")
+        foils.append(Airfoil(f"{path.stem}[{k}]", x, y))
+    return foils
+
+
 def read_airfoil(path: str | Path) -> Airfoil:
-    """A coordinate file: Selig, Lednicer or a plain two-column table.
+    """A coordinate file: Selig, Lednicer, a plain two-column table or a
+    one-element ``.hug``.
 
     Raises:
         ValueError: if the file holds fewer than five coordinate pairs.
     """
     path = Path(path)
+    if path.suffix.lower() == ".hug":
+        return read_hug(path, count=1)[0]
     rows, name = [], path.stem
     for line in path.read_text().splitlines():
         parts = line.replace(",", " ").split()

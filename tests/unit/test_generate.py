@@ -137,8 +137,6 @@ def test_a_c_grid_case_closes_an_open_trailing_edge_on_request(tmp_path) -> None
     from jaxrans.case.domain import GridSpec
     spec = dict(grid="c_grid", airfoil="naca2412_blunt", cells_airfoil=64, cells_wake=16, cells_normal=24,
                 wall_spacing=1e-4)
-    with pytest.raises(ValueError, match="trailing_edge"):
-        GridSpec(**spec).build(tmp_path)
     closing = GridSpec(**spec, trailing_edge="close")
     closing.build(tmp_path)
     assert "gap 0.00252 closed" in closing.describe(tmp_path)

@@ -19,7 +19,7 @@ from typing import Any, Callable
 import numpy as np
 
 from ..geometry.airfoil import Airfoil, airfoil_source
-from ..geometry.elements import Element, place, read_element, read_elements, read_hug
+from ..geometry.elements import Element, place, read_element, read_elements
 from ..mesh.assemble import PatchRule, RawBlock, assemble, load_grid
 from ..mesh.assemble3d import is_3d, load_grid_3d
 from ..mesh.generate import Spacing, blunt_c_grid, c_grid, o_grid
@@ -56,7 +56,7 @@ class GridSpec:
     reference_area: float | None = None
     moment_centre: tuple[float, ...] = (0.25, 0.0, 0.0)
     section: str = "streamwise"
-    trailing_edge_topology: str = "legacy"
+    base_blocks: bool = False
 
     def force_reference(self) -> ForceReference:
         return ForceReference(self.reference_length, self.reference_area, tuple(self.moment_centre))
@@ -75,50 +75,32 @@ class GridSpec:
             roles = [e["role"] for e in self.elements]
             return (f"multi_element {'+'.join(roles)}: {self.cells_per_chord:g} cells per chord, wall spacing "
                     f"{self.wall_spacing:g}, layers {self.layer_cells} cells to {self.layer_thickness:g}, "
-                    f"far field {self.far_field:g}" +
-                    ("; blunt-base C topology" if self.trailing_edge_topology == "blunt_c" else ""))
+                    f"far field {self.far_field:g}")
         wake = f" + 2x{self.cells_wake} wake" if self.grid == "c_grid" else ""
         text = (f"{self.grid} round {self.airfoil}: {self.cells_airfoil}{wake} x {self.cells_normal} cells, "
                 f"wall spacing {self.wall_spacing:g}, far field {self.far_field:g}")
-        if self.trailing_edge_topology == "blunt_c":
-            text += "; blunt-base C topology"
         if base is not None:
             text += "".join(f"; {note}" for note in self.airfoil_shape(base)[1])
         return text
 
     def airfoil_shape(self, base: Path) -> tuple[Airfoil, list[str]]:
         """The airfoil the grid is built round, and what was done to it."""
-        if self.trailing_edge_topology == "blunt_c" and self.trailing_edge == "close":
-            raise ValueError("blunt_c topology preserves the trailing-edge base; domain.trailing_edge must be as_given")
-        if self.airfoil.lower().endswith(".hug"):
-            if self.trailing_edge == "close":
-                raise ValueError("a .hug contour keeps its trailing-edge base; domain.trailing_edge must be as_given")
-            foils = read_hug(self.resolve(base, self.airfoil))
-            if len(foils) != 1:
-                raise ValueError(f"{self.airfoil!r}: a generated single-body grid needs one .hug element")
-            given = foils[0]
-        else:
-            given = airfoil_source(self.airfoil, base)
+        given = airfoil_source(self.airfoil, base)
         airfoil, notes = given.unit_chord(), []
         if abs(given.chord - 1.0) > 1e-6:
             notes.append(f"airfoil chord {given.chord:g} scaled to 1")
         if self.trailing_edge == "close" and not airfoil.sharp:
             notes.append(f"trailing-edge gap {airfoil.trailing_edge_gap:.3g} closed")
             airfoil = airfoil.closed()
+        if self.grid == "c_grid" and not airfoil.sharp:
+            notes.append("blunt trailing edge: base and wake blocks")
         return airfoil, notes
 
     def placed_elements(self, base: Path) -> list[Element]:
         """The elements, front to back, read and (where asked) re-placed against the main element."""
         roles = [e["role"] for e in self.elements]
         if self.file:
-            path = self.resolve(base)
-            if path.suffix.lower() == ".hug":
-                foils = read_hug(path, self.coordinate_scale)
-                if len(foils) != len(roles):
-                    raise ValueError(f"{path.name} holds {len(foils)} elements, the case lists {len(roles)}")
-                elements = [Element(a, role) for a, role in zip(foils, roles)]
-            else:
-                elements = read_elements(path, roles, self.coordinate_scale)
+            elements = read_elements(self.resolve(base), roles, self.coordinate_scale)
         else:
             elements = [read_element(self.resolve(base, e["file"]), e["role"], self.coordinate_scale)
                         for e in self.elements]
@@ -135,7 +117,7 @@ class GridSpec:
     def settings(self) -> Settings:
         return Settings(self.wall_spacing, self.cells_per_chord, self.layer_cells, self.layer_thickness,
                         self.far_field, self.leading_edge_spacing, self.trailing_edge_spacing, self.gap_cells,
-                        self.even_cells)
+                        self.even_cells, self.base_blocks)
 
     def resolve(self, base: Path, name: str | None = None) -> Path:
         """A file, relative to ``base`` (the case directory) or the working directory."""
@@ -154,11 +136,11 @@ def _generated(spec: GridSpec, base: Path, dtype) -> Mesh:
                   far_field=spec.far_field, spacing=spacing)
     if spec.grid == "o_grid":
         raw = [RawBlock(*o_grid(airfoil, spec.cells_airfoil, **common))]
-    elif spec.trailing_edge_topology == "blunt_c" and not airfoil.sharp:
-        raw = [RawBlock(*xy, name=name) for name, xy in zip(
-            ("body", "base_layer", "wake"), blunt_c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common))]
-    else:
+    elif airfoil.sharp:
         raw = [RawBlock(*c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common))]
+    else:
+        blocks = blunt_c_grid(airfoil, spec.cells_airfoil, spec.cells_wake, **common)
+        raw = [RawBlock(x, y, name=name) for name, (x, y) in blocks.items()]
     mesh, _ = assemble(raw, dtype=dtype, source=spec.describe())
     return mesh
 
@@ -173,8 +155,7 @@ def _file(spec: GridSpec, base: Path, dtype) -> Mesh:
 
 
 def _multi_element(spec: GridSpec, base: Path, dtype) -> Mesh:
-    raw, _ = multi_element(spec.placed_elements(base), spec.settings(),
-                           trailing_edge_topology=spec.trailing_edge_topology)
+    raw, _ = multi_element(spec.placed_elements(base), spec.settings())
     mesh, _ = assemble(raw, dtype=dtype, source=spec.describe())
     return mesh
 

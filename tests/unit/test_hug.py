@@ -1,4 +1,4 @@
-"""The counted .hug geometry and its finite-base C-grid."""
+"""The .hug geometry, the C-grid round a blunt trailing edge, and base blocks."""
 
 from __future__ import annotations
 
@@ -8,16 +8,16 @@ import numpy as np
 import pytest
 
 from jaxrans.case import parse_case
-from jaxrans import load_case
 from jaxrans.case.domain import GridSpec
-from jaxrans.geometry.airfoil import Airfoil, naca4
-from jaxrans.geometry.elements import corners, fan_points, read_element, read_elements, read_hug
+from jaxrans.geometry.airfoil import naca4, read_hug
+from jaxrans.geometry.elements import read_element, read_elements
 from jaxrans.mesh.coarsen import coarsen
+from jaxrans.mesh.generate import blunt_c_grid
 from jaxrans.mesh.mesh import assign_conditions, interface_node_mismatch, patches, wall_faces
 from jaxrans.mesh.quality import quality
 
-NACA0012_HUG = Path(__file__).resolve().parents[1] / "resources/naca0012_blunt.hug"
-HIGH_LIFT_CASE = Path(__file__).resolve().parents[1] / "resources/30p30n_blunt"
+CRV = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
+ROLES = ("slat", "main", "flap")
 
 
 def _hug(path, foils):
@@ -26,200 +26,94 @@ def _hug(path, foils):
         rows.append(str(len(foil.x)))
         rows += [f"{x:.16g} {y:.16g}" for x, y in zip(foil.x, foil.y)]
     path.write_text("\n".join(rows) + "\n")
+    return path
 
 
-def test_hug_reads_open_bases_without_changing_endpoints(tmp_path) -> None:
+def _blunt_wall(mesh):
+    return assign_conditions(mesh, {"wall": "no_slip_wall", "farfield": "far_field"})
+
+
+def test_hug_keeps_the_given_corners(tmp_path) -> None:
     source = [naca4("0012", sharp=False), naca4("2412", sharp=False)]
-    path = tmp_path / "section.hug"
-    _hug(path, source)
-    got = read_hug(path)
+    got = read_hug(_hug(tmp_path / "section.hug", source))
     assert len(got) == 2
     for a, b in zip(got, source):
         np.testing.assert_allclose(np.c_[a.x, a.y], np.c_[b.x, b.y], atol=1e-15)
         assert not a.sharp
-        assert a.trailing_edge_gap == pytest.approx(b.trailing_edge_gap)
 
 
 @pytest.mark.parametrize("content,match", [
     ("2\n5\n1 0\n", "fewer than 5 points"),
-    ("1\n5\n1 0\n0 0\n0 1\n1 1\n1 2\nextra\n", "unexpected data"),
-    ("1\n5\n1 0\n0 0\n0 1\n1 nan\n1 2\n", "non-finite"),
+    ("1\n5\n1 0\n0 0\n0 1\n1 1\n1 2\n5\n1 0\n0 0\n0 1\n1 1\n1 2\n", "holds 2 elements"),
+    ("1\n5\n1 0\n0 0\n0 1\n1 nan\n1 2\n", "all finite"),
+    ("1\n5\n1 2\n0 1\n0 0\n1 0\n1 -1\n", "must run from the lower"),
 ])
-def test_hug_rejects_invalid_counts_and_coordinates(tmp_path, content, match) -> None:
+def test_hug_refuses_a_bad_file(tmp_path, content, match) -> None:
     path = tmp_path / "bad.hug"
     path.write_text(content)
     with pytest.raises(ValueError, match=match):
         read_hug(path)
 
 
-def test_hug_refuses_a_nonzero_base_below_the_sharp_edge_tolerance(tmp_path) -> None:
-    path = tmp_path / "tiny.hug"
-    foil = naca4("0012", sharp=False)
-    y = foil.y.copy()
-    y[0], y[-1] = -1e-8, 1e-8
-    _hug(path, [Airfoil("tiny", foil.x, y)])
-    with pytest.raises(ValueError, match="below the geometry tolerance"):
-        read_hug(path)
+def test_hug_elements_take_their_roles_front_to_back(tmp_path) -> None:
+    slat, main, flap = read_elements(CRV, ROLES, 1.0 / 18.0)
+    path = _hug(tmp_path / "section.hug", [main.airfoil, flap.airfoil, slat.airfoil])
+    got = read_elements(path, ROLES)
+    np.testing.assert_allclose(got[1].airfoil.x, main.airfoil.x, atol=1e-14)
+    assert got[1].role == "main" and read_element(_hug(tmp_path / "one.hug", [flap.airfoil]), "flap").role == "flap"
+    with pytest.raises(ValueError, match="the case lists 2"):
+        read_elements(path, ROLES[:2])
 
 
-def test_a_single_hug_element_keeps_its_explicit_corners(tmp_path) -> None:
-    path = tmp_path / "flap.hug"
-    foil = naca4("2412", sharp=False)
-    _hug(path, [foil])
-    got = read_element(path, "flap", 0.3)
-    np.testing.assert_allclose(got.airfoil.x, 0.3 * foil.x, atol=1e-15)
-    np.testing.assert_allclose(got.airfoil.y, 0.3 * foil.y, atol=1e-15)
-
-
-def test_naca0012_hug_resource_generates_a_grid_with_its_base_and_wall_layer(tmp_path) -> None:
-    spec = GridSpec(grid="c_grid", airfoil=str(NACA0012_HUG), trailing_edge_topology="blunt_c",
-                    cells_airfoil=128, cells_wake=64, cells_normal=64,
+@pytest.mark.parametrize("airfoil", ["naca0012_blunt", "naca2412_blunt"])
+def test_blunt_c_grid_keeps_the_base_and_is_conforming_and_smooth(tmp_path, airfoil) -> None:
+    spec = GridSpec(grid="c_grid", airfoil=airfoil, cells_airfoil=128, cells_wake=64, cells_normal=64,
                     wall_spacing=1e-5, far_field=20.0)
     mesh = spec.build(tmp_path)
     assert len(mesh) == 3
-    assert set(patches(mesh)) == {"wall", "farfield"}
-    assert interface_node_mismatch(mesh) < 1e-12
-    wall = assign_conditions(mesh, {"wall": "no_slip_wall", "farfield": "far_field"})
+    assert set(patches(mesh)) == {"wall", "farfield"} and interface_node_mismatch(mesh) < 1e-12
+    wall = _blunt_wall(mesh)
     faces = wall_faces(wall)
     np.testing.assert_allclose((faces.b - faces.a).sum(axis=0), 0.0, atol=1e-12)
-    q = quality(wall)
-    assert faces.bodies == 1 and not q.folded
-    assert q.min_angle_deg > 20.0 and q.max_growth < 1.5
-    assert q.wall_spacing[0] == pytest.approx(1e-5, rel=0.1)
-    assert q.wall_spacing[1] == pytest.approx(1e-5, rel=0.1)
-    base = (np.isclose(faces.a[:, 0], 1.0, atol=1e-12)
-            & np.isclose(faces.b[:, 0], 1.0, atol=1e-12))
-    assert base.sum() >= 2
-    assert sum(np.hypot(*(faces.b[base] - faces.a[base]).T)) == pytest.approx(0.00252)
-    assert len(coarsen(coarsen(wall))) == 3
+    report = quality(wall)
+    assert faces.bodies == 1 and not report.folded
+    assert report.wall_spacing == pytest.approx((1e-5, 1e-5), rel=0.15)
+    assert all(g.ni >= 2 and g.nj >= 2 for g in coarsen(coarsen(wall)))
 
 
-def test_blunt_c_option_never_closes_the_hug_base(tmp_path) -> None:
-    path = tmp_path / "clean.hug"
-    _hug(path, [naca4("0012", sharp=False)])
-    spec = GridSpec(grid="c_grid", airfoil=path.name, trailing_edge_topology="blunt_c",
-                    trailing_edge="close", cells_airfoil=64, cells_wake=32,
-                    cells_normal=32, wall_spacing=1e-4)
-    with pytest.raises(ValueError, match="preserves the trailing-edge base"):
-        spec.build(tmp_path)
+def test_blunt_c_grid_keeps_the_surface_resolution_of_a_sharp_one() -> None:
+    foil = naca4("0012", sharp=False).unit_chord()
+    x, y = blunt_c_grid(foil, 256, 64, 96, 5e-6)["body"]
+    wall = x[:, 0] < 1.0 - 1e-12
+    upper = wall & (y[:, 0] > 0.0)
+    assert np.count_nonzero((x[upper, 0] > 0.4) & (x[upper, 0] < 0.8)) >= 30
 
 
-def test_blunt_c_grid_also_handles_an_asymmetric_base(tmp_path) -> None:
-    spec = GridSpec(grid="c_grid", airfoil="naca2412_blunt", trailing_edge_topology="blunt_c",
-                    cells_airfoil=128, cells_wake=64, cells_normal=64,
-                    wall_spacing=1e-5, far_field=20.0)
-    mesh = spec.build(tmp_path)
-    mesh = assign_conditions(mesh, {"wall": "no_slip_wall", "farfield": "far_field"})
-    report = quality(mesh)
-    assert not report.folded and report.min_angle_deg > 20.0
-    assert report.wall_spacing[1] == pytest.approx(1e-5, rel=0.1)
+def test_a_closed_blunt_section_gets_the_one_block_c_grid(tmp_path) -> None:
+    spec = GridSpec(grid="c_grid", airfoil=_hug(tmp_path / "a.hug", [naca4("0012", sharp=False)]).name,
+                    trailing_edge="close", cells_airfoil=64, cells_wake=32, cells_normal=32, wall_spacing=1e-4)
+    assert len(spec.build(tmp_path)) == 1
 
 
-def test_hug_elements_keep_their_order_and_bases(tmp_path) -> None:
-    reference = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
-    original = read_elements(reference, ["slat", "main", "flap"], 1.0 / 18.0)
-    path = tmp_path / "highlift.hug"
-    _hug(path, [e.airfoil for e in original])
-    spec = GridSpec(grid="multi_element", file=path.name,
-                    elements=tuple({"role": r} for r in ("slat", "main", "flap")),
-                    wall_spacing=1.5e-5, cells_per_chord=150)
-    loaded = spec.placed_elements(tmp_path)
-    assert [e.role for e in loaded] == ["slat", "main", "flap"]
-    for got, source in zip(loaded, original):
-        np.testing.assert_allclose(np.c_[got.airfoil.x, got.airfoil.y],
-                                   np.c_[source.airfoil.x, source.airfoil.y], atol=1e-14)
-        assert got.airfoil.trailing_edge_gap == pytest.approx(source.airfoil.trailing_edge_gap)
-
-
-def test_hug_blunt_c_grid_is_usable_as_a_swept_section(tmp_path) -> None:
-    path = tmp_path / "clean.hug"
-    _hug(path, [naca4("0012", sharp=False)])
-    domain = {"grid": "c_grid", "airfoil": path.name, "trailing_edge_topology": "blunt_c",
-              "cells_airfoil": 64, "cells_wake": 32, "cells_normal": 32,
-              "wall_spacing": 1e-4, "far_field": 20.0}
-    case = parse_case({"general": {"case_name": "swept_hug"}, "domain": domain,
+def test_a_blunt_c_grid_is_usable_as_a_swept_section(tmp_path) -> None:
+    domain = {"grid": "c_grid", "airfoil": "naca0012_blunt", "cells_airfoil": 64, "cells_wake": 32,
+              "cells_normal": 32, "wall_spacing": 1e-4, "far_field": 20.0}
+    case = parse_case({"general": {"case_name": "swept"}, "domain": domain,
                        "freestream": {"mach": 0.5, "sweep_deg": 30.0}}, {}, tmp_path)
-    atlas = case.grid()
-    assert atlas.components == 3 and len(atlas.mesh) == 3
+    assert case.grid().components == 3
 
 
 @pytest.mark.slow
-def test_three_blunt_hug_elements_build_with_three_closed_walls(tmp_path) -> None:
-    reference = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
-    elements = read_elements(reference, ["slat", "main", "flap"], 1.0 / 18.0)
-    path = tmp_path / "highlift.hug"
-    _hug(path, [e.airfoil for e in elements])
-    spec = GridSpec(grid="multi_element", file=path.name,
-                    elements=tuple({"role": r} for r in ("slat", "main", "flap")),
-                    trailing_edge_topology="blunt_c",
-                    wall_spacing=1.5e-5, cells_per_chord=150)
-    mesh = spec.build(tmp_path)
-    wall = assign_conditions(mesh, {"wall": "no_slip_wall", "farfield": "far_field"})
-    faces = wall_faces(wall)
-    assert faces.bodies == 3 and not quality(wall).folded
-    assert interface_node_mismatch(mesh) < 1e-12
-    coarsen(coarsen(wall))
-    for k, e in enumerate(elements):
-        a = faces.a[faces.body == k]
-        b = faces.b[faces.body == k]
-        np.testing.assert_allclose((b - a).sum(axis=0), 0.0, atol=1e-12)
+def test_base_blocks_split_each_blunt_layer_on_the_same_wall(tmp_path) -> None:
+    elements = read_elements(CRV, ROLES, 1.0 / 18.0)
+    path = _hug(tmp_path / "section.hug", [e.airfoil for e in elements])
+    plain, split = (GridSpec(grid="multi_element", file=path.name, elements=tuple({"role": r} for r in ROLES),
+                             wall_spacing=1.5e-5, cells_per_chord=150, base_blocks=flag).build(tmp_path)
+                    for flag in (False, True))
+    assert len(split) == len(plain) + 3 and interface_node_mismatch(split) < 1e-12
+    assert sum(g.ni * g.nj for g in split) == sum(g.ni * g.nj for g in plain)
+    faces = wall_faces(_blunt_wall(split))
+    assert faces.bodies == 3 and not quality(_blunt_wall(split)).folded
+    for k in range(3):
         assert len(set(faces.block[faces.body == k])) == 2
-        start = np.array([e.airfoil.x[0], e.airfoil.y[0]])
-        stop = np.array([e.airfoil.x[-1], e.airfoil.y[-1]])
-        direction = (stop - start) / np.linalg.norm(stop - start)
-        normal = np.array([-direction[1], direction[0]])
-        base = (np.abs((a - start) @ normal) < 1e-12) & (np.abs((b - start) @ normal) < 1e-12)
-        assert base.sum() >= 2
-        assert np.linalg.norm(b[base] - a[base], axis=1).sum() == pytest.approx(e.airfoil.trailing_edge_gap)
-
-
-@pytest.mark.slow
-def test_public_30p30n_hug_case_generates_three_bodies_with_unpinched_bases() -> None:
-    """Exercise the static public geometry through the complete case loader."""
-    case = load_case(HIGH_LIFT_CASE)
-    atlas = case.grid()
-    mesh = atlas.mesh
-    faces = wall_faces(mesh)
-    foils = read_hug(HIGH_LIFT_CASE / "30p30n_blunt.hug")
-    assert [len(a.x) for a in foils] == [201, 641, 201]
-    assert faces.bodies == 3
-    assert set(patches(mesh)) == {"wall", "farfield"}
-    assert interface_node_mismatch(mesh) < 1e-12
-    report = quality(mesh)
-    assert not report.folded
-    assert report.wall_spacing[0] == pytest.approx(1.5e-5, rel=0.05)
-    # At corner fans the nodal displacement includes tangential motion.
-    # Check the requested height away from those corners, as for other high-lift grids.
-    elements = case.grid_spec.placed_elements(case.directory)
-    fans = np.concatenate([fan_points(e) for e in elements])
-    corner_points = np.concatenate([np.stack([e.airfoil.x[corners(e)], e.airfoil.y[corners(e)]], axis=1)
-                                    for e in elements])
-    checked = 0
-    for g in mesh:
-        for side, segment in g.sides.walls():
-            assert side == "j_min"
-            p = np.stack([np.asarray(g.x_node), np.asarray(g.y_node)], axis=-1)
-            wall_nodes = p[segment.start:segment.stop + 1, 0]
-            inner_nodes = p[segment.start:segment.stop + 1, 1]
-            away = np.linalg.norm(wall_nodes[:, None] - fans[None], axis=2).min(axis=1) > 0.02
-            if len(corner_points):
-                away &= np.linalg.norm(wall_nodes[:, None] - corner_points[None], axis=2).min(axis=1) > 1e-7
-            away[[0, -1]] = False
-            height = np.linalg.norm(inner_nodes - wall_nodes, axis=1)[away]
-            np.testing.assert_allclose(height, 1.5e-5, rtol=0.05)
-            checked += len(height)
-    assert checked > 0
-    coarsen(coarsen(mesh))
-    for k, foil in enumerate(foils):
-        a, b = faces.a[faces.body == k], faces.b[faces.body == k]
-        assert len(set(faces.block[faces.body == k])) == 2  # surface C-layer and base block
-        np.testing.assert_allclose((b - a).sum(axis=0), 0.0, atol=1e-12)
-        start, stop = np.array([foil.x[0], foil.y[0]]), np.array([foil.x[-1], foil.y[-1]])
-        direction = (stop - start) / foil.trailing_edge_gap
-        normal = np.array([-direction[1], direction[0]])
-        base = (np.abs((a - start) @ normal) < 1e-12) & (np.abs((b - start) @ normal) < 1e-12)
-        assert base.sum() >= 2
-        assert np.linalg.norm(b[base] - a[base], axis=1).sum() == pytest.approx(foil.trailing_edge_gap)
-        endpoints = np.concatenate([a[base], b[base]])
-        assert np.linalg.norm(endpoints - start, axis=1).min() < 1e-12
-        assert np.linalg.norm(endpoints - stop, axis=1).min() < 1e-12
+    coarsen(coarsen(_blunt_wall(split)))

@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from .airfoil import Airfoil, from_points, read_airfoil
+from .airfoil import Airfoil, from_points, read_airfoil, read_curves, read_hug
 
 ROLES = ("slat", "main", "flap")
 
@@ -88,81 +88,6 @@ class Element:
 
 
 # --- Reading ------------------------------------------------------------------------------
-
-
-def read_curves(path: str | Path) -> list[np.ndarray]:
-    """The curves of a counted-curve file: per curve a line holding its point
-    count, then its points, one per line (``x y`` or ``x y z``; ``z`` dropped)."""
-    lines = [ln.split() for ln in Path(path).read_text().splitlines() if ln.strip()]
-    curves, k = [], 0
-    while k < len(lines):
-        if len(lines[k]) != 1:
-            raise ValueError(f"{Path(path).name}: expected a point count on line {k + 1}, got {' '.join(lines[k])!r}")
-        n = int(lines[k][0])
-        rows = lines[k + 1:k + 1 + n]
-        if len(rows) < n or any(len(r) not in (2, 3) for r in rows):
-            raise ValueError(f"{Path(path).name}: curve {len(curves)} (line {k + 1}) has fewer than {n} points")
-        curves.append(np.array([[float(r[0]), float(r[1])] for r in rows]))
-        k += 1 + n
-    return curves
-
-
-def read_hug(path: str | Path, scale: float = 1.0) -> list[Airfoil]:
-    """Read one ordered lower-TE to upper-TE contour per element.
-
-    The straight base joining the two ends is implicit; the file has no base
-    points. Unlike counted curve files, the first count is an element count.
-    """
-    path = Path(path)
-    lines = [(n, line.split()) for n, line in enumerate(path.read_text().splitlines(), 1) if line.strip()]
-    pos = 0
-
-    def count(what: str) -> int:
-        nonlocal pos
-        if pos >= len(lines) or len(lines[pos][1]) != 1:
-            raise ValueError(f"{path.name}: expected {what} on one line")
-        line, parts = lines[pos]
-        pos += 1
-        try:
-            value = int(parts[0])
-        except ValueError:
-            raise ValueError(f"{path.name}:{line}: invalid {what}") from None
-        if value <= 0:
-            raise ValueError(f"{path.name}:{line}: {what} must be positive")
-        return value
-
-    n_elements = count("element count")
-    foils = []
-    for k in range(n_elements):
-        n_points = count(f"element {k} point count")
-        if n_points < 5:
-            raise ValueError(f"{path.name}: element {k} needs at least 5 points")
-        points = []
-        for _ in range(n_points):
-            if pos >= len(lines):
-                raise ValueError(f"{path.name}: element {k} has fewer than {n_points} points")
-            line, parts = lines[pos]
-            pos += 1
-            if len(parts) != 2:
-                raise ValueError(f"{path.name}:{line}: expected x y")
-            try:
-                points.append((float(parts[0]), float(parts[1])))
-            except ValueError:
-                raise ValueError(f"{path.name}:{line}: invalid x y") from None
-        p = scale * np.asarray(points)
-        if not np.isfinite(p).all():
-            raise ValueError(f"{path.name}: element {k} has non-finite coordinates")
-        area = 0.5 * np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
-        if area >= 0.0:
-            raise ValueError(f"{path.name}: element {k} must run from the lower to the upper trailing edge")
-        foil = Airfoil(f"{path.stem}[{k}]", p[:, 0], p[:, 1])
-        if 0.0 < foil.trailing_edge_gap and foil.sharp:
-            raise ValueError(f"{path.name}: element {k} has a nonzero base below the geometry tolerance; "
-                             "supply distinct corners or one identical sharp-edge point")
-        foils.append(foil)
-    if pos != len(lines):
-        raise ValueError(f"{path.name}:{lines[pos][0]}: unexpected data after {n_elements} elements")
-    return foils
 
 
 def join_contours(curves: list[np.ndarray], tol: float = 1e-6) -> list[np.ndarray]:
@@ -239,11 +164,14 @@ def open_at_trailing_edge(points: np.ndarray, name: str) -> Airfoil:
 def read_elements(path: str | Path, roles: list[str], scale: float = 1.0) -> list[Element]:
     """Elements from one counted-curve file, its contours given ``roles`` in
     the order of their leading edges' ``x`` (front to back)."""
-    loops = join_contours(read_curves(path))
-    if len(loops) != len(roles):
-        raise ValueError(f"{Path(path).name} holds {len(loops)} closed contours, the case lists "
-                         f"{len(roles)} elements")
-    foils = [open_at_trailing_edge(scale * p, f"{Path(path).stem}[{k}]") for k, p in enumerate(loops)]
+    if Path(path).suffix.lower() == ".hug":
+        foils = read_hug(path, scale, len(roles))
+    else:
+        loops = join_contours(read_curves(path))
+        if len(loops) != len(roles):
+            raise ValueError(f"{Path(path).name} holds {len(loops)} closed contours, the case lists "
+                             f"{len(roles)} elements")
+        foils = [open_at_trailing_edge(scale * p, f"{Path(path).stem}[{k}]") for k, p in enumerate(loops)]
     foils.sort(key=lambda a: a.x[a.leading_edge])
     return [Element(a, r) for a, r in zip(foils, roles)]
 
@@ -251,12 +179,10 @@ def read_elements(path: str | Path, roles: list[str], scale: float = 1.0) -> lis
 def read_element(path: str | Path, role: str, scale: float = 1.0) -> Element:
     """One element from a coordinate file (``read_airfoil``'s formats), as
     placed in it: its points taken as a closed contour (a repeated first point
-    dropped) and opened at the trailing edge, so the file may start anywhere."""
+    dropped) and opened at the trailing edge, so the file may start anywhere
+    (a ``.hug`` is taken as given)."""
     if Path(path).suffix.lower() == ".hug":
-        foils = read_hug(path, scale)
-        if len(foils) != 1:
-            raise ValueError(f"{Path(path).name}: an element file needs exactly one .hug element")
-        return Element(foils[0], role)
+        return Element(read_hug(path, scale, count=1)[0], role)
     a = read_airfoil(path)
     p = np.stack([a.x, a.y], axis=1)
     if np.hypot(*(p[-1] - p[0])) <= 1e-9 * np.ptp(p, axis=0).max():

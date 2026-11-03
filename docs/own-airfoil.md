@@ -28,35 +28,15 @@ The airfoil is scaled to unit chord, with its leading edge at the origin.
 Nothing is rotated: set the incidence with `alpha_deg`.
 
 When downloaded files have a slightly open trailing edge (0.1 to 0.3 % of
-the chord). A C-grid needs a sharp one, so add `"trailing_edge": "close"`.
-This moves each surface by a small amount that grows linearly from zero at
-the leading edge to half the gap at the trailing edge. If you want to keep
-the blunt base with the existing generator, use an O-grid.
+the chord). To close it, add `"trailing_edge": "close"`. This moves each
+surface by a small amount that grows linearly from zero at the leading edge
+to half the gap at the trailing edge. Otherwise the base is kept: an O-grid
+meshes it, and a C-grid adds a block off the base and one in the wake, with
+cells for their ramps on top of `cells_airfoil` and `cells_wake`.
 
-For a blunt trailing edge with a **meshed wake**, use a `.hug` coordinate
-file and the dedicated C topology. For example, a one-element file contains:
-
-```text
-1
-5
-1.0 -0.01
-0.5 -0.06
-0.0 0.0
-0.5 0.06
-1.0 0.01
-```
-
-The first point is the lower trailing-edge corner, the last the upper one.
-There are no points on the base: the mesher joins those corners by a straight
-wall without moving either. Set `"grid": "c_grid"`,
-`"airfoil": "section.hug"` and `"trailing_edge_topology": "blunt_c"` in
-`domain`, with `cells_airfoil`, `cells_wake`, `cells_normal` and
-`wall_spacing` as for an ordinary C-grid. A base-layer block resolves the
-wall and joins the two branches of the finite-width wake. The surface
-spacing next to its corners is capped at `wall_spacing` to keep the cells
-conforming. `"trailing_edge": "close"` is refused for this topology.
-The same `.hug` grid can be used for a swept 2.5D section by setting
-`freestream.sweep_deg` (and `domain.section` if needed).
+A `.hug` file gives the two corners explicitly: `1` (the element count), the
+point count, then `x y` rows from the lower to the upper trailing-edge corner,
+with no points on the base.
 
 ## 2. case.json
 
@@ -82,9 +62,8 @@ The generated grid has two patches, `wall` and `farfield`. With a Reynolds
 number set, the wall defaults to no-slip and the far field to the
 characteristic condition, so `boundary_conditions` can be left out.
 
-**Grid Type.** A C-grid for viscous flow round a sharp trailing edge; a C-grid
-with `trailing_edge_topology: blunt_c` for a blunt edge and a resolved wake;
-an O-grid for inviscid flow or a blunt edge without a dedicated wake block.
+**Grid Type.** A C-grid for viscous flow, sharp or blunt trailing edge; an
+O-grid for inviscid flow.
 
 **Cells count.** For RANS, 256 round the airfoil, 64 along the wake and
 96 to 128 outward is a reasonable first grid (40 to 50 thousand cells).

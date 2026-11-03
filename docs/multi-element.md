@@ -233,32 +233,10 @@ edge) or a plain two-column table, in either direction. A blunt trailing
 edge is left open: the file runs from one end of the base round to the
 other, and the base is the straight line between them.
 
-Or **one `.hug` file** with one ordered open contour per element. The first
-line is the number of elements. Each element then has one line with its point
-count, followed by exactly that many `x y` rows, from its lower trailing-edge
-corner around the leading edge to its upper trailing-edge corner. There are
-no points on the base; the generator adds its straight wall between those
-corners. The elements are listed front to back (slat, main wing, flap), and
-`domain.elements` gives their roles in the same order. For example:
-
-```json
-"domain": {
-    "grid": "multi_element",
-    "file": "section.hug",
-    "trailing_edge_topology": "blunt_c",
-    "elements": [{"role": "slat"}, {"role": "main"}, {"role": "flap"}],
-    "wall_spacing": 1.5e-5,
-    "cells_per_chord": 150
-}
-```
-
-With `trailing_edge_topology: blunt_c`, each thick element has an open C-layer
-along its lower and upper surfaces and a separate block behind its base.
-The two corner lines are conforming interfaces. The base block joins the
-existing wake and slot blocks, with the same outer ring and the same cell
-coordinates as the legacy multi-element topology. The role `main` denotes the wing. A clean
-one-element `.hug` instead uses the C-grid's `blunt_c` topology described in
-[Your own airfoil](own-airfoil.md).
+Or **one `.hug` file** (`domain.file`, `elements` then roles only): the element
+count, then per element a point count and `x y` rows from its lower to its upper
+trailing-edge corner, no points on the base. `"base_blocks": true` puts each
+base in a block of its own, on the same nodes.
 
 Or **one curve file** for all elements (`domain.file`, `elements` then
 roles only):
