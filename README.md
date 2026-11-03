@@ -26,7 +26,8 @@ python -m jaxrans.plot results/naca0012_euler
 ```
 
 For a GPU, install JAX with CUDA first
-([instructions](https://docs.jax.dev/en/latest/installation.html)). A case is
+([instructions](https://docs.jax.dev/en/latest/installation.html);
+[if it crashes](docs/install-troubleshooting.md)). A case is
 two JSON files, the physics and the numerics; from Python:
 
 ```python
@@ -49,87 +50,6 @@ Example cases are in [examples/](examples/README.md).
 Validation cases can be found in the validation folder.
 
 How to rerun them, with their sources: [validation/](validation/README.md).
-
-## NVIDIA GPU setup and troubleshooting (WSL2)
-
-From a local checkout using `uv`, install the CUDA-enabled JAX dependency
-into the project's virtual environment:
-
-```bash
-uv add "jax[cuda13]"
-source .venv/bin/activate
-nvidia-smi
-python -c "import jax; print(jax.devices())"
-```
-
-Choose the CUDA extra supported by your GPU and driver; see the
-[JAX installation instructions](https://docs.jax.dev/en/latest/installation.html#nvidia-gpu).
-The device check should report `CudaDevice`, rather than only `CpuDevice`.
-The warning "a CUDA-enabled jaxlib is not installed" indicates that GPU
-support is missing from the environment running Python.
-
-### Segmentation fault during GPU initialization
-
-On WSL2, an older Linux NVIDIA library can be loaded alongside the Windows
-driver's WSL libraries. In the investigated installation, `jax.devices()`
-crashed inside a Linux `libnvidia-ptxjitcompiler.so.580.178.04`, while the
-WSL driver was from the 620/621 series. Giving priority to the matching WSL
-driver libraries resolved this initialization crash.
-
-Find the available WSL PTX compiler libraries:
-
-```bash
-find /usr/lib/wsl/drivers -name libnvidia-ptxjitcompiler.so.1 -printf '%h\n'
-```
-
-Select the directory matching the active Windows driver and replace
-`<driver-directory>` below with its actual name:
-
-```bash
-export LD_LIBRARY_PATH="/usr/lib/wsl/drivers/<driver-directory>${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-python -c "import jax; import jax.numpy as jnp; print(jax.devices()); print((jnp.arange(8.) ** 2).block_until_ready())"
-```
-
-The preallocation setting lets JAX allocate GPU memory as needed. Apply
-the library-path workaround when this conflict has been diagnosed; the
-driver directory is specific to the machine and may change after a Windows
-driver update.
-
-### RANS compilation abort in Triton GEMM
-
-With JAX/jaxlib **0.10.2**, CUDA 13 and WSL2, GPU initialization and the
-explicit Euler example succeeded, but the implicit RANS solver aborted
-during compilation with:
-
-```text
-triton_tiling_propagation.cc:622
-Check failed: src_fragment_it != src_fragments_order.end()
-```
-
-Disabling Triton matrix-multiplication fusion bypassed this compiler crash:
-
-```bash
-export XLA_FLAGS="${XLA_FLAGS:+$XLA_FLAGS }--xla_gpu_enable_triton_gemm=false"
-```
-
-This keeps GPU execution enabled and changes the compiler's matrix
-multiplication strategy; see the [OpenXLA flags guidance](https://openxla.org/xla/flags_guidance).
-With this setting, `examples/naca0012_sa` successfully compiled and ran
-20 RANS iterations on the tested machine. Full convergence was not checked.
-To repeat that short run, first download the case's NASA grid as described
-in [data/grids/README.md](data/grids/README.md), then run:
-
-```bash
-python -m jaxrans examples/naca0012_sa --set numerical.convergence.max_iters=20 --out /tmp/jaxrans-gpu-smoke
-```
-
-To persist the settings that apply to your installation, add their `export`
-lines once to `~/.bashrc`, using the actual WSL driver directory, and reload:
-
-```bash
-source ~/.bashrc
-```
 
 ## What it does
 
