@@ -178,7 +178,8 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None, mu_inf: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, mu_inf: Array | None = None, *,
+                 diagnostics: bool = False) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (primitives, possibly traced) maps angles/Mach; ``mu_inf`` maps M/Re too."""
     flow, numerics = case.flow, case.numerics
@@ -187,7 +188,7 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
             grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance,
             mu_inf=mu_inf)
-        return (implicit.make_newton_step(operator, case.implicit, jacobian),
+        return (implicit.make_newton_step(operator, case.implicit, jacobian, diagnostics=diagnostics),
                 implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
     return (explicit.make_rk_step(operator, scheme=case.rk_scheme),
             explicit.initial_state(operator, dtype=numerics.dtype))

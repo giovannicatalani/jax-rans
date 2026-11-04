@@ -70,7 +70,11 @@ def gmres_right(
 
         V, H = lax.fori_loop(0, restart, arnoldi, (V, H))
         e1 = jnp.zeros(restart + 1, H.dtype).at[0].set(beta)
-        y = jnp.linalg.lstsq(H, e1)[0].astype(b.dtype)
+        # H was measured with field-precision vectors: do not interpret FP32
+        # round-off as extra independent Krylov directions just because the
+        # small factorization itself is done in double.
+        rcond = jnp.finfo(b.dtype).eps * max(H.shape)
+        y = jnp.linalg.lstsq(H, e1, rcond=rcond)[0].astype(b.dtype)
         return x + precondition(jnp.tensordot(y, V[:restart], axes=1, precision=lax.Precision.HIGHEST))
 
     def unconverged(carry):

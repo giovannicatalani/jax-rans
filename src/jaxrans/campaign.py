@@ -234,12 +234,17 @@ def run_campaign(prepared: PreparedCampaign, *, backend: str = "gpu", progress=N
     jobs = [(s, m, a) for m in range(len(campaign.machs)) for a in range(len(campaign.alphas))
             for s in range(len(prepared.sections))]
     rows = []
+    diagnostic_path = prepared.directory / "solver_progress.csv"
+    diagnostic_path.write_text("")
     with jax.default_device(devices[0]):
         for start in range(0, len(jobs), campaign.batch_size):
             batch = jobs[start:start + campaign.batch_size]
             cases = [_case(campaign, prepared.directory / "sections" / f"section_{s:03d}" / "profile.hug",
                            prepared.sections[s], campaign.machs[m], campaign.alphas[a]) for s, m, a in batch]
-            results = run_case_batch(cases, [prepared.grids[s] for s, _, _ in batch], progress)
+            def monitor(record):
+                _write_solver_progress(diagnostic_path, record, batch, campaign, start // campaign.batch_size)
+
+            results = run_case_batch(cases, [prepared.grids[s] for s, _, _ in batch], progress, monitor=monitor)
             for (s, m, a), result in zip(batch, results):
                 relative = Path("calculations") / f"section_{s:03d}" / f"mach_{m:03d}" / f"alpha_{a:03d}"
                 folder = result.write(prepared.directory / relative,
@@ -255,6 +260,36 @@ def run_campaign(prepared: PreparedCampaign, *, backend: str = "gpu", progress=N
             # Keep an inspectable index even if a later batch is interrupted.
             _write_results(prepared.directory, rows, devices[0])
     return CampaignResult(prepared.directory, tuple(rows))
+
+
+def _write_solver_progress(path, record, batch, campaign, batch_index):
+    """Persist diagnostics after every block, even while other lanes still run."""
+    import csv
+
+    newton = record["newton"]
+    with path.open("a", newline="") as stream:
+        for k, (section, mach, alpha) in enumerate(batch):
+            if not record["active"][k]:
+                continue
+            reason = str(record["reasons"][k])
+            status = "running" if reason == "max_iters" and record["iteration"] < campaign.template.numerics.max_iters else reason
+            row = {"batch": batch_index, "section": section, "mach": campaign.machs[mach],
+                   "alpha_deg": campaign.alphas[alpha], "precision": campaign.template.numerics.precision,
+                   "iteration": record["iteration"], "status": status,
+                   "density_residual": float(record["residual"][k]),
+                   "changed_steps": int(record["changed_steps"][k])}
+            if newton is not None:
+                finite, physical = newton.correction_finite[:, k], newton.physical[:, k]
+                row.update(accepted_steps=int(newton.accepted[:, k].sum()),
+                           nonfinite_corrections=int((~finite).sum()),
+                           unphysical_corrections=int((finite & ~physical).sum()),
+                           no_descent_corrections=int((finite & physical & ~newton.accepted[:, k]).sum()),
+                           cfl=float(newton.cfl[-1, k]), damping=float(newton.damping[-1, k]),
+                           linear_reduction=float(newton.linear_reduction[-1, k]))
+            writer = csv.DictWriter(stream, fieldnames=list(row))
+            if stream.tell() == 0:
+                writer.writeheader()
+            writer.writerow(row)
 
 
 def _write_results(directory, rows, device):

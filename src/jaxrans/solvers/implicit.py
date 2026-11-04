@@ -41,6 +41,17 @@ class ImplicitState(NamedTuple):
     residual_norm: Array
 
 
+class NewtonDiagnostics(NamedTuple):
+    """Per-step facts, before rejected updates are masked out of the state."""
+
+    accepted: Array
+    correction_finite: Array
+    physical: Array
+    linear_reduction: Array
+    damping: Array
+    cfl: Array
+
+
 def initial_state(
     operator: ResidualOperator, config: ImplicitConfig, dtype=None
 ) -> ImplicitState:
@@ -87,10 +98,12 @@ def make_newton_step(
     operator: ResidualOperator,
     config: ImplicitConfig = ImplicitConfig(),
     jacobian_operator: ResidualOperator | None = None,
-) -> Callable[[ImplicitState], tuple[ImplicitState, Array]]:
+    *, diagnostics: bool = False,
+) -> Callable[[ImplicitState], tuple[ImplicitState, Array] | tuple[ImplicitState, Array, NewtonDiagnostics]]:
     """``step(state) -> (state, |R(U)| before the update)``; ``jacobian_operator``
     (a first-order residual: defect correction) supplies the linear operator,
-    ``None`` linearizes ``operator`` itself."""
+    ``None`` linearizes ``operator`` itself. ``diagnostics=True`` appends a
+    ``NewtonDiagnostics`` result, preserving facts about rejected corrections."""
     gamma = operator.gamma
     prepare_preconditioner = get_preconditioner(config.preconditioner)(
         operator.atlas, gamma, operator.viscosity, operator.model, operator.distance
@@ -134,8 +147,10 @@ def make_newton_step(
         # The ramp keys off how well the linear system was solved (one more
         # matvec), not the residual history: a stagnated GMRES returns a null
         # update that leaves the residual unchanged, which looks like success.
-        linear_reduction = l2_norm(matvec(dU) + residual) / jnp.maximum(
-            l2_norm(residual), floor_like(residual)
+        # Keep the scalar decision in double: casting both norms to FP32
+        # first can turn a real decrease into exactly 1 and reject the step.
+        linear_reduction = l2_norm(matvec(dU) + residual, dtype=jnp.float64) / jnp.maximum(
+            l2_norm(residual, dtype=jnp.float64), floor_like(residual)
         )
 
         # Reject a step that leaves the physical domain or that GMRES failed to
@@ -154,13 +169,14 @@ def make_newton_step(
             jnp.where(accept, cfl, cfl / config.cfl_cutback),
         )
 
-        return (
-            ImplicitState(
-                U=jnp.where(accept, candidate, U),
-                cfl=jnp.clip(cfl_next, config.cfl_min, config.cfl_max),
-                residual_norm=jnp.where(accept, norm, state.residual_norm),
-            ),
-            norm,
+        updated = ImplicitState(
+            U=jnp.where(accept, candidate, U),
+            cfl=jnp.clip(cfl_next, config.cfl_min, config.cfl_max),
+            residual_norm=jnp.where(accept, norm, state.residual_norm),
         )
+        if diagnostics:
+            return updated, norm, NewtonDiagnostics(accept, jnp.all(jnp.isfinite(dU)), physical,
+                                                    linear_reduction, omega, updated.cfl)
+        return updated, norm
 
     return step

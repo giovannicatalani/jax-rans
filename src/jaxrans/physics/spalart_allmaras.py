@@ -59,7 +59,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import jax.numpy as jnp
-from jax import Array
+from jax import Array, lax
 
 
 @dataclass(frozen=True)
@@ -149,6 +149,18 @@ def f_w(r: Array, c: SAConstants = SA) -> Array:
     """Near-wall destruction function. ``f_w(1) = 1``: the log layer."""
     g = r + c.c_w2 * (r**6 - r)
     cw3_6 = c.c_w3**6
+    if r.dtype == jnp.float32:
+        # g reaches 3e5 at r=10. Although g**6 fits in FP32, its
+        # directional derivative need not: inf * 0 in the quotient's JVP
+        # poisons Newton-Krylov even when f_w itself is finite. Normalize
+        # before the sixth powers; this is the same function, with bounded
+        # intermediate powers and no FP64 field arithmetic.
+        large = jnp.abs(g) > 1.0
+        small_g = jnp.where(large, 0.0, g)
+        inverse_g = 1.0 / jnp.where(large, g, 1.0)
+        small = small_g * ((1.0 + cw3_6) / (small_g**6 + cw3_6)) ** (1.0 / 6.0)
+        big = jnp.sign(g) * ((1.0 + cw3_6) / (1.0 + (c.c_w3 * inverse_g)**6)) ** (1.0 / 6.0)
+        return jnp.where(large, big, small)
     return g * ((1.0 + cw3_6) / (g**6 + cw3_6)) ** (1.0 / 6.0)
 
 
@@ -156,6 +168,16 @@ def r_of(nu_tilde: Array, s_t: Array, d: Array, c: SAConstants = SA) -> Array:
     """``min(nu~ / (S~ kappa^2 d^2), r_max)``; ``r_max`` where ``S~ <= 0``,
     which the clipping prevents but a zero vorticity does not."""
     denominator = s_t * (c.kappa * d) ** 2
+    if denominator.dtype == jnp.float32:
+        # Guard the capped branch BEFORE division. For tiny positive S~ the
+        # value nu~/den is capped at 10, but AD of that unused quotient can
+        # overflow through 1/den**2 and turn the clipped derivative into NaN.
+        # Keep the equality in the active branch so minimum's derivative at
+        # the cap retains its existing convention.
+        active = (denominator > 0.0) & (nu_tilde <= c.r_max * denominator)
+        safe_nu = jnp.where(active, nu_tilde, c.r_max)
+        safe_den = jnp.where(active, denominator, 1.0)
+        return jnp.minimum(safe_nu / safe_den, c.r_max)
     safe = jnp.where(denominator > 0.0, denominator, 1.0)
     return jnp.where(denominator > 0.0, jnp.minimum(nu_tilde / safe, c.r_max), c.r_max)
 
@@ -210,5 +232,5 @@ def qcr_stress(grad_v: Array, mu_t: Array, c_cr1: float) -> Array:
     divergence = sum(grad_v[a, a] for a in range(dim))
     identity = jnp.eye(dim, dtype=grad_v.dtype).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
     tau = mu_t * (grad_v + jnp.swapaxes(grad_v, 0, 1) - (2.0 / 3.0) * divergence * identity)
-    product = jnp.einsum("ik...,jk...->ij...", rotation, tau)
+    product = jnp.einsum("ik...,jk...->ij...", rotation, tau, precision=lax.Precision.HIGHEST)
     return -c_cr1 * (product + jnp.swapaxes(product, 0, 1))

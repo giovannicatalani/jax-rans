@@ -11,6 +11,7 @@ would break.
 from __future__ import annotations
 
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -99,6 +100,48 @@ def test_damping_functions_limits() -> None:
     assert float(sa.f_w(jnp.asarray(1.0))) == pytest.approx(1.0, rel=1e-15)
     # f_w saturates as r -> r_max: destruction stays bounded in the wake.
     assert float(sa.f_w(jnp.asarray(10.0))) == pytest.approx((1 + 64) ** (1 / 6), rel=1e-3)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_wall_destruction_jvp_stays_finite_for_large_krylov_directions(dtype) -> None:
+    """A finite f_w is not enough: the old FP32 g**6 JVP overflowed in GMRES.
+
+    Use the analytic derivative, rearranged without subtracting the two nearly
+    equal terms obtained by differentiating the original quotient.
+    """
+    r = jnp.asarray([0., .5, 1., 1.01, 1.5, 2., 5., 9.9, 10.], dtype=dtype)
+    direction = jnp.full_like(r, 1e10)
+    value, tangent = jax.jit(lambda r, v: jax.jvp(sa.f_w, (r,), (v,)))(r, direction)
+    x = np.asarray(r, dtype=np.float64)
+    g = x + C.c_w2 * (x**6 - x)
+    dg = 1 + C.c_w2 * (6*x**5 - 1)
+    factor = (1 + C.c_w3**6)**(1/6)
+    expected = factor * g / (g**6 + C.c_w3**6)**(1/6)
+    derivative = factor * C.c_w3**6 * dg / (g**6 + C.c_w3**6)**(7/6)
+    np.testing.assert_allclose(value, expected, rtol=2e-6 if dtype == jnp.float32 else 2e-14)
+    assert np.isfinite(tangent).all()
+    if dtype == jnp.float32:
+        np.testing.assert_allclose(tangent, derivative * 1e10, rtol=1e-5)
+    # Reverse-mode also feeds sensitivities. Its derivative must be finite and
+    # agree with the forward product without relying on a finite-difference step.
+    gradient = jax.jit(jax.grad(lambda r: jnp.sum(sa.f_w(r))))(r)
+    assert np.isfinite(gradient).all()
+    if dtype == jnp.float32:
+        np.testing.assert_allclose(gradient, derivative, rtol=1e-5)
+
+
+@pytest.mark.parametrize("omega,distance", [(1e-5, 1e-10), (1e-10, 1e-5), (1e-12, 1e-5),
+                                           (0., 1e-5), (-1., 1e-5)])
+def test_capped_sa_ratio_does_not_differentiate_an_overflowing_quotient(omega, distance):
+    """At r_max the function is constant, even when 1/den**2 overflows."""
+    nu = jnp.asarray(1.5e-7, jnp.float32)
+    st = jnp.asarray(omega, jnp.float32)
+    d = jnp.asarray(distance, jnp.float32)
+    function = lambda st: sa.r_of(nu, st, d)
+    value, tangent = jax.jit(lambda st: jax.jvp(function, (st,), (jnp.ones_like(st),)))(st)
+    assert float(value) == C.r_max
+    assert float(tangent) == 0.
+    assert float(jax.jit(jax.grad(function))(st)) == 0.
 
 
 def test_log_layer_balance() -> None:

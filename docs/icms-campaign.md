@@ -38,6 +38,47 @@ Preprocessing creates and checks every mesh without advancing the flow.
 `run_campaign` requires an accessible JAX GPU, and uses one GPU for each batch.
 `backend="cpu"` is an explicit option for small verification runs.
 
+`solver_progress.csv` is updated after every monitoring block, before the
+whole batch finishes. It identifies each section, Mach and incidence and
+records the density residual, changed-step count and, for implicit runs,
+accepted steps, non-finite corrections, unphysical corrections, failures to
+reduce the linear residual, the last CFL, damping and linear residual ratio.
+Thus a finite saved state cannot conceal repeated rejected NaN corrections.
+`stalled` requires the solution fields to remain unchanged through a block;
+a constant density residual alone does not establish stagnation.
+During a run, `running` denotes an active case; `max_iters` denotes a case
+that has reached its iteration budget. A campaign with stalled or non-finite
+cases returns a nonzero process exit code.
+
+For a bounded precision audit without modifying production results:
+
+```bash
+python scripts/diagnose_precision.py --precision fp32 --iters 40 --out /tmp/wing-fp32-audit
+```
+
+This defaults to three incidences on root section 000. `--backend cpu`
+selects CPU, and `--sections 0 1 2 3 4 5 6 7 8 9 --cases 24` reproduces
+the first 24 campaign lanes. The output also records resolved configuration,
+versions and git revision. Passing this audit establishes only the tested
+stepping interval, not full convergence or CPU/GPU equivalence.
+
+To measure iteration cost, run the two precisions sequentially on an otherwise
+idle GPU (default: three root-section cases, 100 iterations each):
+
+```bash
+python scripts/diagnose_precision.py --compare --out /tmp/wing-precision-benchmark
+```
+
+Each precision runs in its own process with identical inputs and solver source.
+`timing.json` records synchronized block durations, excluding force integration,
+CSV output and field archives from the block timer. `comparison.json` reports
+the median warmed time per iteration and the FP64/FP32 ratio; first-use block
+compilation, including a differently sized tail scan, is excluded. Failed,
+early-stopping, rejected or frozen workloads cannot be reported as a speedup.
+The cold first block and total solver time are reported separately. This
+measures a fixed iteration budget, not time to equal aerodynamic convergence.
+Use identical `--sections`, `--cases` and `--iters` to compare another workload.
+
 ## Configuration
 
 [The complete example](../examples/wing_sections/case.json) keeps the familiar

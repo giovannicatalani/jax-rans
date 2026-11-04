@@ -21,16 +21,19 @@ from .simulation import Result, Timing, cl_spread, make_stepper
 from .solvers.driver import ConvergenceHistory, ExitReason
 
 
-def run_case_batch(cases, grids, progress=None) -> list[Result]:
+def run_case_batch(cases, grids, progress=None, *, monitor=None) -> list[Result]:
     """Cases with common numerics/physics, arbitrary grids; called on chosen device.
 
     Monitor once per block, as for a single run. Completed/failed lanes are
     frozen at subsequent blocks. ``max_iters`` is respected exactly.
     Returned fields live on the host so successive batches do not fill VRAM.
+    ``monitor(record)`` receives per-block progress and optional Newton facts;
+    it is separate from the compact ``progress(iteration, reasons)`` callback.
     """
     if not cases or len(cases) != len(grids):
         raise ValueError("a batch needs matching nonempty cases and grids")
     prototype = cases[0]
+    monitored = monitor is not None and prototype.numerics.solver == "implicit"
     for case in cases:
         if (case.numerics, case.implicit, case.rk_scheme, case.block_iters) != (
                 prototype.numerics, prototype.implicit, prototype.rk_scheme, prototype.block_iters):
@@ -59,7 +62,8 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
                 return make_stepper(case, grid, qi, distance, mui)[1]
 
             def advance(state, qi, mui):
-                return make_stepper(case, grid, qi, distance, mui)[0](state)
+                options = {"diagnostics": True} if monitored else {}
+                return make_stepper(case, grid, qi, distance, mui, **options)[0](state)
             return initial, advance
 
         initial, advance = build()
@@ -72,9 +76,13 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
     count = len(cases)
 
     def one_step(states, active, conditions):
-        next_states, residuals = [], []
+        next_states, residuals, changes, reports = [], [], [], []
         for state, step, (q, mu), ids in zip(states, steps, conditions, lanes):
-            updated, norm = step(state, q, mu)
+            if monitored:
+                updated, norm, report = step(state, q, mu)
+                reports.append(report)
+            else:
+                updated, norm = step(state, q, mu)
             mask = active[ids]
             updated = jax.tree_util.tree_map(
                 lambda new, old: jnp.where(mask.reshape((len(ids),) + (1,) * (new.ndim-1)), new, old),
@@ -82,9 +90,11 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
             # A finite density residual alone does not guarantee a finite energy/SA state.
             finite = jnp.all(jnp.isfinite(updated.U).reshape((len(ids), -1)), axis=1)
             residuals.append(jnp.where(finite, norm, jnp.nan))
+            changes.append(jnp.any((updated.U != state.U).reshape((len(ids), -1)), axis=1))
             next_states.append(updated)
         order = np.argsort(np.concatenate(lanes))
-        return tuple(next_states), jnp.concatenate(residuals)[order]
+        report = jax.tree_util.tree_map(lambda *a: jnp.concatenate(a)[order], *reports) if reports else None
+        return tuple(next_states), (jnp.concatenate(residuals)[order], jnp.concatenate(changes)[order], report)
 
     @jax.jit
     def block(states, active, conditions):
@@ -102,12 +112,21 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
     done = 0
     while done < prototype.numerics.max_iters and active.any():
         n = min(prototype.block_iters, prototype.numerics.max_iters - done)
+        block_started = time.perf_counter()
         if n == prototype.block_iters:
-            states, residual = block(states, jnp.asarray(active), conditions)
+            states, (residual, changed, report) = block(states, jnp.asarray(active), conditions)
         else:
-            states, residual = jax.jit(lambda s, a, c: jax.lax.scan(
+            states, (residual, changed, report) = jax.jit(lambda s, a, c: jax.lax.scan(
                 lambda t, _: one_step(t, a, c), s, xs=None, length=n))(states, jnp.asarray(active), conditions)
+        if monitor is not None:
+            # Wait for the whole program, including its updated fields, rather
+            # than measuring asynchronous dispatch or just the residual copy.
+            jax.block_until_ready((states, residual, changed, report))
         residual = np.asarray(residual)  # synchronize before timing or inspecting results
+        block_seconds = time.perf_counter() - block_started
+        changed = np.asarray(changed)
+        report = jax.tree_util.tree_map(np.asarray, report)
+        was_active = active.copy()
         if first_block is None:
             first_block = time.perf_counter() - started
         fields = {}
@@ -125,13 +144,19 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
                 reasons[k] = ExitReason.NON_FINITE
             elif peaks[k] > 0 and column[-1] <= prototype.numerics.tol * peaks[k]:
                 reasons[k] = ExitReason.CONVERGED
-            elif n > 1 and np.all(column == column[0]):
+            # A density residual can round to a constant while momentum or SA
+            # still changes. Only a genuinely frozen solution is stalled.
+            elif n > 1 and not changed[:, k].any():
                 reasons[k] = ExitReason.STALLED
             elif prototype.numerics.forces_tol is not None and all(
                     cl_spread(h) < prototype.numerics.forces_tol for h in np.transpose(coefficients[k])):
                 reasons[k] = ExitReason.SETTLED
             active[k] = reasons[k] == ExitReason.MAX_ITERS
         done += n
+        if monitor is not None:
+            monitor({"iteration": done, "active": was_active, "reasons": tuple(reasons),
+                     "residual": residual[-1], "changed_steps": changed.sum(axis=0), "newton": report,
+                     "block_iters": n, "block_seconds": block_seconds})
         if progress is not None:
             progress(done, tuple(reasons))
     elapsed = time.perf_counter() - started

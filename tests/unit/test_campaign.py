@@ -199,6 +199,72 @@ def test_converged_and_failed_lanes_do_not_stop_other_cases(prepared, monkeypatc
     assert [float(r.U[0, 0]) for r in results] == [4., 8., 2.]
 
 
+def test_constant_density_residual_does_not_stall_changing_fields(prepared, monkeypatch):
+    from types import SimpleNamespace
+    import jax.numpy as jnp
+    import jaxrans.campaign_batch as batch_module
+    from jaxrans.solvers.explicit import SolverState
+
+    def stepper(case, grid, qi, distance, mui):
+        return (lambda s: (SolverState(s.U + 1), jnp.asarray(1.))), SolverState(jnp.zeros((1, 1)))
+
+    monkeypatch.setattr(batch_module, "make_stepper", stepper)
+    monkeypatch.setattr(batch_module, "make_residual", lambda *a: SimpleNamespace(distance=None))
+    monkeypatch.setattr(batch_module, "integrate_forces", lambda U, *a: SimpleNamespace(
+        cl=float(U[0, 0]), cd=0., cm=0.))
+    base = prepared.cases[0]
+    case = replace(base, numerics=replace(base.numerics, max_iters=4, forces_tol=None))
+    result, = run_case_batch([case], [prepared.grids[0]])
+    assert result.history.reason == "max_iters"
+    assert float(result.U[0, 0]) == 4.
+
+
+def test_monitor_preserves_nan_corrections_hidden_by_state_rejection(prepared, monkeypatch, tmp_path):
+    import csv
+    from types import SimpleNamespace
+    import jax.numpy as jnp
+    import jaxrans.campaign_batch as batch_module
+    from jaxrans.campaign import _write_solver_progress
+    from jaxrans.solvers.explicit import SolverState
+    from jaxrans.solvers.implicit import NewtonDiagnostics
+
+    def stepper(case, grid, qi, distance, mui, *, diagnostics=False):
+        def step(s):
+            finite = qi[1] > .3
+            report = NewtonDiagnostics(finite, finite, finite, jnp.where(finite, .1, jnp.nan),
+                                       jnp.asarray(1.), jnp.asarray(.5))
+            return SolverState(s.U + finite), jnp.asarray(1.), report
+        assert diagnostics
+        return step, SolverState(jnp.zeros((1, 1)))
+
+    # Initial-state creation uses the ordinary API; the diagnostic step alone
+    # opts into the extra result.
+    def factory(case, grid, qi, distance, mui, *, diagnostics=False):
+        if not diagnostics:
+            return None, SolverState(jnp.zeros((1, 1)))
+        return stepper(case, grid, qi, distance, mui, diagnostics=True)
+
+    monkeypatch.setattr(batch_module, "make_stepper", factory)
+    monkeypatch.setattr(batch_module, "make_residual", lambda *a: SimpleNamespace(distance=None))
+    monkeypatch.setattr(batch_module, "integrate_forces", lambda U, *a: SimpleNamespace(
+        cl=float(U[0, 0]), cd=0., cm=0.))
+    base = prepared.cases[0]
+    numerics = replace(base.numerics, solver="implicit", max_iters=4, forces_tol=None)
+    cases = [replace(base, numerics=numerics, flow=replace(base.flow, mach=m, alpha_deg=0, sweep_deg=0))
+             for m in (.25, .45)]
+    path = tmp_path / "solver_progress.csv"
+    monitor = lambda r: _write_solver_progress(path, r, [(0, 0, 0), (0, 1, 0)], prepared.campaign, 0)
+    results = run_case_batch(cases, [prepared.grids[0]]*2, monitor=monitor)
+    assert [r.history.reason for r in results] == ["stalled", "max_iters"]
+    with path.open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len(rows) == 3  # the stalled lane is logged once; the live one twice
+    assert rows[0]["nonfinite_corrections"] == "2"
+    assert rows[0]["changed_steps"] == "0"
+    assert rows[1]["accepted_steps"] == "2"
+    assert rows[1]["changed_steps"] == "2"
+
+
 def test_cli_campaign_check_prepares_artifacts_and_applies_overrides(tmp_path, monkeypatch, capsys):
     from jaxrans.__main__ import main
     import jaxrans.campaign as campaign_module
@@ -253,7 +319,8 @@ def test_cli_campaign_runs_the_gpu_api_by_default(prepared, monkeypatch, capsys)
     assert "batch iteration" in stdout and "campaign complete: 2 cases" in stdout
 
 
-def test_cli_campaign_quiet_and_failed_case_exit_code(prepared, monkeypatch, capsys):
+@pytest.mark.parametrize("reason", ["non_finite", "stalled"])
+def test_cli_campaign_quiet_and_failed_case_exit_code(prepared, monkeypatch, capsys, reason):
     from types import SimpleNamespace
     from jaxrans.__main__ import main
     import jaxrans.campaign as campaign_module
@@ -262,12 +329,12 @@ def test_cli_campaign_quiet_and_failed_case_exit_code(prepared, monkeypatch, cap
 
     def run(prepared_arg, *, progress):
         assert progress is None
-        return SimpleNamespace(directory=prepared.directory, rows=[{"exit_reason": "non_finite"}])
+        return SimpleNamespace(directory=prepared.directory, rows=[{"exit_reason": reason}])
 
     monkeypatch.setattr(campaign_module, "run_campaign", run)
     assert main([str(prepared.campaign.directory), "--quiet"]) == 1
     stdout = capsys.readouterr().out
-    assert "section 000:" not in stdout and "non_finite=1" in stdout
+    assert "section 000:" not in stdout and f"{reason}=1" in stdout
 
 
 @pytest.mark.parametrize("arguments, message", [

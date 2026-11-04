@@ -54,6 +54,14 @@ each choice, grouped by module.
   Guards must be representable in the field dtype. Tolerances are never
   silently relaxed: FP32 has a higher rounding floor, particularly on stretched
   meshes, and aerodynamic coefficients must be checked against an FP64 run.
+  SA's `f_w` must also have a finite directional derivative: its original
+  sixth-power quotient can overflow in FP32 AD while the value remains finite.
+  The FP32 branch uses reciprocal powers for large `g`, an algebraically
+  equivalent form tested on the full 70,592-cell ICMS root-section mesh.
+  The cap in `r_of` must guard its inactive quotient before division: clipping
+  an overflowing JVP afterwards multiplies infinity by zero and produces NaN.
+  Scalar Newton acceptance compares FP64 norm results without an intervening
+  FP32 cast; otherwise a real small decrease can round to exactly one.
 - **HLLC by default**: it resolves a stationary contact exactly and needs no
   entropy fix, so the scheme carries no tunable dissipation.
 - **Krylov sizes.** The Arnoldi loop (solvers/krylov.py) runs to full length

@@ -112,7 +112,9 @@ def campaign_main(args) -> int:
             return 0
 
         def progress(iteration, reasons):
-            status = ", ".join(f"{reason}={n}" for reason, n in Counter(reasons).items())
+            labels = ["running" if reason == "max_iters" and iteration < campaign.template.numerics.max_iters
+                      else reason for reason in reasons]
+            status = ", ".join(f"{reason}={n}" for reason, n in Counter(labels).items())
             print(f"batch iteration {iteration:8d}: {status}")
 
         result = run_campaign(prepared, progress=None if args.quiet else progress)
@@ -120,7 +122,7 @@ def campaign_main(args) -> int:
             row["exit_reason"] for row in result.rows).items())
         print(f"campaign complete: {len(result.rows)} cases; {status}\n"
               f"written to {result.directory / 'campaign.csv'}")
-        return 1 if any(row["exit_reason"] == "non_finite" for row in result.rows) else 0
+        return 1 if any(row["exit_reason"] in ("non_finite", "stalled") for row in result.rows) else 0
     except (CaseError, OSError, ValueError, RuntimeError, ImportError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
