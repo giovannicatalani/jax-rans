@@ -64,6 +64,40 @@ and patch and interface limits must stay even (JAXA's 30P30N grids, for one,
 are refused at the start). Polars (below) run every angle to `tol` or
 `max_iters`, on the case's grid only.
 
+## Precision
+
+Choose the field precision in `case.json`, including ICMS campaigns:
+
+```json
+"general": {
+    "case_name": "wing_sections",
+    "precision": "fp32"
+}
+```
+
+`fp64` is the default and retains the double-precision path. `float64` and
+`float32` are aliases for `fp64` and `fp32`. For a single run without editing:
+
+```bash
+python -m jaxrans examples/wing_sections --set case.general.precision=fp32
+```
+
+FP32 halves the storage of field arrays, Krylov vectors and line factors;
+total VRAM and runtime gains depend on the grid, batch and hardware. Geometry
+is constructed in FP64, and gradient coefficients are formed in FP64 before
+rounding, so coordinate subtraction does not collapse thin near-wall cells.
+The CFD operators and preconditioner run in FP32, with full FP32 precision
+for matrix products. Norm sums and the small GMRES least-squares system stay
+in FP64. JAX's global `jax_enable_x64` remains enabled to permit these operations;
+the actual field dtype is printed at startup and saved in result metadata.
+
+The equations, CFL controls, rejection rules and stopping tolerances are the
+same in both modes. This does not guarantee identical convergence: FP32
+rounding can prevent reaching the default relative residual tolerance of
+`1e-12`, especially on highly stretched meshes. Check the residual history
+and CL/CD/CM against an FP64 reference before choosing a less stringent
+`numerical.convergence.tol`; the solver never relaxes it automatically.
+
 ## Output
 
 Results go to `<case>/results/<case_name>/`, or to `--out`:

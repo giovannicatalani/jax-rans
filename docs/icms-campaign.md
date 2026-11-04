@@ -15,6 +15,10 @@ python -m jaxrans examples/wing_sections
 cases. For example, `--set='case.campaign.mach=[0.5]'` selects one Mach and
 `--set=numerical.convergence.max_iters=100` overrides the iteration limit.
 Campaigns currently use one GPU; `--devices` must stay at its default of 1.
+`general.precision` selects `fp64` (default) or `fp32` for every calculation
+in the campaign, also overridable with `--set case.general.precision=fp32`.
+See [precision and convergence](guide.md#precision) for the FP32 safeguards
+and rounding limits; reducing `batch_size` remains useful if VRAM is tight.
 
 The Python API separates inspectable preprocessing from GPU calculations:
 

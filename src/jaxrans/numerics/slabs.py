@@ -71,7 +71,8 @@ def fill_ghosts(q: Array, atlas: SlabAtlas, conditions: bc.Conditions) -> Array:
         ghosts = np.flatnonzero(stage.index != np.arange(n))
         source = stage.index[ghosts]
         copied = source < n                      # the rest take a boundary condition's value
-        values = [bc.CONDITIONS[kind](flat[:, cells], bc.Face(jnp.asarray(normal), jnp.asarray(midpoint)), conditions)
+        values = [bc.CONDITIONS[kind](flat[:, cells], bc.Face(jnp.asarray(normal, dtype=q.dtype),
+                                                           jnp.asarray(midpoint, dtype=q.dtype)), conditions)
                   for kind, cells, normal, midpoint in stage.conditions]       # from the stage's start, as unsplit
         new = flat.at[:, ghosts[copied]].set(flat[:, source[copied]])
         if values:

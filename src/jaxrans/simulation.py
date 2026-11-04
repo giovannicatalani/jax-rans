@@ -144,6 +144,7 @@ class Result:
                 "case_setup": self.case.raw,
                 "grid": self.case.grid_spec.describe(self.case.directory),
                 "cells": self.cells,
+                "field_dtype": str(self.U.dtype),
                 "grid_quality": quality(self.grid.mesh).record(),
                 "bodies": [dict(zip(("cl", "cd", "cm"), b)) for b in self.forces.bodies],
                 "cl": self.forces.cl, "cd": self.forces.cd,

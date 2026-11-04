@@ -1,0 +1,4 @@
+{
+    "time_integration": {"solver": "implicit"},
+    "convective_fluxes": {"limiter": "van_albada"}
+}

@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{case.name}: {case.description}")
     print(f"grid {case.grid_spec.describe(case.directory)}: {len(grid.mesh)} block(s), {grid.cells} cells, "
           f"{grid.walls.faces.bodies} body(ies); {case.numerics.solver}, {case.numerics.flux}, "
-          f"limiter {case.numerics.limiter}")
+          f"limiter {case.numerics.limiter}, {case.numerics.dtype}")
     print(quality(grid.mesh).summary())
     if args.check:
         return check(case, grid, args.out)
@@ -98,7 +98,7 @@ def campaign_main(args) -> int:
         count = campaign.sections["count"] * len(campaign.machs) * len(campaign.alphas)
         print(f"{campaign.template.name}: ICMS campaign, {campaign.sections['count']} sections, "
               f"{len(campaign.machs)} Mach x {len(campaign.alphas)} alpha = {count} cases; "
-              f"batch size {campaign.batch_size}")
+              f"batch size {campaign.batch_size}; {campaign.template.numerics.dtype}")
         prepared = prepare_campaign(campaign, args.out)
         if not args.quiet:
             for section, grid in zip(prepared.sections, prepared.grids):

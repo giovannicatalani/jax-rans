@@ -56,7 +56,9 @@ class Case:
         ``coarsen`` times with every other node (grid sequencing). Swept: a
         streamwise section is meshed normal to the sweep line, and the atlas
         lifted (``mesh.atlas.lift_atlas``)."""
-        mesh = self.grid_spec.build(self.directory, self.numerics.dtype)
+        # Thin near-wall cells must survive coordinate differences before any
+        # metric is rounded to field precision.
+        mesh = self.grid_spec.build(self.directory, np.float64)
         if self.flow.swept:
             if mesh[0].dim != 2:
                 raise CaseError("'freestream.sweep_deg' needs a 2D grid (an infinite swept wing)")
@@ -70,7 +72,8 @@ class Case:
         if report.folded:
             raise CaseError(f"the grid has folded cells: {report.summary()}")
         atlas = build_atlas(mesh, self.numerics.n_ghost)
-        return lift_atlas(atlas) if self.flow.swept else atlas
+        atlas = lift_atlas(atlas) if self.flow.swept else atlas
+        return atlas.with_dtype(self.numerics.dtype)
 
 
 # --- Parsing ------------------------------------------------------------------
@@ -287,6 +290,7 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
         for name in ("convective_fluxes", "time_integration", "implicit", "convergence"))
     implicit = ImplicitConfig(**implicit)
     numerics = NumericsConfig(
+        precision=general["precision"],
         flux=fluxes["riemann_solver"],
         limiter=fluxes["limiter"],
         kappa=fluxes["muscl_kappa"],

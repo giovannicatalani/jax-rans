@@ -26,6 +26,7 @@ from jax import Array
 
 from ..core import constants
 from ..core.config import FlowConditions, NumericsConfig
+from ..core.precision import floor_like, weighted_rms
 from ..core.state import (
     RHO, Rows, conservative_to_primitive, dot, freestream_primitive, magnitude,
     primitive_to_conservative, split, stack_primitive,
@@ -163,7 +164,7 @@ def local_time_step(U: Array, grid: Grid, gamma: float, cfl: float,
             mu = mu + model.eddy_viscosity(q[RHO], q[Rows(nv).nu], mu)
         factor = gamma / constants.PRANDTL_LAMINAR * mu / q[RHO]
         total = total + 4.0 * factor * squares / grid.volume
-    return cfl * grid.volume / jnp.maximum(total, 1e-300)
+    return cfl * grid.volume / jnp.maximum(total, floor_like(total))
 
 
 def face_wave_speeds(U: Array, atlas: Atlas, gamma: float,
@@ -237,14 +238,14 @@ class ResidualOperator:
     def norm(self, residual: Array, variable: int = RHO) -> Array:
         """Volume-weighted L2 norm of one component over the block cells."""
         weight = jnp.where(self.atlas.interior, self.grid.volume, 0.0)
-        return jnp.sqrt(jnp.sum(weight * residual[variable] ** 2) / jnp.sum(weight))
+        return weighted_rms(residual[variable], weight)
 
     def wave_speeds(self, U: Array):
         return face_wave_speeds(U, self.atlas, self.gamma, self.viscosity, self.model)
 
-    def initial_state(self, dtype=jnp.float64) -> Array:
+    def initial_state(self, dtype=None) -> Array:
         """The freestream on every canvas cell."""
-        return uniform_canvas(self.q_inf, self.grid, self.gamma, dtype)
+        return uniform_canvas(self.q_inf, self.grid, self.gamma, self.q_inf.dtype if dtype is None else dtype)
 
 
 def uniform_canvas(q: Array, grid: Grid, gamma: float, dtype=jnp.float64) -> Array:
@@ -289,8 +290,10 @@ def make_residual(
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     atlas = swept_atlas(atlas, flow)
+    atlas = atlas.with_dtype(numerics.dtype)
     if atlas.g != numerics.n_ghost:
         raise ValueError(f"the atlas has {atlas.g} ghost layers, the scheme needs {numerics.n_ghost}")
+    mu_inf = None if mu_inf is None else jnp.asarray(mu_inf, dtype=numerics.dtype)
     viscosity = Viscosity.of(flow, mu_inf)
     model = SAModel.of(flow, mu_inf)
     dtype, gamma, g, dim, nv = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim, atlas.components
@@ -302,6 +305,8 @@ def make_residual(
         q_inf = jnp.concatenate([q_inf, jnp.asarray([model.freestream_ratio], dtype=dtype)])
         if distance is None:
             distance = atlas.pack([jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.mesh)], 1.0)
+        else:
+            distance = jnp.asarray(distance, dtype=dtype)
     else:
         distance = None
     canvas = atlas.grid

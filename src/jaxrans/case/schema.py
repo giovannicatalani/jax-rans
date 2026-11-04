@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import constants
-from ..core.config import TURBULENCE_MODELS, ImplicitConfig, NumericsConfig
+from ..core.config import PRECISIONS, TURBULENCE_MODELS, ImplicitConfig, NumericsConfig
 from ..mesh.assemble import FORMATS
 from ..mesh.block import CONDITION_KINDS
 from ..mesh.generate import Spacing
@@ -69,6 +69,9 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("case_name", "string", REQUIRED, "names the output directory"),
         Key("description", "string", None, "one line, printed in the log", default_text="`case_name`"),
         Key("save_path", "string", "results", "output root, relative to the case directory"),
+        Key("precision", "string", _N.precision, "field and preconditioner precision; geometry is built in "
+            "FP64; FP32 keeps the small GMRES least-squares solve in FP64 and does not change convergence tolerances",
+            choices=tuple(PRECISIONS)),
     ),
     "domain": (
         Key("grid", "string", REQUIRED, "where the grid comes from: generated round one airfoil "

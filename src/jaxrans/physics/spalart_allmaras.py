@@ -208,7 +208,7 @@ def qcr_stress(grad_v: Array, mu_t: Array, c_cr1: float) -> Array:
     norm = jnp.where(positive, jnp.sqrt(jnp.where(positive, square, 1.0)), 1.0)
     rotation = (grad_v - jnp.swapaxes(grad_v, 0, 1)) / norm
     divergence = sum(grad_v[a, a] for a in range(dim))
-    identity = jnp.eye(dim).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
+    identity = jnp.eye(dim, dtype=grad_v.dtype).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
     tau = mu_t * (grad_v + jnp.swapaxes(grad_v, 0, 1) - (2.0 / 3.0) * divergence * identity)
     product = jnp.einsum("ik...,jk...->ij...", rotation, tau)
     return -c_cr1 * (product + jnp.swapaxes(product, 0, 1))

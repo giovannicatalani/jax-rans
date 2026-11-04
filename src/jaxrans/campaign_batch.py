@@ -47,8 +47,10 @@ def run_case_batch(cases, grids, progress=None) -> list[Result]:
     steps, states, lanes, conditions = [], [], [], []
     for indices in groups.values():
         case, grid = cases[indices[0]], grids[indices[0]]
-        q = jnp.asarray([freestream_primitive(cases[k].flow, grid.components) for k in indices])
-        mu = jnp.asarray([0.0 if cases[k].flow.inviscid else cases[k].flow.mu_inf for k in indices])
+        q = jnp.asarray([freestream_primitive(cases[k].flow, grid.components) for k in indices],
+                        dtype=case.numerics.dtype)
+        mu = jnp.asarray([0.0 if cases[k].flow.inviscid else cases[k].flow.mu_inf for k in indices],
+                         dtype=case.numerics.dtype)
         distance = make_residual(grid, case.flow, case.numerics).distance
 
         # Bind each geometry's closure now, before moving to the next group.

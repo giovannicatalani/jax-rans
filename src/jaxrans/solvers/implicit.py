@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..core.config import ImplicitConfig
+from ..core.precision import floor_like, l2_norm
 from ..core.state import RHO, Rows, conservative_to_primitive, dot, is_physical
 from ..numerics.residual import ResidualOperator, cell_wave_speed_sum
 from . import explicit
@@ -41,9 +42,10 @@ class ImplicitState(NamedTuple):
 
 
 def initial_state(
-    operator: ResidualOperator, config: ImplicitConfig, dtype=jnp.float64
+    operator: ResidualOperator, config: ImplicitConfig, dtype=None
 ) -> ImplicitState:
     """The explicit path's freestream start, at the starting CFL."""
+    dtype = operator.q_inf.dtype if dtype is None else dtype
     return ImplicitState(
         U=explicit.initial_state(operator, dtype=dtype).U,
         cfl=jnp.asarray(config.cfl, dtype=dtype),
@@ -77,7 +79,7 @@ def relax(dU: Array, U: Array, gamma: float, fraction: float | None, dim: int = 
         d_nu_hat = (dU[rows.nu] - nu_hat * d_rho) / rho
         ratios.append(jnp.abs(d_nu_hat) / jnp.maximum(jnp.abs(nu_hat), 1.0))
     worst = jnp.max(jnp.stack([jnp.max(r) for r in ratios]))
-    omega = jnp.minimum(one, fraction / jnp.maximum(worst, 1e-300))
+    omega = jnp.minimum(one, fraction / jnp.maximum(worst, floor_like(worst)))
     return omega * dU, omega
 
 
@@ -132,8 +134,8 @@ def make_newton_step(
         # The ramp keys off how well the linear system was solved (one more
         # matvec), not the residual history: a stagnated GMRES returns a null
         # update that leaves the residual unchanged, which looks like success.
-        linear_reduction = jnp.linalg.norm(matvec(dU) + residual) / jnp.maximum(
-            jnp.linalg.norm(residual), 1e-300
+        linear_reduction = l2_norm(matvec(dU) + residual) / jnp.maximum(
+            l2_norm(residual), floor_like(residual)
         )
 
         # Reject a step that leaves the physical domain or that GMRES failed to
@@ -145,7 +147,7 @@ def make_newton_step(
         # Switched evolution relaxation: grow the CFL by the residual reduction
         # achieved, capped, and only when the Krylov solve earned it. Mulder and
         # van Leer, J. Comput. Phys. 59 (1985).
-        reduction = state.residual_norm / jnp.maximum(norm, 1e-300)
+        reduction = state.residual_norm / jnp.maximum(norm, floor_like(norm))
         cfl_next = jnp.where(
             accept & (linear_reduction < config.krylov_success) & (omega >= 1.0),
             cfl * jnp.clip(reduction, 1.0, config.cfl_growth),

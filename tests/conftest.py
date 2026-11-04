@@ -1,8 +1,7 @@
 """Shared fixtures.
 
-Importing any ``jaxrans`` module enables float64 before any array exists. Every test runs in
-double precision: a verification suite in single precision cannot tell a bug from
-round-off.
+Importing ``jaxrans`` enables float64 support before any array exists. Numerical
+verification defaults to double; precision tests explicitly exercise FP32 too.
 """
 
 from __future__ import annotations

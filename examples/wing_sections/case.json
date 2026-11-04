@@ -2,7 +2,8 @@
     "general": {
         "case_name": "wing_sections",
         "description": "10 NACA sections, 18 to 10 percent, trapezoidal half-wing and winglet",
-        "save_path": "../../results"
+        "save_path": "../../results",
+        "precision": "fp64"
     },
     "domain": {
         "grid": "c_grid",
