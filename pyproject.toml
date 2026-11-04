@@ -12,7 +12,8 @@ license-files = ["LICENSE"]
 authors = [{ name = "giovannicatalani" }]
 requires-python = ">=3.11"
 dependencies = [
-    "jax>=0.4.30",
+    "jax[cuda13]>=0.4.30",
+    "matplotlib>=3.11.2",
     "numpy>=1.26",
     "scipy>=1.10",
 ]

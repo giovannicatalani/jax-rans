@@ -177,14 +177,15 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, mu_inf: Array | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
-    (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
+    (primitives, possibly traced) maps angles/Mach; ``mu_inf`` maps M/Re too."""
     flow, numerics = case.flow, case.numerics
-    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance)
+    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance, mu_inf=mu_inf)
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
-            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
+            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance,
+            mu_inf=mu_inf)
         return (implicit.make_newton_step(operator, case.implicit, jacobian),
                 implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
     return (explicit.make_rk_step(operator, scheme=case.rk_scheme),

@@ -1,18 +1,21 @@
-"""Command line: run one case and write its result.
+"""Command line: run a case or an ICMS campaign and write its results.
 
     python -m jaxrans CASE_DIR [--set file.section.key=value ...] [--out DIR] [--quiet] [--check]
 
 The case directory holds ``case.json`` and ``numerical.json`` (format:
 ``docs/guide.md``). ``--set`` changes one key for this run; the resolved
-files are saved with the result. ``--check`` builds the grid, prints its
-patches, conditions and bodies, draws it, and stops before solving.
+files are saved with the result. ICMS campaigns are detected by their
+``campaign``/``sections`` blocks. ``--check`` prepares grids and diagnostic
+figures, then stops before solving.
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import jax
@@ -32,13 +35,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, help="output directory (default: <save_path>/<case_name>)")
     parser.add_argument("--quiet", action="store_true", help="no progress lines")
     parser.add_argument("--devices", type=int, default=1,
-                        help="split the case over this many GPUs (slabs of its first grid axis)")
+                        help="split a single case over this many GPUs; campaigns currently use one GPU")
     parser.add_argument("--check", action="store_true",
-                        help="build and report the grid, write grid.png, do not solve")
+                        help="prepare grids and diagnostic figures without solving")
     args = parser.parse_args(argv)
-    sys.stdout.reconfigure(line_buffering=True)  # readable while a long run is going
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)  # readable while a long run is going
 
     try:
+        case_path = args.case / "case.json" if args.case.is_dir() else args.case
+        document = json.loads(case_path.read_text())
+        if isinstance(document, dict) and ("campaign" in document or "sections" in document):
+            return campaign_main(args)
         case = load_case(args.case, tuple(args.overrides))
         grid = case.grid()
         if case.sequencing:
@@ -77,6 +85,45 @@ def main(argv: list[str] | None = None) -> int:
         at = ", ".join(f"{float(c):.4f}" for c in grid.grid.centres[(slice(None),) + cell])
         print(f"non-physical state, first at canvas cell {cell}: ({at})", file=sys.stderr)
     return 0 if physical and result.history.reason != "non_finite" else 1
+
+
+def campaign_main(args) -> int:
+    """The same entry point and overrides, with campaign-specific preparation."""
+    from .campaign import load_campaign, prepare_campaign, run_campaign
+
+    try:
+        if args.devices != 1:
+            raise CaseError("ICMS campaigns currently use one GPU; --devices must be 1")
+        campaign = load_campaign(args.case, tuple(args.overrides))
+        count = campaign.sections["count"] * len(campaign.machs) * len(campaign.alphas)
+        print(f"{campaign.template.name}: ICMS campaign, {campaign.sections['count']} sections, "
+              f"{len(campaign.machs)} Mach x {len(campaign.alphas)} alpha = {count} cases; "
+              f"batch size {campaign.batch_size}")
+        prepared = prepare_campaign(campaign, args.out)
+        if not args.quiet:
+            for section, grid in zip(prepared.sections, prepared.grids):
+                print(f"section {section.index:03d}: chord {section.chord:.6g} m, "
+                      f"TE-up pitch {section.chord_pitch_deg:.4f} deg, sweep {section.sweep_deg:.4f} deg; "
+                      f"{grid.cells} cells")
+                print(quality(grid.mesh).summary())
+        print(f"preprocessing written to {prepared.directory}")
+        if args.check:
+            print("check complete: HUG files, geometric reports and figures generated; no CFD calculations")
+            return 0
+
+        def progress(iteration, reasons):
+            status = ", ".join(f"{reason}={n}" for reason, n in Counter(reasons).items())
+            print(f"batch iteration {iteration:8d}: {status}")
+
+        result = run_campaign(prepared, progress=None if args.quiet else progress)
+        status = ", ".join(f"{reason}={n}" for reason, n in Counter(
+            row["exit_reason"] for row in result.rows).items())
+        print(f"campaign complete: {len(result.rows)} cases; {status}\n"
+              f"written to {result.directory / 'campaign.csv'}")
+        return 1 if any(row["exit_reason"] == "non_finite" for row in result.rows) else 0
+    except (CaseError, OSError, ValueError, RuntimeError, ImportError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
 
 
 def check(case, grid, out: Path | None) -> int:

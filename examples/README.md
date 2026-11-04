@@ -14,10 +14,15 @@
 | `main_flap_sa` | two-element high lift (30P30N main and flap), M 0.17, 5.5 deg, Re 1.71e6 | generated multi-element grid |
 | `rae2822_swept_sa` | swept section (2.5D), SA RANS, M 0.842, 2 deg, sweep 30 deg, Re 6.5e6 | C-grid generated from the measured ordinates |
 | `onera_m6_sa` | 3D wing, transonic SA RANS, M 0.84, 3.06 deg, Re 14.6e6 | NASA TMR one-block 3D grid, in the example directory |
+| `wing_sections` | ICMS campaign, 10 NACA sections, Mach/incidence ranges, Re 6e6 | generated C-grids; trapezoidal half-wing and winglet |
 
 Run one with `jaxrans examples/naca0012_euler`. The grid files of
 `naca0012_sa`, `rae2822_transonic_sa`, `flatplate_sa` and `30p30n_sa` are
 downloaded separately (`data/grids/README.md`); `onera_m6_sa` carries its own.
+
+`wing_sections` runs with the same command; `python -m jaxrans examples/wing_sections --check`
+first generates plots of every normalized section without solving. A Python
+API is also available: [ICMS campaigns](../docs/icms-campaign.md).
 
 `clarky_sa` is the template for your own airfoil
 ([docs/own-airfoil.md](../docs/own-airfoil.md)); `main_flap_sa` for a slat,

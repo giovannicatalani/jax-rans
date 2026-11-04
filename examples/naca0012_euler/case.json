@@ -23,6 +23,7 @@
     },
     "freestream": {
         "mach": 0.8,
+        "sweep_deg": 25,
         "alpha_deg": 1.25
     }
 }

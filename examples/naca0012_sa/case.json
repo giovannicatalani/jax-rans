@@ -1,7 +1,7 @@
 {
     "general": {
         "case_name": "naca0012_sa",
-        "description": "Turbulent NACA 0012, SA: M 0.15, alpha 10 deg, Re 6e6",
+        "description": "Turbulent NACA 0012, SA: M 0.8, alpha 1.25 deg, Re 6e6",
         "save_path": "results"
     },
     "domain": {
@@ -18,14 +18,15 @@
         }
     },
     "freestream": {
-        "mach": 0.15,
-        "alpha_deg": 10.0,
+        "mach": 0.8,
+        "alpha_deg": 1.25,
+        "sweep_deg": 25.0,
         "reynolds": 6000000.0,
-        "temperature": 540.0
+        "temperature": 288.15
     },
     "material_properties": {
         "dynamic_viscosity": "sutherland",
-        "sutherland_temperature": 198.6
+        "sutherland_temperature": 110.4
     },
     "turbulence": {
         "model": "sa_noft2",

@@ -1,0 +1,37 @@
+{
+    "general": {
+        "case_name": "wing_sections",
+        "description": "10 NACA sections, 18 to 10 percent, trapezoidal half-wing and winglet",
+        "save_path": "../../results"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "cells_airfoil": 256,
+        "cells_wake": 96,
+        "cells_normal": 128,
+        "wall_spacing": 5e-6,
+        "far_field": 100.0
+    },
+    "sections": {
+        "file": "wing.icms",
+        "count": 10,
+        "units": "m",
+        "header_lines": null
+    },
+    "freestream": {
+        "reynolds": 6000000.0,
+        "temperature": 288.15
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 110.4
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    },
+    "campaign": {
+        "mach": {"start": 0.3, "stop": 0.5, "step": 0.1},
+        "alpha_deg": {"start": -2.0, "stop": 2.0, "step": 2.0},
+        "batch_size": 8
+    }
+}

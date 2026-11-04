@@ -33,8 +33,16 @@ def test_a_minimal_case_takes_the_defaults() -> None:
 
 @pytest.mark.parametrize("name", sorted(d.name for d in EXAMPLES.iterdir() if (d / "case.json").is_file()))
 def test_the_examples_parse(name) -> None:
-    case = load_case(EXAMPLES / name)
-    assert case.name == name and case.output == EXAMPLES / name / "results"
+    directory = EXAMPLES / name
+    document = json.loads((directory / "case.json").read_text())
+    if "campaign" in document:
+        from jaxrans.campaign import load_campaign
+        case = load_campaign(directory).template
+    else:
+        case = load_case(directory)
+    output = Path(document["general"].get("save_path", "results"))
+    assert case.name == name
+    assert case.output == (output if output.is_absolute() else directory / output)
 
 
 @pytest.mark.parametrize("where, key", [

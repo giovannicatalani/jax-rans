@@ -47,6 +47,10 @@ GPU: [quickstart notebook](notebooks/quickstart.ipynb)
 
 Example cases are in [examples/](examples/README.md).
 
+For ICMS wing sections, geometry diagnostics and GPU section/Mach/incidence
+campaigns, see [ICMS campaigns](docs/icms-campaign.md) and
+[the synthetic wing example](examples/wing_sections/case.json).
+
 Validation cases can be found in the validation folder.
 
 How to rerun them, with their sources: [validation/](validation/README.md).
