@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Conical Euler sections, stage B**: finite `domain.sectional.taper_rate`,
+  a mean-sweep frame, geometric intersection of streamwise profiles and a C2
+  wall-distance relaxation to periodic translation. All face metrics and
+  wall normals come from the conical 3D cells; section pressure loads include
+  the conical side component. Verified by uniform flow, the zero-taper limit,
+  depth refinement and a second-order manufactured Cartesian Euler flux
+  integral check. Finite-taper viscosity awaits stage C. New example
+  `naca0012_conical_euler` and `validation.conical_euler` depth study.
 - **Sectional 3D stencil, stage A** (`domain.sectional`): one independent
   spanwise cell with translated ghost geometry, using the full 3D flux and
   gradient operators. Zero taper reproduces 2.5D (and 2D at zero sweep),

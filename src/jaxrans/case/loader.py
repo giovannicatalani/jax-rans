@@ -17,6 +17,7 @@ import numpy as np
 from ..core import constants
 from ..core.config import FlowConditions, ImplicitConfig, NumericsConfig
 from ..core.sectional import SectionalSpec
+from ..geometry.conical import ConicalGeometry
 from ..geometry.elements import ROLES
 from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.coarsen import coarsen as coarsen_mesh
@@ -59,15 +60,21 @@ class Case:
         streamwise section is meshed normal to the sweep line, and the atlas
         lifted (``mesh.atlas.lift_atlas``)."""
         mesh = self.grid_spec.build(self.directory, self.numerics.dtype)
+        kinds = resolve_conditions(self.conditions, patches(mesh), self.flow)
+        mesh = assign_conditions(mesh, kinds)
+        geometry = None
         if self.flow.swept:
             if mesh[0].dim != 2:
                 if self.grid_spec.sectional is not None:
                     raise CaseError("'domain.sectional' needs a 2D source mesh")
                 raise CaseError("'freestream.sweep_deg' needs a 2D grid (an infinite swept wing)")
-            if self.grid_spec.section == "streamwise":
+            if self.grid_spec.sectional is not None and self.grid_spec.sectional.taper_rate != 0.0:
+                geometry = ConicalGeometry.of(mesh, self.grid_spec.sectional, self.grid_spec.section)
+                if self.grid_spec.section == "streamwise":
+                    mesh = geometry.normal_section(mesh, self.numerics.sectional_relaxation_start,
+                                                   self.numerics.sectional_relaxation_end)
+            elif self.grid_spec.section == "streamwise":
                 mesh = scale_x(mesh, float(np.cos(self.flow.sweep_rad)))
-        kinds = resolve_conditions(self.conditions, patches(mesh), self.flow)
-        mesh = assign_conditions(mesh, kinds)
         for _ in range(coarsen):
             mesh = coarsen_mesh(mesh)
         report = quality(mesh)
@@ -75,7 +82,9 @@ class Case:
             raise CaseError(f"the grid has folded cells: {report.summary()}")
         if self.grid_spec.sectional is not None:
             return build_sectional_atlas(mesh, self.grid_spec.sectional, self.numerics.n_ghost,
-                                         self.numerics.sectional_depth)
+                                         self.numerics.sectional_depth,
+                                         self.numerics.sectional_relaxation_start,
+                                         self.numerics.sectional_relaxation_end, geometry)
         atlas = build_atlas(mesh, self.numerics.n_ghost)
         return lift_atlas(atlas) if self.flow.swept else atlas
 
@@ -195,8 +204,10 @@ def _flow(case_doc: dict, sectional: SectionalSpec | None = None) -> FlowConditi
     if sectional is not None:
         if "sweep_deg" in given["freestream"]:
             raise CaseError("'domain.sectional' and 'freestream.sweep_deg' are mutually exclusive")
-        # The zero-taper section uses the existing normal-section velocity frame.
-        freestream["sweep_deg"] = sectional.leading_edge_sweep_deg
+        # Use a fixed Cartesian mean-sweep frame, the existing one at zero taper.
+        freestream["sweep_deg"] = sectional.reference_sweep_deg
+        if sectional.taper_rate != 0.0 and freestream["reynolds"] is not None:
+            raise CaseError("finite taper is Euler only in stage B; viscous sectional flow is supported at zero taper")
     inviscid = freestream["reynolds"] is None
 
     sutherland_ratio = None
@@ -306,11 +317,15 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
     if "section" in case_doc["domain"] and not flow.swept:
         raise CaseError("'domain.section' applies to a swept case only ('freestream.sweep_deg')")
     conditions, far_field = _boundaries(case_doc, flow)
+    if spec.sectional is not None and spec.sectional.taper_rate != 0.0 and far_field != "characteristic":
+        raise CaseError("finite taper requires the uniform characteristic far field")
 
     fluxes, stepping, implicit, convergence = (
         _values(_section(numerical_doc, NUMERICAL_FILE, name), NUMERICAL_FILE, name)
         for name in ("convective_fluxes", "time_integration", "implicit", "convergence"))
     implicit = ImplicitConfig(**implicit)
+    sectional_numerics = _values(_section(numerical_doc, NUMERICAL_FILE, "sectional"),
+                                 NUMERICAL_FILE, "sectional")
     numerics = NumericsConfig(
         flux=fluxes["riemann_solver"],
         limiter=fluxes["limiter"],
@@ -321,8 +336,9 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
         forces_tol=convergence["forces_tol"],
         solver=stepping["solver"],
         far_field=far_field,
-        sectional_depth=_values(_section(numerical_doc, NUMERICAL_FILE, "sectional"),
-                                NUMERICAL_FILE, "sectional")["depth"],
+        sectional_depth=sectional_numerics["depth"],
+        sectional_relaxation_start=sectional_numerics["relaxation_start"],
+        sectional_relaxation_end=sectional_numerics["relaxation_end"],
     )
     if "sectional" in numerical_doc and spec.sectional is None:
         raise CaseError("'numerical.sectional' requires 'domain.sectional'")

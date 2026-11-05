@@ -4,6 +4,7 @@
 |---|---|---|
 | `naca0012_euler` | Euler, M 0.8, 1.25 deg | generated O-grid |
 | `naca0012_sectional_euler` | sectional 3D stencil, Euler, M 0.5, 2 deg, sweep 30 deg, zero taper | one-cell extrusion of a generated O-grid |
+| `naca0012_conical_euler` | conical Euler section, M 0.5, 2 deg, leading-edge sweep 30 deg, taper rate 0.2 | relaxed conical slab from a generated O-grid |
 | `naca0012_laminar` | laminar, M 0.5, 1 deg, Re 5000 | generated C-grid |
 | `clarky_sa` | SA RANS, M 0.2, 4 deg, Re 3e6 | C-grid round a downloaded coordinate file |
 | `naca0012_sa` | SA RANS, M 0.15, 10 deg, Re 6e6 | NASA TMR C-grid from file |

@@ -27,7 +27,7 @@ class FlowConditions:
     section normal to the sweep line, ``alpha`` is streamwise, and the velocity
     gains a spanwise component (core/state.py, ``freestream_vector``).
     ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep.
-    Sectional cases derive this frame from their geometric leading-edge sweep;
+    Sectional cases derive this frame from the mean of their geometric edge sweeps;
     their atlas uses a 3D stencil rather than the lifted 2D one."""
 
     mach: float
@@ -129,10 +129,15 @@ class NumericsConfig:
     far_field: str = "characteristic"
     kappa: float = 0.0
     sectional_depth: float = 1.0
+    sectional_relaxation_start: float = 1.0
+    sectional_relaxation_end: float = 5.0
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.sectional_depth) or self.sectional_depth <= 0.0:
             raise ValueError("sectional depth must be finite and positive")
+        if (not np.isfinite(self.sectional_relaxation_start) or not np.isfinite(self.sectional_relaxation_end)
+                or not 0 <= self.sectional_relaxation_start < self.sectional_relaxation_end):
+            raise ValueError("sectional relaxation needs finite 0 <= relaxation_start < relaxation_end")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.max_iters < 1:

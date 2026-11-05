@@ -156,7 +156,13 @@ class Result:
                 "cl_spread": self.cl_spread,
                 "timing": self.timing.record(),
                 **({"sectional": {**asdict(self.grid.spec), "depth": self.grid.depth,
-                                   "axes": ["normal_chord", "up", "sweep"]}}
+                                   "axes": ["normal_chord", "up", "sweep"],
+                                   "reference_sweep_deg": self.grid.spec.reference_sweep_deg,
+                                   "relaxation_start": self.grid.relaxation_start,
+                                   "relaxation_end": self.grid.relaxation_end,
+                                   **({"streamwise_chord": self.grid.geometry.chord,
+                                       "relaxation_law": "quintic_wall_distance"}
+                                      if self.grid.geometry is not None else {})}}
                    if isinstance(self.grid, SectionalAtlas) else {}),
                 **({"grid_sequencing": list(self.levels)} if self.levels else {}),
                 **(extra or {}),

@@ -264,8 +264,8 @@ def swept_atlas(atlas: Atlas, flow: FlowConditions) -> Atlas:
     (where a lifted one is refused). A sectional atlas already has its 3D
     geometry and must use the flow frame derived from its geometric sweep."""
     if isinstance(atlas, SectionalAtlas):
-        if flow.sweep_deg != atlas.spec.leading_edge_sweep_deg:
-            raise ValueError("a sectional atlas needs its normal-section flow frame (leading-edge sweep)")
+        if flow.sweep_deg != atlas.spec.reference_sweep_deg:
+            raise ValueError("a sectional atlas needs its normal-section flow frame (mean geometric sweep)")
         return atlas
     if flow.swept:
         if atlas.dim != 2:
@@ -295,6 +295,11 @@ def make_residual(
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     atlas = swept_atlas(atlas, flow)
+    if isinstance(atlas, SectionalAtlas) and atlas.geometry is not None:
+        if not flow.inviscid:
+            raise ValueError("finite taper is Euler only in stage B")
+        if numerics.far_field != "characteristic":
+            raise ValueError("finite taper requires the uniform characteristic far field")
     if atlas.g != numerics.n_ghost:
         raise ValueError(f"the atlas has {atlas.g} ghost layers, the scheme needs {numerics.n_ghost}")
     viscosity = Viscosity.of(flow, mu_inf)
