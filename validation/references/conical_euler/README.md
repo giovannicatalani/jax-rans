@@ -1,3 +1,8 @@
+> **Historical O-grid results — superseded baseline.** These measurements
+> predate the switch to the blunt-TE NACA 0012 three-block C-grid. They do not
+> qualify the current examples or establish C-grid convergence. Numerical
+> records below are preserved; commands/paths describe the earlier campaign.
+
 # Conical Euler numerical checks
 
 These are verification and sensitivity results for the new sectional

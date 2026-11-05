@@ -44,8 +44,16 @@ of settings.
 
 `python -m validation.sectional_qualification --study all --plan` lists the
 converged 2D/2.5D limit checks and finite-taper mesh sensitivity studies.
+The active baseline is the generated three-block C-grid around
+`naca0012_blunt`; previous O-grid measurements are historical.
 These are numerical qualification, separate from the six published-data
 comparisons above. See [stage D](../docs/sectional-qualification.md).
+
+`validation.sectional_normal_refinement` isolates wall-normal refinement;
+`validation.sectional_boundary_report` extracts the associated physical-normal
+velocity/crossflow profiles and operational thickness estimates. The
+[boundary-layer follow-up](../docs/sectional-qualification.md#boundary-layer-follow-up)
+documents their scope and reproduction.
 
 ## What is in a case
 

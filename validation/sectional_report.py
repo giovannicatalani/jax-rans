@@ -1,6 +1,6 @@
 """Render a sectional qualification summary and optional mesh-refinement plots.
 
-    python -m validation.sectional_report results/sectional_d_qualification --plot
+    python -m validation.sectional_report results/sectional_c_blunt --plot
 """
 
 import argparse
@@ -12,7 +12,7 @@ import numpy as np
 
 def markdown(summary):
     lines = ["# Sectional qualification: converged limits and mesh sensitivity", "",
-             "Numerical verification on NACA 0012; no finite-wing aerodynamic validation.", "",
+             f"Baseline: {summary.get('baseline', 'historical O-grid')}. Numerical verification; no finite-wing validation.", "",
              "## Converged limits", "",
              "Each pair starts independently from freestream. Stopping uses the residual, not force settling.", "",
              "| model / sweep | result | max coefficient difference | Cp Linf | Cf Linf | field relative Linf |",
@@ -41,7 +41,7 @@ def markdown(summary):
                 lines.append(f"| {case_id} | missing | — | — | — | — | — | — | — |")
                 continue
             f = record["forces"]
-            shape = " x ".join(map(str, record["shape"][:2]))
+            shape = "; ".join(" × ".join(map(str, block[:2])) for block in record.get("block_shapes", [record["shape"]]))
             yplus = record.get("yplus_normal_cut", {}).get("p95")
             lines.append(f"| {case_id} | {shape} | {f['cl']:.10f} | {f['cd']:.10f} | "
                          f"{f['cd_friction']:.10f} | {f['cm']:.10f} | "
@@ -82,14 +82,16 @@ def plots(summary, source, output):
         record = summary["runs"].get(case_id)
         if record is None or record["reason"] != "converged":
             continue
-        ni, nj = record["shape"][:2]
         with np.load(source / case_id / "arrays.npz") as arrays:
             x = arrays["x_streamwise"]
             for axis, key in zip(axes[0], ("cp", "cf")):
-                line, = axis.plot(x[arrays["arc"] < .5], arrays[key][arrays["arc"] < .5], "--", lw=1)
-                axis.plot(x[arrays["arc"] >= .5], arrays[key][arrays["arc"] >= .5],
-                          color=line.get_color(), label=f"{ni} × {nj}", lw=1)
-        sizes.append(1 / np.sqrt(ni * nj))
+                region = arrays["wall_region"] if "wall_region" in arrays else (arrays["arc"] >= .5).astype(int)
+                line, = axis.plot(x[region == 0], arrays[key][region == 0], "--", lw=1)
+                axis.plot(x[region == 1], arrays[key][region == 1], color=line.get_color(),
+                          label=f"{record['cells']} cells", lw=1)
+                if np.any(region == 2):
+                    axis.plot(x[region == 2], arrays[key][region == 2], ".", color=line.get_color(), ms=3)
+        sizes.append(1 / np.sqrt(record["cells"]))
         cl.append(record["forces"]["cl"])
         cd.append(record["forces"]["cd"])
     axes[0, 0].invert_yaxis()
@@ -101,7 +103,7 @@ def plots(summary, source, output):
         axis.plot(sizes, values, "o-")
         axis.set(xlabel="1 / sqrt(section cells)", ylabel=label)
         axis.grid(alpha=.25)
-    fig.suptitle("NACA 0012 conical SA: M=0.5, α=2°, Re=10⁶, LE sweep=30°, taper rate=0.2")
+    fig.suptitle(f"{summary.get('baseline', 'Historical O-grid')}: conical SA, M=0.5, α=2°, Re=10⁶, LE sweep=30°, taper rate=0.2")
     for suffix in ("png", "pdf"):
         fig.savefig(output / f"mesh_refinement.{suffix}", dpi=180)
     plt.close(fig)

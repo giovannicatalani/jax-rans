@@ -1,3 +1,8 @@
+> **Historical O-grid results — superseded baseline.** These measurements
+> predate the switch to the blunt-TE NACA 0012 three-block C-grid. They do not
+> qualify the current examples or establish C-grid convergence. Numerical
+> records below are preserved; commands/paths describe the earlier campaign.
+
 # Conical viscous numerical checks
 
 These results verify the sectional discretization and its numerical depth

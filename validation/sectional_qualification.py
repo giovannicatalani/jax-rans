@@ -1,6 +1,6 @@
 """Converged 2D/2.5D limits and separate conical mesh sensitivity studies.
 
-    python -m validation.sectional_qualification --study all --out results/sectional_d
+    python -m validation.sectional_qualification --study all --out results/sectional_c_blunt
     python -m validation.sectional_qualification --study all --plan
 
 Each solve runs in its own process, saves its inputs, convergence and arrays,
@@ -19,6 +19,8 @@ import subprocess
 import sys
 
 import numpy as np
+
+from validation.sectional_baseline import BASELINE, DEFAULT_OUTPUT, archive_arrays, normal_grid, require_baseline
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS = ("euler", "laminar", "sa", "qcr")
@@ -50,39 +52,38 @@ def plan(study="all", physics=MODELS, sweeps=(0., 30.), max_iters=3000, tol=1e-1
                 for formulation in ("legacy", "sectional"):
                     jobs.append(dict(id=f"limit_{model}_{sweep:g}_{formulation}", study="limits",
                                      physics=model, sweep=sweep, taper=0., formulation=formulation,
-                                     level=1, family="limit", wall_factor=1., outer_factor=1.))
+                                     level=2, family="limit", wall_factor=1., outer_factor=1.))
     if study in ("all", "mesh"):
-        # A nested family: subsampling one 256x192 mesh by factors 8,4,2,1.
-        # The same medium case anchors both one-parameter sensitivity studies.
-        for level in (3, 2, 1, 0):
+        # Three nested resolutions of one three-block blunt-TE C-grid.
+        for level in (2, 1, 0):
             jobs.append(dict(id=f"mesh_sa_l{level}", study="mesh", physics="sa", sweep=30., taper=.2,
                              formulation="sectional", family="mesh", level=level,
                              wall_factor=1., outer_factor=1.))
-        for factor in (.5, .25):
-            jobs.append(dict(id=f"wall_sa_{factor:g}", study="mesh", physics="sa", sweep=30., taper=.2,
-                             formulation="sectional", family="wall", level=2,
-                             wall_factor=factor, outer_factor=1.))
+        for stride in (4, 1):
+            jobs.append(dict(id=f"normal_sa_s{stride}", study="mesh", physics="sa", sweep=30., taper=.2,
+                             formulation="sectional", family="normal", level=1, normal_stride=stride,
+                             wall_factor=1., outer_factor=1.))
         for factor in (2., 4.):
             jobs.append(dict(id=f"outer_sa_{factor:g}", study="mesh", physics="sa", sweep=30., taper=.2,
-                             formulation="sectional", family="outer", level=2,
+                             formulation="sectional", family="outer", level=1,
                              wall_factor=1., outer_factor=factor))
     for job in jobs:
-        job.update(max_iters=max_iters, tol=tol)
+        job.update(max_iters=max_iters, tol=tol, baseline=BASELINE)
     return jobs
 
 
 def documents(job):
     model = job["physics"]
-    # Limits on a 32x32 grid, sampled from the same 64x64 source on both paths.
+    # Both limit paths subsample the same three-block C-grid.
     limits = job["study"] == "limits"
-    first = {"euler": 5e-4, "laminar": 1e-4, "sa": 1e-5, "qcr": 1e-5}[model]
+    first = {"euler": 1e-4, "laminar": 1e-4, "sa": 1e-5, "qcr": 1e-5}[model]
     if not limits:
         first *= .5
     doc = {"general": {"case_name": job["id"]},
-           "domain": {"grid": "o_grid", "airfoil": "naca0012", "cells_airfoil": 64 if limits else 256,
-                      "cells_normal": 64 if limits else 192, "wall_spacing": first * job["wall_factor"],
-                      "far_field": 50., "leading_edge_spacing": .001 if limits else .0005,
-                      "trailing_edge_spacing": .001 if limits else .0005},
+           "domain": {"grid": "c_grid", "airfoil": "naca0012_blunt", "cells_airfoil": 128 if limits else 256,
+                      "cells_wake": 32 if limits else 64,
+                      "cells_normal": 96 if limits else 192, "wall_spacing": first * job["wall_factor"],
+                      "far_field": 100., "leading_edge_spacing": .002, "trailing_edge_spacing": .002},
            "freestream": {"mach": .5, "alpha_deg": 2.}}
     if model != "euler":
         doc["freestream"]["reynolds"] = 5000. if model == "laminar" else 1e6
@@ -101,47 +102,49 @@ def documents(job):
     return doc, numerical
 
 
-def extend_outer(block, factor):
-    """Extend a normal-plane O-grid, retaining EVERY original node exactly."""
+def extend_outer(mesh, factor):
+    """Extend the main C-block normally; retain all original nodes and wake length."""
+    from dataclasses import replace
     from jaxrans.geometry.conical import distance_to_section
-    from jaxrans.mesh.block import BlockSides, Boundary, Grid, Interface
+    from jaxrans.mesh.block import Grid
     from jaxrans.mesh.generate import march
     from jaxrans.mesh.mesh import wall_faces
 
     if factor <= 1:
-        return block
+        return mesh
+    block = mesh[0]
     xy = np.asarray(block.nodes)
-    walls = wall_faces((block,))
+    walls = wall_faces(mesh)
     target = factor * float(distance_to_section(xy[:, :, -1], walls).min())
-    line = xy[:, :-1, -1].T
-    step = float(np.median(np.linalg.norm(xy[:, :-1, -1] - xy[:, :-1, -2], axis=0)))
+    line = xy[:, :, -1].T
+    step = float(np.median(np.linalg.norm(xy[:, :, -1] - xy[:, :, -2], axis=0)))
     added = []
     for _ in range(100):
         steps = step * 1.2 ** np.arange(1, 3)
-        layers = march(line, steps, periodic=True)
-        added.append(np.concatenate([layers[:, 1:], layers[:1, 1:]], axis=0).transpose(2, 0, 1))
+        layers = march(line, steps, periodic=False, outflow=np.array([1., 0.]))
+        added.append(layers[:, 1:].transpose(2, 0, 1))
         line, step = layers[:, -1], float(steps[-1])
         if distance_to_section(line.T, walls).min() >= target:
             break
     else:
         raise ValueError("outer extension did not reach the requested boundary")
     nodes = np.concatenate([xy, *added], axis=-1)
-    ni, nj = nodes.shape[1] - 1, nodes.shape[2] - 1
-    sides = BlockSides(ni, nj, (Boundary("wall", 0, ni, "no_slip_wall"),),
-                       (Boundary("farfield", 0, ni, "far_field"),),
-                       (Interface(0, nj, 0, "i_max", 0, False),),
-                       (Interface(0, nj, 0, "i_min", 0, False),))
-    return Grid.from_node_array(nodes, sides)
+    nj = nodes.shape[-1] - 1
+    sides = replace(block.sides, nj=nj,
+                    i_min=tuple(replace(s, stop=nj) for s in block.sides.i_min),
+                    i_max=tuple(replace(s, stop=nj) for s in block.sides.i_max))
+    return (Grid.from_node_array(nodes, sides), *mesh[1:])
 
 
 def build_grid(case, job):
+    require_baseline(case)
+    if job["family"] == "normal":
+        return normal_grid(case, job["normal_stride"])
     grid = case.grid(coarsen=job["level"])
     if job["outer_factor"] == 1.:
         return grid
     from jaxrans.mesh.sectional import build_sectional_atlas
-    if len(grid.reference.mesh) != 1:
-        raise ValueError("this outer-boundary study expects a single O-grid block")
-    mesh = extend_outer(grid.reference.mesh[0], job["outer_factor"])
+    mesh = extend_outer(grid.reference.mesh, job["outer_factor"])
     return build_sectional_atlas(mesh, grid.spec, grid.g, grid.depth,
                                  grid.relaxation_start, grid.relaxation_end, grid.geometry)
 
@@ -149,6 +152,7 @@ def build_grid(case, job):
 def source_fingerprint():
     digest = hashlib.sha256()
     digest.update(PROTOCOL_SHA256.encode())
+    digest.update(Path(__file__).with_name("sectional_baseline.py").read_bytes())
     for path in sorted((ROOT / "src" / "jaxrans").rglob("*.py")):
         digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
@@ -178,26 +182,15 @@ def run_job(job, folder):
         print(f"  {it:5d}  {orders:6.2f} orders  CL={forces.cl:.10f} CD={forces.cd:.10f}", flush=True)
 
     result = run(case, grid, progress=progress)
-    surface = result.surface()
-    # Canonical primitives: rho,u,v,w,p[,nu_hat], even for native 2D.
-    primitive = np.asarray(grid.unpack(primitive_from_conservative(result.U, case.flow.gamma, grid.components))[0])
-    if grid.dim == 3:
-        primitive = primitive[..., 0]
-    if grid.components == 2:
-        primitive = np.concatenate([primitive[:3], np.zeros_like(primitive[:1]), primitive[3:]])
-    faces = grid.reference.walls.faces if hasattr(grid, "reference") else grid.walls.faces
-    a, b = faces.a.T, faces.b.T
-    if getattr(grid, "geometry", None) is not None:
-        a, b = (grid.geometry.streamwise_points(p) for p in (a, b))
-    elif case.flow.swept:
-        a, b = a / np.array([[np.cos(case.flow.sweep_rad)], [1.]]), b / np.array([[np.cos(case.flow.sweep_rad)], [1.]])
-    ds = np.linalg.norm(b - a, axis=0)
-    arc = (np.cumsum(ds) - .5 * ds) / ds.sum()
+    arrays = archive_arrays(result)
     op = make_residual(grid, case.flow, case.numerics)
     residual = np.asarray(op.residual(result.U) / op.grid.volume)[:, grid.interior]
     record = {"job": job, "source_sha256": source_fingerprint(), "jax": jax.__version__,
               "devices": [str(d) for d in jax.devices()], "dtype": str(result.U.dtype),
-              "cells": grid.cells, "shape": list(grid.mesh[0].shape),
+              "baseline": BASELINE, "cells": grid.cells, "shape": list(grid.mesh[0].shape),
+              "block_shapes": [list(b.shape) for b in grid.mesh],
+              "wall_faces_by_region": {name: int(np.count_nonzero(arrays["wall_region"] == i))
+                                       for i, name in enumerate(("lower", "upper", "base"))},
               "quality": quality(grid.reference.mesh if hasattr(grid, "reference") else grid.mesh).record(),
               "forces": asdict(result.forces), "reason": result.history.reason,
               "orders_dropped": float(result.history.orders_dropped), "iterations": result.history.n_iters,
@@ -220,9 +213,7 @@ def run_job(job, folder):
             distance = np.asarray(grid.pack(wall_distance(grid.mesh), 1.)).ravel()[cell]
         yplus = distance * np.sqrt(rho * np.linalg.norm(traction, axis=0)) / mu
         record["yplus_normal_cut"] = {"max": float(yplus.max()), "p95": float(np.percentile(yplus, 95))}
-    np.savez_compressed(folder / "arrays.npz", primitive=primitive, arc=arc, weight=ds,
-                        nodes=np.asarray(grid.mesh[0].nodes),
-                        residual_history=result.history.residual, **surface)
+    np.savez_compressed(folder / "arrays.npz", **arrays)
     write_json(folder / "result.json", record)
     print(json.dumps({k: record[k] for k in ("reason", "orders_dropped", "iterations", "forces")}), flush=True)
     return record
@@ -237,8 +228,9 @@ def compare_limits(reference, sectional):
         rk = "x_streamwise" if key == "x" and "x_streamwise" in r else key
         sk = "x_streamwise" if key == "x" and "x_streamwise" in s else key
         np.testing.assert_allclose(r[rk], s[sk], rtol=1e-12, atol=1e-12)
-    scale = np.maximum(1., np.max(abs(r["primitive"]), axis=(1, 2)))
-    field = np.max(abs(s["primitive"] - r["primitive"]), axis=(1, 2)) / scale
+    axes = tuple(range(1, r["primitive"].ndim))
+    scale = np.maximum(1., np.max(abs(r["primitive"]), axis=axes))
+    field = np.max(abs(s["primitive"] - r["primitive"]), axis=axes) / scale
     out = {"field_relative_linf_by_row": field.tolist()}
     for key in ("cp", "cf", "cf_z"):
         if key not in r and key not in s:
@@ -254,12 +246,19 @@ def surface_change(coarse, fine):
     for key in ("cp", "cf", "cf_z"):
         if key in coarse and key in fine:
             deltas, weights = [], []
-            # The symmetric NACA 0012 has its LE at half the wall arc.
-            for lo, hi in ((0., .5), (.5, 1.)):
-                source = (coarse["arc"] >= lo) & (coarse["arc"] < hi)
-                arc = coarse["arc"][source]
-                mask = (fine["arc"] >= arc[0]) & (fine["arc"] <= arc[-1])
-                deltas.append(fine[key][mask] - np.interp(fine["arc"][mask], arc, coarse[key][source]))
+            # Keep both airfoil branches AND the blunt base separate.
+            for region in (0, 1, 2) if "wall_region" in coarse else (0, 1):
+                source = coarse["wall_region"] == region if "wall_region" in coarse else ((coarse["arc"] >= .5) == bool(region))
+                target = fine["wall_region"] == region if "wall_region" in fine else ((fine["arc"] >= .5) == bool(region))
+                if not np.any(source) or not np.any(target):
+                    continue
+                coordinate = "region_arc" if "region_arc" in coarse else "arc"
+                arc = coarse[coordinate][source]
+                mask = target & (fine[coordinate] >= arc[0]) & (fine[coordinate] <= arc[-1])
+                # A one-cell base still contributes through its midpoint.
+                if not np.any(mask):
+                    mask = target
+                deltas.append(fine[key][mask] - np.interp(fine[coordinate][mask], arc, coarse[key][source]))
                 weights.append(fine["weight"][mask])
             delta, weight = np.concatenate(deltas), np.concatenate(weights)
             out[key] = {"linf": float(abs(delta).max()),
@@ -305,9 +304,9 @@ def report(jobs, output):
         limits.append({"reference": rid, "sectional": sid, "passed": bool(passed),
                        "converged": converged, "force_absolute_differences": forces, **diffs})
     mesh = {}
-    groups = {"global": ["mesh_sa_l3", "mesh_sa_l2", "mesh_sa_l1", "mesh_sa_l0"],
-              "wall": ["mesh_sa_l2", "wall_sa_0.5", "wall_sa_0.25"],
-              "outer": ["mesh_sa_l2", "outer_sa_2", "outer_sa_4"]}
+    groups = {"global": ["mesh_sa_l2", "mesh_sa_l1", "mesh_sa_l0"],
+              "normal": ["normal_sa_s4", "mesh_sa_l1", "normal_sa_s1"],
+              "outer": ["mesh_sa_l1", "outer_sa_2", "outer_sa_4"]}
     for group, ids in groups.items():
         if not any(j["study"] == "mesh" for j in jobs):
             break
@@ -323,7 +322,7 @@ def report(jobs, output):
         if group == "global" and item["converged"]:
             item["richardson"] = {k: richardson_summary(tuple(records[i]["forces"][k] for i in ids[-3:])) for k in ("cl", "cd", "cm", "cd_friction")}
         mesh[group] = item
-    result = {"tolerances": TOLERANCES, "limits": limits, "mesh": mesh,
+    result = {"baseline": BASELINE, "tolerances": TOLERANCES, "limits": limits, "mesh": mesh,
               "runs": records, "missing": [j["id"] for j in jobs if j["id"] not in records]}
     write_json(output / "summary.json", result)
     return result
@@ -334,7 +333,7 @@ def main():
     parser.add_argument("--study", choices=("all", "limits", "mesh"), default="all")
     parser.add_argument("--physics", nargs="+", choices=MODELS, default=MODELS)
     parser.add_argument("--sweeps", type=float, nargs="+", default=(0., 30.))
-    parser.add_argument("--out", type=Path, default=Path("results/sectional_d"))
+    parser.add_argument("--out", type=Path, default=Path(DEFAULT_OUTPUT))
     parser.add_argument("--max-iters", type=int, default=3000)
     parser.add_argument("--tol", type=float, default=1e-10)
     parser.add_argument("--plan", action="store_true")

@@ -98,10 +98,16 @@ def test_meshes_are_nested_and_outer_extension_preserves_the_complete_inner_grid
     fine = q.build_grid(case, jobs["mesh_sa_l1"])
     np.testing.assert_array_equal(coarse.reference.mesh[0].nodes, fine.reference.mesh[0].nodes[:, ::2, ::2])
     outer = q.build_grid(case, jobs["outer_sa_2"])
-    original, extended = coarse.reference.mesh[0].nodes, outer.reference.mesh[0].nodes
+    original, extended = fine.reference.mesh[0].nodes, outer.reference.mesh[0].nodes
     np.testing.assert_array_equal(original, extended[..., :original.shape[-1]])
     assert extended.shape[-1] > original.shape[-1]
-    assert np.asarray(outer.mesh[0].volume).min() > 0
+    from jaxrans.mesh.mesh import interface_node_mismatch
+    for a, b in zip(coarse.reference.mesh, fine.reference.mesh):
+        np.testing.assert_array_equal(a.nodes, b.nodes[:, ::2, ::2])
+    for a, b in zip(fine.reference.mesh[1:], outer.reference.mesh[1:]):
+        np.testing.assert_array_equal(a.nodes, b.nodes)
+    assert interface_node_mismatch(outer.reference.mesh) < 1e-12
+    assert all(np.asarray(b.volume).min() > 0 for b in outer.mesh)
 
 
 def test_campaign_cases_parse_and_only_the_reference_zero_sweep_uses_native_2d():
@@ -120,3 +126,61 @@ def test_human_report_keeps_missing_and_failed_pairs_visible(tmp_path):
     put_run(tmp_path, jobs[1], reason="max_iters")
     text = markdown(q.report(jobs, tmp_path))
     assert "FAIL" in text and "missing" in text and "PASS" not in text
+
+
+def test_blunt_base_is_not_interpolated_with_the_airfoil_branches():
+    a = arrays()
+    a.update(wall_region=np.array([0, 1, 2, 2]), region_arc=np.array([.5, .5, .25, .75]))
+    b = deepcopy(a)
+    b["cp"][2:] += .2
+    assert q.surface_change(a, b)["cp"]["linf"] == pytest.approx(.2)
+
+
+@pytest.mark.parametrize("sweep", [0., 30.])
+@pytest.mark.parametrize("physics", q.MODELS)
+def test_blunt_c_grid_zero_taper_residual_and_complete_archive(physics, sweep):
+    from types import SimpleNamespace
+    from jaxrans.numerics.residual import make_residual
+    from validation.sectional_baseline import archive_arrays
+    from validation.sectional_boundary_layer import SectionSampler
+
+    jobs = q.plan("limits", (physics,), (sweep,))
+    cases = [parse_case(*q.documents(job)) for job in jobs]
+    grids = [q.build_grid(case, job) for case, job in zip(cases, jobs)]
+    operators = [make_residual(grid, case.flow, case.numerics) for grid, case in zip(grids, cases)]
+    rng = np.random.default_rng(7)
+    U = operators[0].initial_state()
+    # Include nonuniform lateral momentum and SA in all three blocks.
+    U = U * (1 + .001 * rng.standard_normal(U.shape))
+    if grids[0].components == 2:
+        import jax.numpy as jnp
+        lifted = jnp.concatenate([U[:3], jnp.zeros_like(U[:1]), U[3:]])
+    else:
+        lifted = U
+    U3 = grids[1].expand(lifted)
+    plain = np.asarray(operators[0].residual(U))[:, grids[0].interior]
+    actual = np.asarray(grids[1].section_values(operators[1].residual(U3)) / grids[1].depth)
+    actual = actual[:, grids[0].interior]
+    if grids[0].components == 2:
+        assert np.max(abs(actual[3])) < 1e-13
+        actual = actual[[0, 1, 2, *range(4, len(actual))]]
+    np.testing.assert_allclose(actual, plain, atol=1e-11, rtol=1e-10)
+    grid, case = grids[1], cases[1]
+    dummy = SimpleNamespace(grid=grid, case=case, U=U3,
+                            history=SimpleNamespace(residual=np.array([1.])), surface=lambda: {})
+    saved = archive_arrays(dummy)
+    assert saved["primitive"].shape == (len(lifted), grid.cells)
+    assert len(saved["block_shapes"]) == 3
+    assert np.count_nonzero(saved["wall_region"] == 2) == grid.reference.mesh[1].ni
+    assert {0, 1} == set(saved["wall_block"])
+    changed = deepcopy(saved)
+    changed["primitive"][:, -1] += .1
+    # The final cell belongs to the wake: it must affect the limit check.
+    saved.update(x=np.zeros(1), y=np.zeros(1), cp=np.zeros(1), weight=np.ones(1))
+    changed.update(x=np.zeros(1), y=np.zeros(1), cp=np.zeros(1), weight=np.ones(1))
+    assert max(q.compare_limits(saved, changed)["field_relative_linf_by_row"]) > 0
+    if physics != "euler":
+        sampler = SectionSampler(saved, grid.geometry)
+        # Interface values are not spuriously forced to no-slip.
+        interface = grid.reference.mesh[0].sides.j_min[0]
+        assert np.linalg.norm(sampler.values[1:4, interface.start * (grid.mesh[0].nj + 1)]) > 0
