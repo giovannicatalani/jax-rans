@@ -1,0 +1,43 @@
+{
+  "first_block_seconds": 20.39019917800033,
+  "total_solver_seconds": 42.96749954999905,
+  "steady_seconds_per_iteration": 0.16877766679999695,
+  "steady_sample_count": 4,
+  "blocks": [
+    {
+      "seconds": 20.39019917800033,
+      "iterations": 20,
+      "case_steps": 60,
+      "accepted_steps": 60,
+      "changed_steps": 60
+    },
+    {
+      "seconds": 3.093761252999684,
+      "iterations": 20,
+      "case_steps": 60,
+      "accepted_steps": 60,
+      "changed_steps": 60
+    },
+    {
+      "seconds": 3.1523921560001327,
+      "iterations": 20,
+      "case_steps": 60,
+      "accepted_steps": 60,
+      "changed_steps": 60
+    },
+    {
+      "seconds": 3.5987145159997453,
+      "iterations": 20,
+      "case_steps": 60,
+      "accepted_steps": 60,
+      "changed_steps": 60
+    },
+    {
+      "seconds": 3.6000196460008738,
+      "iterations": 20,
+      "case_steps": 60,
+      "accepted_steps": 60,
+      "changed_steps": 60
+    }
+  ]
+}

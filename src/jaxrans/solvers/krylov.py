@@ -25,10 +25,12 @@ from typing import Callable
 import jax.numpy as jnp
 from jax import Array, lax
 
+from ..core.precision import l2_norm
+
 
 def _dot(V: Array, w: Array) -> Array:
     """``V_k . w`` for every basis vector, ``(k,)``."""
-    return jnp.tensordot(V, w, axes=w.ndim)
+    return jnp.tensordot(V, w, axes=w.ndim, precision=lax.Precision.HIGHEST)
 
 
 def gmres_right(
@@ -42,33 +44,38 @@ def gmres_right(
     """Restarted GMRES(``restart``), right-preconditioned (``precondition: r -> M^-1 r``),
     for ``matvec`` on any array shape; stops at ``|b - A x| <= tol |b|`` between
     cycles, at most ``maxiter`` cycles. Zero for ``b = 0``."""
-    b_norm = jnp.linalg.norm(b)
+    b_norm = l2_norm(b)
     tiny = jnp.finfo(b.dtype).tiny
 
     def cycle(x: Array) -> Array:
         r = b - matvec(x)
-        beta = jnp.linalg.norm(r)
+        beta = l2_norm(r)
         V = jnp.zeros((restart + 1,) + b.shape, b.dtype).at[0].set(r / jnp.maximum(beta, tiny))
-        H = jnp.zeros((restart + 1, restart), b.dtype)
+        # Only this tiny least-squares problem uses FP64 in an FP32 solve.
+        H = jnp.zeros((restart + 1, restart), jnp.float64)
 
         def arnoldi(j, carry):
             V, H = carry
             w = matvec(precondition(V[j]))
             active = (jnp.arange(restart + 1) <= j).astype(b.dtype)
             h = _dot(V, w) * active
-            w = w - jnp.tensordot(h, V, axes=1)
+            w = w - jnp.tensordot(h, V, axes=1, precision=lax.Precision.HIGHEST)
             h2 = _dot(V, w) * active                  # the second pass of CGS2
-            w = w - jnp.tensordot(h2, V, axes=1)
+            w = w - jnp.tensordot(h2, V, axes=1, precision=lax.Precision.HIGHEST)
             h = h + h2
-            norm = jnp.linalg.norm(w)
+            norm = l2_norm(w)
             H = H.at[:, j].set(h.at[j + 1].set(norm))
             V = V.at[j + 1].set(w / jnp.maximum(norm, tiny))
             return V, H
 
         V, H = lax.fori_loop(0, restart, arnoldi, (V, H))
-        e1 = jnp.zeros(restart + 1, b.dtype).at[0].set(beta)
-        y = jnp.linalg.lstsq(H, e1)[0]
-        return x + precondition(jnp.tensordot(y, V[:restart], axes=1))
+        e1 = jnp.zeros(restart + 1, H.dtype).at[0].set(beta)
+        # H was measured with field-precision vectors: do not interpret FP32
+        # round-off as extra independent Krylov directions just because the
+        # small factorization itself is done in double.
+        rcond = jnp.finfo(b.dtype).eps * max(H.shape)
+        y = jnp.linalg.lstsq(H, e1, rcond=rcond)[0].astype(b.dtype)
+        return x + precondition(jnp.tensordot(y, V[:restart], axes=1, precision=lax.Precision.HIGHEST))
 
     def unconverged(carry):
         k, x, residual = carry
@@ -77,7 +84,7 @@ def gmres_right(
     def body(carry):
         k, x, _ = carry
         x = cycle(x)
-        return k + 1, x, jnp.linalg.norm(b - matvec(x))
+        return k + 1, x, l2_norm(b - matvec(x))
 
     x0 = jnp.zeros_like(b)
     _, x, _ = lax.while_loop(unconverged, body, (0, x0, b_norm))

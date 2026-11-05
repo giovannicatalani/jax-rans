@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from typing import Callable, NamedTuple
 
-import jax.numpy as jnp
 from jax import Array
 
 from ..numerics.residual import ResidualOperator
@@ -71,7 +70,7 @@ def make_rk_step(
     return step
 
 
-def initial_state(operator: ResidualOperator, dtype=jnp.float64) -> SolverState:
+def initial_state(operator: ResidualOperator, dtype=None) -> SolverState:
     """Uniform freestream: it satisfies the far field exactly and leaves the
     wall as the only initial inconsistency."""
     return SolverState(U=operator.initial_state(dtype))
