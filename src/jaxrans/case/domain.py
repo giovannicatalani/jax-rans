@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from ..core.sectional import SectionalSpec
 from ..geometry.airfoil import Airfoil, airfoil_source
 from ..geometry.elements import Element, place, read_element, read_elements
 from ..mesh.assemble import PatchRule, RawBlock, assemble, load_grid
@@ -57,6 +58,7 @@ class GridSpec:
     moment_centre: tuple[float, ...] = (0.25, 0.0, 0.0)
     section: str = "streamwise"
     base_blocks: bool = False
+    sectional: SectionalSpec | None = None
 
     def force_reference(self) -> ForceReference:
         return ForceReference(self.reference_length, self.reference_area, tuple(self.moment_centre))

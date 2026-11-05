@@ -26,7 +26,9 @@ class FlowConditions:
     ``sweep_deg`` makes a 2D grid an infinite swept wing (2.5D): the grid is the
     section normal to the sweep line, ``alpha`` is streamwise, and the velocity
     gains a spanwise component (core/state.py, ``freestream_vector``).
-    ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep."""
+    ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep.
+    Sectional cases derive this frame from their geometric leading-edge sweep;
+    their atlas uses a 3D stencil rather than the lifted 2D one."""
 
     mach: float
     alpha_deg: float = 0.0
@@ -126,8 +128,11 @@ class NumericsConfig:
     solver: str = "explicit"
     far_field: str = "characteristic"
     kappa: float = 0.0
+    sectional_depth: float = 1.0
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.sectional_depth) or self.sectional_depth <= 0.0:
+            raise ValueError("sectional depth must be finite and positive")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.max_iters < 1:

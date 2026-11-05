@@ -35,6 +35,7 @@ from jax import Array
 from ..core.config import FlowConditions
 from ..core.state import RHO, Rows, conservative_to_primitive, freestream_primitive, magnitude, split
 from ..mesh.atlas import Atlas
+from ..mesh.sectional import SectionalAtlas
 from ..numerics import boundary as bc
 from ..numerics.residual import primitive_from_conservative, swept_atlas, viscous_fluxes
 from ..physics.navier_stokes import Viscosity
@@ -50,6 +51,8 @@ def wall_loads(U: Array, atlas: Atlas, flow: FlowConditions, freestream: Array |
     ``(d, n)``, and the viscous force on the body ``(d, n)`` (zero if
     inviscid); ``freestream`` and ``mu_inf`` (traceable) replace ``flow``'s.
     Vectors have the atlas's components (3 swept, in the grid's frame)."""
+    if isinstance(atlas, SectionalAtlas):
+        return wall_loads(atlas.section_values(U), atlas.reference, flow, freestream, mu_inf)
     atlas = swept_atlas(atlas, flow)
     gamma, dim, nv = flow.gamma, atlas.dim, atlas.components
     rows = Rows(nv)
@@ -119,6 +122,9 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
     positive, per ``q_inf * area * length``: pressure only in 2D, pressure and
     friction in 3D (as TMR's CMY). Swept: those of the streamwise section in
     the wing frame (module docstring), ``cy`` and ``force[2]`` spanwise."""
+    if isinstance(atlas, SectionalAtlas):
+        return force_coefficients(atlas.section_values(U), atlas.reference, flow, reference,
+                                  freestream, mu_inf)
     atlas = swept_atlas(atlas, flow)
     dim, nv = atlas.dim, atlas.components
     if dim == 3 and reference.area is None:
@@ -179,6 +185,8 @@ def surface(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarra
     negative where separated). Swept: ``x`` in the grid's (normal) section,
     plus ``x_streamwise`` (``x / cos(sweep)``) and, viscous, ``cf_z``, the wall
     shear along the sweep line; ``cp`` and ``cf`` over the whole ``q_inf``."""
+    if isinstance(atlas, SectionalAtlas):
+        return surface(atlas.section_values(U), atlas.reference, flow)
     if atlas.dim == 3:
         return _surface_3d(U, atlas, flow)
     p, S, shear = (np.asarray(a) for a in wall_loads(U, atlas, flow))
@@ -224,6 +232,8 @@ def pressure_lift(U: Array, atlas: Atlas, freestream: Array, gamma: float) -> Ar
     freestream primitives ``(rho, V, p)``: a batched polar's per-block monitor.
     Lift is normal to the freestream in the plane of incidence, the first and
     the last axis (core/state.py); swept, of the in-plane flow."""
+    if isinstance(atlas, SectionalAtlas):
+        return pressure_lift(atlas.section_values(U), atlas.reference, freestream, gamma)
     dim = atlas.dim
     rows = Rows(atlas.components)
     p = conservative_to_primitive(U[:rows.n_flow], gamma, atlas.components)[2].ravel()[atlas.walls.cell]

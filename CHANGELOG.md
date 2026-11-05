@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sectional 3D stencil, stage A** (`domain.sectional`): one independent
+  spanwise cell with translated ghost geometry, using the full 3D flux and
+  gradient operators. Zero taper reproduces 2.5D (and 2D at zero sweep),
+  including laminar, SA and SA-QCR, both far fields and sectional outputs.
+  Nonzero taper is explicitly rejected until the conical geometry and
+  relaxation are implemented. Example `naca0012_sectional_euler` and
+  `docs/sectional.md`; nested case overrides are supported.
 - **Blunt trailing edges on a C-grid** (contributed by Xavier Bertrand): a C-grid
   round a blunt section now keeps its base, with a block off the base and one in
   the wake (example `naca0012_blunt_sa`). `.hug` coordinate files give the two

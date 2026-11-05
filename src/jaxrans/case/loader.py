@@ -16,12 +16,14 @@ import numpy as np
 
 from ..core import constants
 from ..core.config import FlowConditions, ImplicitConfig, NumericsConfig
+from ..core.sectional import SectionalSpec
 from ..geometry.elements import ROLES
 from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.coarsen import coarsen as coarsen_mesh
 from ..mesh.highlift import family
 from ..mesh.mesh import assign_conditions, patches, scale_x
 from ..mesh.quality import quality
+from ..mesh.sectional import build_sectional_atlas
 from . import schema
 from .domain import ELEMENT_KEYS, PATCH_RULE_KEYS, GridSpec
 
@@ -59,6 +61,8 @@ class Case:
         mesh = self.grid_spec.build(self.directory, self.numerics.dtype)
         if self.flow.swept:
             if mesh[0].dim != 2:
+                if self.grid_spec.sectional is not None:
+                    raise CaseError("'domain.sectional' needs a 2D source mesh")
                 raise CaseError("'freestream.sweep_deg' needs a 2D grid (an infinite swept wing)")
             if self.grid_spec.section == "streamwise":
                 mesh = scale_x(mesh, float(np.cos(self.flow.sweep_rad)))
@@ -69,6 +73,9 @@ class Case:
         report = quality(mesh)
         if report.folded:
             raise CaseError(f"the grid has folded cells: {report.summary()}")
+        if self.grid_spec.sectional is not None:
+            return build_sectional_atlas(mesh, self.grid_spec.sectional, self.numerics.n_ghost,
+                                         self.numerics.sectional_depth)
         atlas = build_atlas(mesh, self.numerics.n_ghost)
         return lift_atlas(atlas) if self.flow.swept else atlas
 
@@ -141,6 +148,19 @@ def _grid_spec(case_doc: dict) -> GridSpec:
                             f"got {sorted(rule)}")
     elements = domain["elements"]
     _check_elements(elements, kind, domain["file"])
+    if domain["sectional"] is not None:
+        raw_section = domain["sectional"]
+        if set(raw_section) - {k.name for k in schema.SECTIONAL_KEYS} - {"notes"}:
+            raise CaseError("unknown key in 'domain.sectional'; use model, leading_edge_sweep_deg, taper_rate")
+        section = {}
+        try:
+            for key in schema.SECTIONAL_KEYS:
+                value = raw_section.get(key.name, key.default)
+                key.check(f"domain.sectional.{key.name}", value)
+                section[key.name] = value
+            domain["sectional"] = SectionalSpec(**section)
+        except (TypeError, ValueError) as error:
+            raise CaseError(f"domain.sectional: {error}") from None
     return GridSpec(**{**{k: v for k, v in domain.items() if v is not None}, "patches": tuple(rules),
                        "elements": tuple(elements)})
 
@@ -168,10 +188,15 @@ def _check_elements(elements: list, kind: str, file: str | None) -> None:
             raise CaseError(f"'domain.elements': {error}") from None
 
 
-def _flow(case_doc: dict) -> FlowConditions:
+def _flow(case_doc: dict, sectional: SectionalSpec | None = None) -> FlowConditions:
     given = {name: _section(case_doc, CASE_FILE, name, required=name == "freestream")
              for name in ("freestream", "material_properties", "turbulence")}
     freestream, material, turbulence = (_values(given[name], CASE_FILE, name) for name in given)
+    if sectional is not None:
+        if "sweep_deg" in given["freestream"]:
+            raise CaseError("'domain.sectional' and 'freestream.sweep_deg' are mutually exclusive")
+        # The zero-taper section uses the existing normal-section velocity frame.
+        freestream["sweep_deg"] = sectional.leading_edge_sweep_deg
     inviscid = freestream["reynolds"] is None
 
     sutherland_ratio = None
@@ -277,7 +302,7 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
     _top_level(numerical_doc, NUMERICAL_FILE)
     general = _values(_section(case_doc, CASE_FILE, "general", required=True), CASE_FILE, "general")
     spec = _grid_spec(case_doc)
-    flow = _flow(case_doc)
+    flow = _flow(case_doc, spec.sectional)
     if "section" in case_doc["domain"] and not flow.swept:
         raise CaseError("'domain.section' applies to a swept case only ('freestream.sweep_deg')")
     conditions, far_field = _boundaries(case_doc, flow)
@@ -296,7 +321,11 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
         forces_tol=convergence["forces_tol"],
         solver=stepping["solver"],
         far_field=far_field,
+        sectional_depth=_values(_section(numerical_doc, NUMERICAL_FILE, "sectional"),
+                                NUMERICAL_FILE, "sectional")["depth"],
     )
+    if "sectional" in numerical_doc and spec.sectional is None:
+        raise CaseError("'numerical.sectional' requires 'domain.sectional'")
     rk_scheme = stepping["rk_scheme"]
     block_iters = convergence["block_iters"] or (200 if numerics.solver == "explicit" else 20)
     if block_iters < 1:
@@ -327,7 +356,7 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
 
 
 def apply_override(docs: dict[str, dict], assignment: str) -> None:
-    """Apply ``file.section.key=value`` to the raw documents, in place.
+    """Apply ``file.section.key[.nested_key]=value`` to the raw documents, in place.
 
     ``file`` is ``case`` or ``numerical``; ``value`` is read as JSON, falling
     back to a bare string, so ``limiter=none`` and ``reynolds=null`` both work.
@@ -336,14 +365,21 @@ def apply_override(docs: dict[str, dict], assignment: str) -> None:
         raise CaseError(f"override {assignment!r} is not of the form file.section.key=value")
     path, text = assignment.split("=", 1)
     parts = path.strip().split(".")
-    if len(parts) != 3 or parts[0] not in docs:
+    if len(parts) < 3 or parts[0] not in docs or any(not part for part in parts):
         raise CaseError(f"override path {path!r} must be {sorted(docs)[0]}|{sorted(docs)[1]}"
                         f".section.key, e.g. numerical.convective_fluxes.limiter")
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
         value = text
-    docs[parts[0]].setdefault(parts[1], {})[parts[2]] = value
+    target = docs[parts[0]]
+    for part in parts[1:-1]:
+        if part not in target:
+            target[part] = {}
+        if not isinstance(target[part], dict):
+            raise CaseError(f"override path {path!r}: {part!r} is not an object")
+        target = target[part]
+    target[parts[-1]] = value
 
 
 def load_case(directory: str | Path, overrides: tuple[str, ...] = ()) -> Case:

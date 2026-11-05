@@ -43,6 +43,17 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `reference_area` | number or null | `null` | all | 3D grids (required there): area the force coefficients are per; 2D coefficients are per unit span |
 | `moment_centre` | list | `[0.25, 0.0, 0.0]` | all | point the pitching moment is about, `[x, y]` or `[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D) |
 | `section` | string | `streamwise` | all | swept cases (`freestream.sweep_deg`): the plane the 2D section is given in; `streamwise` is meshed normal to the sweep line (x scaled by cos(sweep)), `normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise (docs/swept.md); one of `normal`, `streamwise` |
+| `sectional` | object or null |  | all | sectional 3D stencil: model, leading_edge_sweep_deg and taper_rate; stage A supports zero taper only (docs/sectional.md); replaces freestream.sweep_deg |
+
+### `domain.sectional`
+
+Optional object; mutually exclusive with `freestream.sweep_deg`. The source mesh is 2D. See [sectional calculations](sectional.md).
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `model` | string | `conical` | sectional formulation; one of `conical` |
+| `leading_edge_sweep_deg` | number | `0.0` | geometric leading-edge sweep, degrees, strictly between -90 and 90 |
+| `taper_rate` | number | `0.0` | -dc/ds along geometric span, positive for decreasing chord; only 0 is implemented in stage A |
 
 ### `boundary_conditions`
 
@@ -89,6 +100,12 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `freestream_nu_tilde_ratio` | number | `3.0` | far-field nu~/nu (3 to 5) |
 
 ## `numerical.json`
+
+### `sectional`
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `depth` | number | `1.0` | artificial extrusion depth in grid length units; domain.sectional only, not a physical wing span |
 
 ### `convective_fluxes`
 

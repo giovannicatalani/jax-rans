@@ -22,6 +22,7 @@ nav:
   - Multi-element airfoil: multi-element.md
   - A 3D wing: wing-3d.md
   - A swept wing section (2.5D): swept.md
+  - Sectional 3D stencil: sectional.md
   - Derivatives: gradients.md
   - Case reference: case_reference.md
   - Equations and method: theory.md

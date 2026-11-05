@@ -33,6 +33,7 @@ from ..core.state import (
 from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.block import Grid
 from ..mesh.mesh import wall_distance
+from ..mesh.sectional import SectionalAtlas
 from ..physics import euler, navier_stokes
 from ..physics.navier_stokes import Viscosity
 from ..physics.spalart_allmaras import SAModel, qcr_stress
@@ -260,7 +261,12 @@ def uniform_canvas(q: Array, grid: Grid, gamma: float, dtype=jnp.float64) -> Arr
 
 def swept_atlas(atlas: Atlas, flow: FlowConditions) -> Atlas:
     """``atlas`` as ``flow`` needs it: lifted when swept, unchanged otherwise
-    (where a lifted one is refused)."""
+    (where a lifted one is refused). A sectional atlas already has its 3D
+    geometry and must use the flow frame derived from its geometric sweep."""
+    if isinstance(atlas, SectionalAtlas):
+        if flow.sweep_deg != atlas.spec.leading_edge_sweep_deg:
+            raise ValueError("a sectional atlas needs its normal-section flow frame (leading-edge sweep)")
+        return atlas
     if flow.swept:
         if atlas.dim != 2:
             raise ValueError("a swept flow (sweep_deg) needs a 2D grid")
@@ -294,14 +300,20 @@ def make_residual(
     viscosity = Viscosity.of(flow, mu_inf)
     model = SAModel.of(flow, mu_inf)
     dtype, gamma, g, dim, nv = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim, atlas.components
-    if numerics.far_field not in bc.far_field_models(dim):
+    far_field_dim = 2 if isinstance(atlas, SectionalAtlas) else dim
+    if numerics.far_field not in bc.far_field_models(far_field_dim):
         raise ValueError(f"far field model {numerics.far_field!r} is not available in {dim}D; "
                          f"available: {bc.far_field_models(dim)}")
     q_inf = jnp.asarray(freestream_primitive(flow, nv) if freestream is None else freestream, dtype=dtype)
     if model is not None:
         q_inf = jnp.concatenate([q_inf, jnp.asarray([model.freestream_ratio], dtype=dtype)])
         if distance is None:
-            distance = atlas.pack([jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.mesh)], 1.0)
+            if isinstance(atlas, SectionalAtlas):
+                # Distance to the infinitely extruded wall, not the edges of a finite strip.
+                distance = atlas.expand(atlas.reference.pack(
+                    [jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.reference.mesh)], 1.0))
+            else:
+                distance = atlas.pack([jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.mesh)], 1.0)
     else:
         distance = None
     canvas = atlas.grid
@@ -323,7 +335,11 @@ def make_residual(
 
     def residual(U: Array) -> Array:
         q = primitive_from_conservative(U, gamma, nv)
-        conditions = bc.Conditions(q_inf, gamma, far_field(q, atlas, q_inf, gamma))
+        if isinstance(atlas, SectionalAtlas):
+            reference = far_field(atlas.section_values(q), atlas.reference, q_inf, gamma)
+        else:
+            reference = far_field(q, atlas, q_inf, gamma)
+        conditions = bc.Conditions(q_inf, gamma, reference)
         return jnp.where(atlas.interior, net_flux(q, conditions), U - U_0)
 
     return ResidualOperator(

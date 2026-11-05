@@ -50,6 +50,10 @@ class SlabAtlas(Atlas):
         Raises:
             ValueError: the canvas's first axis does not divide over the devices.
         """
+        from ..mesh.sectional import SectionalAtlas
+
+        if isinstance(atlas, SectionalAtlas):
+            raise ValueError("spatial multi-device decomposition is not implemented for a sectional atlas")
         if atlas.shape[0] % len(devices):
             raise ValueError(f"cannot split the canvas over {len(devices)} devices: its first axis has "
                              f"{atlas.shape[0]} cells (ghosts included), not a multiple of {len(devices)}")
