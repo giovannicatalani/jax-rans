@@ -48,8 +48,8 @@ def write_campaign(path, *, solver="explicit", model="none"):
 def test_example_config_and_ranges():
     c = load_campaign(ROOT / "examples/wing_sections")
     assert c.sections["count"] == 10
-    assert c.machs == pytest.approx([.3, .4, .5, .6, .7, .8])
-    assert c.alphas == pytest.approx(np.arange(-2, 6.1, .5))
+    assert c.machs == pytest.approx([.3, .4, .5])
+    assert c.alphas == pytest.approx([-2., 0., 2.])
     assert c.template.flow.reynolds == 6e6
     assert not any("kink" in k for k in c.sections)
 
