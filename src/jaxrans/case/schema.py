@@ -15,6 +15,7 @@ from typing import Any
 
 from ..core import constants
 from ..core.config import TURBULENCE_MODELS, ImplicitConfig, NumericsConfig
+from ..core.sectional import SectionalSpec
 from ..mesh.assemble import FORMATS
 from ..mesh.block import CONDITION_KINDS
 from ..mesh.generate import Spacing
@@ -33,7 +34,7 @@ MADE = GENERATED + SECTION
 @dataclass(frozen=True)
 class Key:
     name: str
-    type: str                                 # number, integer, string, list; "|null" if null is allowed
+    type: str                                 # number, integer, string, list, object; optional "|null"
     default: Any
     help: str
     choices: tuple[str, ...] | None = None
@@ -51,7 +52,8 @@ class Key:
         ok = {"number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
               "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
               "string": lambda v: isinstance(v, str),
-              "list": lambda v: isinstance(v, list)}[base](value)
+              "list": lambda v: isinstance(v, list),
+              "object": lambda v: isinstance(v, dict)}[base](value)
         if not ok:
             raise TypeError(f"'{path}' must be {'an' if base[0] in 'aeiou' else 'a'} {base}, got {value!r}")
         if self.choices is not None and value not in self.choices:
@@ -127,10 +129,12 @@ CASE: dict[str, tuple[Key, ...]] = {
             "coefficients are per; 2D coefficients are per unit span"),
         Key("moment_centre", "list", [0.25, 0.0, 0.0], "point the pitching moment is about, `[x, y]` or "
             "`[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D)"),
-        Key("section", "string", "streamwise", "swept cases (`freestream.sweep_deg`): the plane the 2D "
-            "section is given in; `streamwise` is meshed normal to the sweep line (x scaled by cos(sweep)), "
+        Key("section", "string", "streamwise", "swept/sectional cases: the plane the 2D "
+            "section is given in; `streamwise` is mapped to the normal plane (cosine scaling at zero taper), "
             "`normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise "
             "(docs/swept.md)", choices=("normal", "streamwise")),
+        Key("sectional", "object|null", None, "sectional 3D stencil: model, leading_edge_sweep_deg and "
+            "taper_rate; Euler, laminar and SA/QCR (docs/sectional.md); replaces freestream.sweep_deg"),
     ),
     "freestream": (
         Key("mach", "number", REQUIRED, "subsonic (swept: in the plane of the grid)"),
@@ -157,6 +161,14 @@ CASE: dict[str, tuple[Key, ...]] = {
 }
 
 NUMERICAL: dict[str, tuple[Key, ...]] = {
+    "sectional": (
+        Key("depth", "number", _N.sectional_depth, "artificial extrusion depth in grid length units; "
+            "domain.sectional only, not a physical wing span"),
+        Key("relaxation_start", "number", _N.sectional_relaxation_start,
+            "full conicity up to this wall distance, in streamwise chords"),
+        Key("relaxation_end", "number", _N.sectional_relaxation_end,
+            "periodic translation from this wall distance, in streamwise chords; greater than relaxation_start"),
+    ),
     "convective_fluxes": (
         Key("riemann_solver", "string", _N.flux, "", choices=_sorted(FLUXES)),
         Key("limiter", "string", _N.limiter, "`minmod` where a shock may form; `none` for smooth flow "
@@ -204,6 +216,14 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
 }
 
 FILES = {"case.json": CASE, "numerical.json": NUMERICAL}
+
+SECTIONAL_KEYS = (
+    Key("model", "string", SectionalSpec.model, "sectional formulation", choices=("conical",)),
+    Key("leading_edge_sweep_deg", "number", SectionalSpec.leading_edge_sweep_deg,
+        "geometric leading-edge sweep, degrees, strictly between -90 and 90"),
+    Key("taper_rate", "number", SectionalSpec.taper_rate,
+        "-dc/ds along geometric span, positive for decreasing chord"),
+)
 
 FAR_FIELD_MODELS = {"freestream": "characteristic", "point_vortex": "characteristic_point_vortex"}
 """A ``far_field`` patch's ``model`` -> its ``numerics.boundary.FAR_FIELDS`` key."""
@@ -273,6 +293,12 @@ def reference() -> str:
             out += [_row(k, with_grids) for k in ks]
             out.append("")
             if file == "case.json" and section == "domain":
+                out += ["### `domain.sectional`", "",
+                        "Optional object; mutually exclusive with `freestream.sweep_deg`. "
+                        "The source mesh is 2D. See [sectional calculations](sectional.md).", "",
+                        "| key | type | default | meaning |", "|---|---|---|---|"]
+                out += [_row(k, False) for k in SECTIONAL_KEYS]
+                out.append("")
                 out += _boundary_section()
     return "\n".join(out).rstrip() + "\n"
 

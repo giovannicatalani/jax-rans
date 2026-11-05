@@ -1,0 +1,36 @@
+[
+  {
+    "depth": 0.1,
+    "taper_rate": 0.2,
+    "relaxation_start": 1.0,
+    "relaxation_end": 5.0,
+    "reynolds": 1000000.0,
+    "turbulence": "sa_noft2",
+    "cl": 0.26543518472686983,
+    "cd": 0.007773835956216991,
+    "cy": 0.01002553498844936,
+    "cd_friction": 0.008554300320642609,
+    "iterations": 640,
+    "reason": "converged",
+    "orders_dropped": 10.251364896260935,
+    "seconds": 268.7642761039988,
+    "finite": true
+  },
+  {
+    "depth": 0.05,
+    "taper_rate": 0.2,
+    "relaxation_start": 1.0,
+    "relaxation_end": 5.0,
+    "reynolds": 1000000.0,
+    "turbulence": "sa_noft2",
+    "cl": 0.26543496498633123,
+    "cd": 0.007773968634261743,
+    "cy": 0.01002551315530894,
+    "cd_friction": 0.008554405119998873,
+    "iterations": 1100,
+    "reason": "converged",
+    "orders_dropped": 10.371851155538653,
+    "seconds": 414.6830922379995,
+    "finite": true
+  }
+]

@@ -1,5 +1,9 @@
 # A swept wing section (2.5D)
 
+The [sectional 3D stencil](sectional.md) provides a separate zero-taper
+verification path for the future conical solver, using the same flow and
+section conventions.
+
 One station of a swept wing, computed as an **infinite swept wing**: the
 section is the same all along the sweep line, so nothing varies along it. The
 grid is an ordinary 2D grid; the flow has three velocity components. It does

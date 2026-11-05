@@ -75,6 +75,11 @@ def coarsen(mesh: Grid | Mesh) -> Mesh:
 def prolong(U: Array, coarse: Atlas, fine: Atlas, start: Array) -> Array:
     """The coarse canvas solution ``U`` on the fine canvas: each fine cell
     takes its parent's value; cells outside every block keep ``start``'s."""
+    from .sectional import SectionalAtlas
+
+    if isinstance(coarse, SectionalAtlas) and isinstance(fine, SectionalAtlas):
+        return fine.expand(prolong(coarse.section_values(U), coarse.reference, fine.reference,
+                                   fine.section_values(start)))
     canvas = start
     for block, window in zip(coarse.unpack(U), fine.windows):
         for axis in range(1, block.ndim):

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Sectional qualification, stage D points 1–2**: reproducible independent
+  converged 2D/2.5D limit comparisons for Euler, laminar, SA and SA-QCR;
+  nested conical SA mesh refinement and separate wall-spacing/far-field
+  studies. Comparisons cover primitive fields, Cp, friction and forces,
+  with strict convergence and provenance checks. Per-run arrays and logs,
+  JSON/Markdown summaries and optional refinement plots are provided by
+  `validation.sectional_qualification` and `validation.sectional_report`.
+- **Conical viscous sections, stage C**: finite taper supports laminar
+  Navier-Stokes, SA and SA-QCR with the full 3D kernels. Physical ghost centres
+  use conical wall reflections and partner-block centres; SA uses distance to
+  the radially extended physical wall. Viscous section loads transport wall
+  traction to the streamwise cut. The closure copies Cartesian primitives,
+  including the SA variable, at fixed reference viscosity. Verified against
+  a five-layer 3D block, a laminar manufactured flux integral and the
+  continuous 2.5D limit. Example `naca0012_conical_sa`; see `docs/sectional.md`
+  for the local-similarity assumption and uncalibrated relaxation window.
+- **Conical Euler sections, stage B**: finite `domain.sectional.taper_rate`,
+  a mean-sweep frame, geometric intersection of streamwise profiles and a C2
+  wall-distance relaxation to periodic translation. All face metrics and
+  wall normals come from the conical 3D cells; section pressure loads include
+  the conical side component. Verified by uniform flow, the zero-taper limit,
+  depth refinement and a second-order manufactured Cartesian Euler flux
+  integral check. New example
+  `naca0012_conical_euler` and `validation.conical_euler` depth study.
+- **Sectional 3D stencil, stage A** (`domain.sectional`): one independent
+  spanwise cell with translated ghost geometry, using the full 3D flux and
+  gradient operators. Zero taper reproduces 2.5D (and 2D at zero sweep),
+  including laminar, SA and SA-QCR, both far fields and sectional outputs.
+  Nonzero taper is explicitly rejected until the conical geometry and
+  relaxation are implemented. Example `naca0012_sectional_euler` and
+  `docs/sectional.md`; nested case overrides are supported.
 - **Blunt trailing edges on a C-grid** (contributed by Xavier Bertrand): a C-grid
   round a blunt section now keeps its base, with a block off the base and one in
   the wake (example `naca0012_blunt_sa`). `.hug` coordinate files give the two

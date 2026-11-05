@@ -13,7 +13,7 @@ or validation, which live in ``validation/``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable, Sequence
 
@@ -25,6 +25,7 @@ from .core.state import conservative_to_primitive
 from .mesh.atlas import Atlas
 from .mesh.coarsen import prolong
 from .mesh.quality import quality
+from .mesh.sectional import SectionalAtlas
 from .numerics.residual import make_residual
 from .numerics.slabs import SlabAtlas
 from .case import Case
@@ -154,6 +155,17 @@ class Result:
                 "seconds": self.seconds,
                 "cl_spread": self.cl_spread,
                 "timing": self.timing.record(),
+                **({"sectional": {**asdict(self.grid.spec), "depth": self.grid.depth,
+                                   "axes": ["normal_chord", "up", "sweep"],
+                                   "reference_sweep_deg": self.grid.spec.reference_sweep_deg,
+                                   "relaxation_start": self.grid.relaxation_start,
+                                   "relaxation_end": self.grid.relaxation_end,
+                                   "primitive_closure": "cartesian_copy_fixed_reference_viscosity",
+                                   **({"streamwise_chord": self.grid.geometry.chord,
+                                       "relaxation_law": "quintic_wall_distance",
+                                       "sa_wall_distance": "positive_conical_sectors"}
+                                      if self.grid.geometry is not None else {})}}
+                   if isinstance(self.grid, SectionalAtlas) else {}),
                 **({"grid_sequencing": list(self.levels)} if self.levels else {}),
                 **(extra or {}),
             },
