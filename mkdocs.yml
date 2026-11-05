@@ -23,6 +23,7 @@ nav:
   - A 3D wing: wing-3d.md
   - A swept wing section (2.5D): swept.md
   - Conical wing sections: sectional.md
+  - Sectional qualification: sectional-qualification.md
   - Derivatives: gradients.md
   - Case reference: case_reference.md
   - Equations and method: theory.md

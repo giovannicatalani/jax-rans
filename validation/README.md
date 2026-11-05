@@ -42,6 +42,11 @@ python validation/compare_30p30n.py RESULT_DIR                                  
 differences. `highlift_envelope.py` builds the multi-element grid over a range
 of settings.
 
+`python -m validation.sectional_qualification --study all --plan` lists the
+converged 2D/2.5D limit checks and finite-taper mesh sensitivity studies.
+These are numerical qualification, separate from the six published-data
+comparisons above. See [stage D](../docs/sectional-qualification.md).
+
 ## What is in a case
 
 `cases/<name>/` holds `case.json` and `numerical.json`, as any case, and

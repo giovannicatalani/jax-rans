@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sectional qualification, stage D points 1–2**: reproducible independent
+  converged 2D/2.5D limit comparisons for Euler, laminar, SA and SA-QCR;
+  nested conical SA mesh refinement and separate wall-spacing/far-field
+  studies. Comparisons cover primitive fields, Cp, friction and forces,
+  with strict convergence and provenance checks. Per-run arrays and logs,
+  JSON/Markdown summaries and optional refinement plots are provided by
+  `validation.sectional_qualification` and `validation.sectional_report`.
 - **Conical viscous sections, stage C**: finite taper supports laminar
   Navier-Stokes, SA and SA-QCR with the full 3D kernels. Physical ghost centres
   use conical wall reflections and partner-block centres; SA uses distance to
