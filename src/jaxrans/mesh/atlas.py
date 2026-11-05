@@ -137,6 +137,19 @@ class Atlas:
     def cells(self) -> int:
         return int(self.interior.sum())
 
+    def with_dtype(self, dtype) -> Atlas:
+        """Round solver metrics, keeping the source mesh and gradient positions
+        in FP64. Gradient coefficients are formed before rounding (gradients.py).
+        Also preserves subclass metadata, including device decomposition.
+        """
+        if self.grid.volume.dtype == np.dtype(dtype):
+            return self
+        grid = replace(self.grid, nodes=self.grid.nodes.astype(dtype),
+                       centres=None if self.grid.centres is None else self.grid.centres.astype(dtype),
+                       volume=self.grid.volume.astype(dtype),
+                       faces=tuple(f.astype(dtype) for f in self.grid.faces))
+        return replace(self, grid=grid)
+
     def pack(self, blocks, fill=0.0) -> Array:
         """Per-block fields ``(..., *block shape)`` into one canvas; ``fill``
         (scalar, or one value per leading entry) elsewhere."""

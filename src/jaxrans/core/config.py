@@ -108,6 +108,8 @@ class FlowConditions:
 SOLVERS: tuple[str, ...] = ("explicit", "implicit")
 """Pseudo-time paths: multistage Runge-Kutta, pseudo-transient Newton-Krylov."""
 
+PRECISIONS = {"fp64": "float64", "float64": "float64", "fp32": "float32", "float32": "float32"}
+
 
 @dataclass(frozen=True)
 class NumericsConfig:
@@ -126,8 +128,11 @@ class NumericsConfig:
     solver: str = "explicit"
     far_field: str = "characteristic"
     kappa: float = 0.0
+    precision: str = "fp64"
 
     def __post_init__(self) -> None:
+        if self.precision not in PRECISIONS:
+            raise ValueError(f"precision must be one of {tuple(PRECISIONS)}, got {self.precision!r}")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.max_iters < 1:
@@ -150,8 +155,8 @@ class NumericsConfig:
 
     @property
     def dtype(self) -> np.dtype:
-        """Always float64: every verification gate runs in double (docs/dev/notes.md)."""
-        return np.dtype("float64")
+        """Field arithmetic; geometry construction stays in double precision."""
+        return np.dtype(PRECISIONS[self.precision])
 
 
 @dataclass(frozen=True)

@@ -261,7 +261,7 @@ def fill_ghosts(q: Array, atlas: Atlas, conditions: Conditions) -> Array:
     for stage in atlas.stages:
         parts = [flat]
         for kind, source, normal, midpoint in stage.conditions:
-            face = Face(jnp.asarray(normal), jnp.asarray(midpoint))
+            face = Face(jnp.asarray(normal, dtype=q.dtype), jnp.asarray(midpoint, dtype=q.dtype))
             parts.append(CONDITIONS[kind](flat[:, source], face, conditions))
         flat = jnp.concatenate(parts, axis=1)[:, stage.index]
     return flat.reshape(q.shape)

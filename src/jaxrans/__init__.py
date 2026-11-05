@@ -11,8 +11,8 @@ Spalart-Allmaras RANS, with derivatives of the converged forces.
 
 or, from the shell, ``python -m jaxrans examples/naca0012_euler``.
 
-Float64 is enabled here, before any submodule creates an array: JAX only
-honours the x64 flag if it is set before the first allocation.
+Float64 support stays enabled for geometry and verification. Each case selects
+its field dtype independently; this global flag does not force FP64 arrays.
 """
 
 import jax as _jax

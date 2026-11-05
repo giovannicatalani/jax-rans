@@ -103,7 +103,7 @@ def newton_inverse(result: Result) -> Callable[[Array], Callable[[Array], Array]
     approximate = operator if implicit.jacobian == "exact" else make_residual(
         atlas, flow, numerics, first_order=True, distance=operator.distance)
     prepare = get_preconditioner(implicit.preconditioner)(
-        atlas, flow.gamma, operator.viscosity, operator.model, operator.distance)
+        operator.atlas, flow.gamma, operator.viscosity, operator.model, operator.distance)
 
     def at(U: Array) -> Callable[[Array], Array]:
         _, jacobian = jax.linearize(approximate.residual, U)

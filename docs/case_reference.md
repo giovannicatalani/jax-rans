@@ -13,6 +13,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `case_name` | string | required | names the output directory |
 | `description` | string | `case_name` | one line, printed in the log |
 | `save_path` | string | `results` | output root, relative to the case directory |
+| `precision` | string | `fp64` | field and preconditioner precision; geometry is built in FP64; FP32 keeps the small GMRES least-squares solve in FP64 and does not change convergence tolerances; one of `fp64`, `float64`, `fp32`, `float32` |
 
 ### `domain`
 

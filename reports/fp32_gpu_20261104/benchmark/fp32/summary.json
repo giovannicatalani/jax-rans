@@ -1,0 +1,35 @@
+[
+  {
+    "section": 0,
+    "mach": 0.3,
+    "alpha_deg": -2.0,
+    "iterations": 100,
+    "exit_reason": "max_iters",
+    "cl": -0.11584140162166477,
+    "cd": -4.213005028199603e-05,
+    "field_dtype": "float32",
+    "finite_fields": true
+  },
+  {
+    "section": 0,
+    "mach": 0.3,
+    "alpha_deg": 0.0,
+    "iterations": 100,
+    "exit_reason": "max_iters",
+    "cl": 1.6307236980549704e-06,
+    "cd": -0.02361059849463379,
+    "field_dtype": "float32",
+    "finite_fields": true
+  },
+  {
+    "section": 0,
+    "mach": 0.3,
+    "alpha_deg": 2.0,
+    "iterations": 100,
+    "exit_reason": "max_iters",
+    "cl": 0.20224407748428028,
+    "cd": 0.008503727907346952,
+    "field_dtype": "float32",
+    "finite_fields": true
+  }
+]
