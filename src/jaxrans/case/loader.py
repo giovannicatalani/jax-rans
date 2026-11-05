@@ -206,8 +206,6 @@ def _flow(case_doc: dict, sectional: SectionalSpec | None = None) -> FlowConditi
             raise CaseError("'domain.sectional' and 'freestream.sweep_deg' are mutually exclusive")
         # Use a fixed Cartesian mean-sweep frame, the existing one at zero taper.
         freestream["sweep_deg"] = sectional.reference_sweep_deg
-        if sectional.taper_rate != 0.0 and freestream["reynolds"] is not None:
-            raise CaseError("finite taper is Euler only in stage B; viscous sectional flow is supported at zero taper")
     inviscid = freestream["reynolds"] is None
 
     sutherland_ratio = None

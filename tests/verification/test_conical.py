@@ -1,4 +1,4 @@
-"""Euler conical metrics, vanishing-taper limit and 3D manufactured fluxes."""
+"""Conical metrics, vanishing-taper limit and manufactured Euler/NS fluxes."""
 
 from dataclasses import replace
 
@@ -139,7 +139,8 @@ def test_splitting_the_conical_slab_preserves_every_euler_residual(section):
         assert float(jnp.abs(got - expected[:, i, j]).max()) < 1e-11 * scale
 
 
-def test_conical_residual_matches_independent_3d_flux_integrals_at_second_order(record_property):
+@pytest.mark.parametrize("viscous", [False, True])
+def test_conical_residual_matches_independent_3d_flux_integrals_at_second_order(record_property, viscous):
     from tests.verification.test_mms3d import source
 
     errors = []
@@ -149,6 +150,9 @@ def test_conical_residual_matches_independent_3d_flux_integrals_at_second_order(
             ("i_min", "i_max", "j_min", "j_max"), "wall")))
         mesh = assign_conditions(mesh, {"wall": "slip_wall"})
         op = operator(mesh, 0.3, depth=1.0 / n, start=10.0, end=20.0)
+        if viscous:
+            flow = FlowConditions(mach=.5, reynolds=10., sweep_deg=op.atlas.spec.reference_sweep_deg)
+            op = make_residual(op.atlas, flow, NumericsConfig(limiter="none"))
         geometry = op.atlas.geometry
         p, mu = geometry.coefficients
 
@@ -168,7 +172,29 @@ def test_conical_residual_matches_independent_3d_flux_integrals_at_second_order(
             for a in range(3):
                 out.append(rho * V[a] * V + np.eye(3)[a].reshape((3,) + (1,) * rho.ndim) * pressure)
             out.append((energy + pressure) * V)
-            return np.stack(out)
+            out = np.stack(out)
+            if viscous:
+                X = (P[0] - p * P[2]) / (1 - mu * P[2])
+                Y = P[1] / (1 - mu * P[2])
+                f = 1 - mu * P[2]
+                zeros = np.zeros_like(X)
+                dxy = np.stack([np.stack([1 / f, zeros, (mu * P[0] - p) / f**2]),
+                                np.stack([zeros, 1 / f, mu * P[1] / f**2])])
+                dq = np.stack([
+                    np.stack([.05 * np.cos(X) * np.cos(Y), -.05 * np.sin(X) * np.sin(Y)]),
+                    np.stack([-.07 * np.sin(X + Y), -.07 * np.sin(X + Y)]),
+                    np.stack([.03 * np.cos(X - Y), -.03 * np.cos(X - Y)]),
+                    np.stack([zeros, -.04 * np.sin(Y)]),
+                    np.stack([.03 * np.cos(X + Y), .03 * np.cos(X + Y)])])
+                grad = np.einsum("ab...,bd...->ad...", dq, dxy)
+                grad_v = grad[1:4]
+                identity = np.eye(3).reshape((3, 3) + (1,) * rho.ndim)
+                tau = flow.mu_inf * (grad_v + np.swapaxes(grad_v, 0, 1)
+                                     - (2 / 3) * np.trace(grad_v, axis1=0, axis2=1) * identity)
+                grad_T = op.gamma * (grad[4] / rho - pressure * grad[0] / rho**2)
+                out[1:4] -= tau
+                out[4] -= np.sum(V[:, None] * tau, axis=0) + flow.mu_inf / (.72 * (op.gamma - 1)) * grad_T
+            return out
 
         q = jnp.asarray(primitive(np.asarray(op.grid.centres)))
         U = primitive_to_conservative(*split(q, 3), op.gamma)

@@ -22,6 +22,7 @@ from functools import partial
 from typing import Callable
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ..core import constants
@@ -33,6 +34,7 @@ from ..core.state import (
 from ..mesh.atlas import Atlas, build_atlas, lift_atlas
 from ..mesh.block import Grid
 from ..mesh.mesh import wall_distance
+from ..mesh.conical_wall import conical_wall_distance
 from ..mesh.sectional import SectionalAtlas
 from ..physics import euler, navier_stokes
 from ..physics.navier_stokes import Viscosity
@@ -296,8 +298,6 @@ def make_residual(
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     atlas = swept_atlas(atlas, flow)
     if isinstance(atlas, SectionalAtlas) and atlas.geometry is not None:
-        if not flow.inviscid:
-            raise ValueError("finite taper is Euler only in stage B")
         if numerics.far_field != "characteristic":
             raise ValueError("finite taper requires the uniform characteristic far field")
     if atlas.g != numerics.n_ghost:
@@ -314,9 +314,14 @@ def make_residual(
         q_inf = jnp.concatenate([q_inf, jnp.asarray([model.freestream_ratio], dtype=dtype)])
         if distance is None:
             if isinstance(atlas, SectionalAtlas):
-                # Distance to the infinitely extruded wall, not the edges of a finite strip.
-                distance = atlas.expand(atlas.reference.pack(
-                    [jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.reference.mesh)], 1.0))
+                if atlas.geometry is not None:
+                    # Original physical cone, extended past the numerical slab.
+                    distance = atlas.pack([jnp.asarray(conical_wall_distance(
+                        np.moveaxis(np.asarray(b.centres), 0, -1), atlas.reference.walls.faces,
+                        atlas.geometry), dtype=dtype) for b in atlas.mesh], 1.0)
+                else:
+                    distance = atlas.expand(atlas.reference.pack(
+                        [jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.reference.mesh)], 1.0))
             else:
                 distance = atlas.pack([jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.mesh)], 1.0)
     else:

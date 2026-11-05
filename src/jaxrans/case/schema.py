@@ -134,7 +134,7 @@ CASE: dict[str, tuple[Key, ...]] = {
             "`normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise "
             "(docs/swept.md)", choices=("normal", "streamwise")),
         Key("sectional", "object|null", None, "sectional 3D stencil: model, leading_edge_sweep_deg and "
-            "taper_rate; finite taper is Euler only (docs/sectional.md); replaces freestream.sweep_deg"),
+            "taper_rate; Euler, laminar and SA/QCR (docs/sectional.md); replaces freestream.sweep_deg"),
     ),
     "freestream": (
         Key("mach", "number", REQUIRED, "subsonic (swept: in the plane of the grid)"),
@@ -222,7 +222,7 @@ SECTIONAL_KEYS = (
     Key("leading_edge_sweep_deg", "number", SectionalSpec.leading_edge_sweep_deg,
         "geometric leading-edge sweep, degrees, strictly between -90 and 90"),
     Key("taper_rate", "number", SectionalSpec.taper_rate,
-        "-dc/ds along geometric span, positive for decreasing chord; finite values require Euler"),
+        "-dc/ds along geometric span, positive for decreasing chord"),
 )
 
 FAR_FIELD_MODELS = {"freestream": "characteristic", "point_vortex": "characteristic_point_vortex"}

@@ -131,3 +131,13 @@ class ConicalGeometry:
         kappa = self.spec.taper_rate / self.chord
         sz = -(slope - kappa * (midpoint[0] - self.leading_edge_x)) * sx + kappa * midpoint[1] * sy
         return midpoint, np.stack([sx, sy, sz])
+
+    def streamwise_gradient_scale(self, xy: np.ndarray) -> np.ndarray:
+        """Gradient/traction scale from the normal cut to the streamwise cut.
+
+        Primitives (including nu_tilde) are copied along the generators.
+        A homothety of factor lambda leaves viscosity unchanged and scales
+        Cartesian gradients, Newtonian stress and QCR stress by 1/lambda.
+        """
+        return 1.0 + self.spec.taper_rate / self.chord * np.sin(self.angle) * (
+            xy[0] - self.normal_leading_edge_x)

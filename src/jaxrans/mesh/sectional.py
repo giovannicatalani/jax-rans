@@ -19,7 +19,7 @@ from jax import Array
 
 from ..core.sectional import SectionalSpec
 from ..geometry.conical import ConicalGeometry, distance_to_section, relaxation_weight
-from .atlas import Atlas, Lines, Stage, Walls, _extended_nodes, build_atlas, ghost_cell, lift_atlas
+from .atlas import Atlas, Lines, Stage, Walls, _extended_nodes, apply_reflections, build_atlas, ghost_cell, lift_atlas
 from .block import OUTWARD, SIDES, Boundary, Grid, metrics
 from .block3d import SIDES_3D, BoundaryRect, InterfaceRect, box_sides
 from .mesh import Mesh, as_mesh
@@ -236,6 +236,14 @@ def _conical_geometry(atlas: SectionalAtlas, geometry: ConicalGeometry) -> Secti
     quads = atlas.walls.faces
     corners = np.moveaxis(quads.corners, -1, 0)
     corners = np.moveaxis(geometry.map_points(corners, np.ones(corners.shape[1:])), 0, -1)
+    # Values across physical faces are evaluated at reflected positions, and
+    # interface values at their partner's actual centres. Keep lateral image
+    # positions: applying the last (value-copy) stage to geometry would collapse
+    # the spanwise diamond. Conical homotheties commute with wall reflections.
+    flat_centres = centres.reshape(3, -1)
+    for stage in stages[:-1]:
+        flat_centres = apply_reflections(stage, flat_centres)
+    centres = flat_centres.reshape(centres.shape)
     grid = replace(atlas.grid, centres=jnp.asarray(centres), volume=jnp.asarray(volume),
                    faces=tuple(jnp.asarray(s) for s in faces))
     return replace(atlas, mesh=tuple(mesh), grid=grid, geometry=geometry, stages=tuple(stages),

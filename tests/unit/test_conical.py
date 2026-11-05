@@ -1,6 +1,4 @@
-"""Independent planform checks and input limits for finite-taper Euler sections."""
-
-from dataclasses import replace
+"""Planform checks, input limits and runnable finite-taper sections."""
 
 import numpy as np
 import pytest
@@ -47,6 +45,32 @@ def test_streamwise_profile_is_recovered_by_the_inverse_wall_mapping():
                                expected[np.argsort(expected[:, 1])], atol=1e-12)
 
 
+@pytest.mark.parametrize("sweep,taper", [(30., .4), (30., -.4), (-20., .2)])
+def test_streamwise_traction_scale_matches_a_differentiated_conical_field(sweep, taper):
+    geom = ConicalGeometry(SectionalSpec(leading_edge_sweep_deg=sweep, taper_rate=taper), 2., .3)
+    xy = np.array([geom.normal_leading_edge_x + .7, .1])
+    stream = geom.streamwise_points(xy)
+    delta = stream[0] - geom.leading_edge_x
+    central = np.r_[xy, 0.]
+    target = np.array([geom.normal_leading_edge_x + np.cos(geom.angle) * delta,
+                       stream[1], np.sin(geom.angle) * delta])
+    p, mu = geom.coefficients
+
+    def scalar(P):
+        x = (P[0] - (p + mu * geom.normal_leading_edge_x) * P[2]) / (1 - mu * P[2])
+        y = P[1] / (1 - mu * P[2])
+        return np.sin(x) * np.cos(y)
+
+    def derivative(P):
+        eps = 1e-5
+        return np.array([(scalar(P + eps * e) - scalar(P - eps * e)) / (2 * eps) for e in np.eye(3)])
+
+    assert scalar(target) == pytest.approx(scalar(central), abs=1e-14)
+    np.testing.assert_allclose(derivative(target),
+                               geom.streamwise_gradient_scale(xy) * derivative(central),
+                               rtol=1e-8, atol=1e-10)
+
+
 def test_relaxation_has_exact_plateaus_and_a_smooth_monotone_transition():
     x = np.linspace(0.0, 7.0, 1001)
     w = relaxation_weight(x, 1.0, 5.0)
@@ -73,15 +97,18 @@ def test_finite_taper_uses_the_mean_frame_and_preserves_its_input_specification(
     assert all(b.shape[-1] == 1 for b in atlas.mesh)
 
 
-def test_viscous_finite_taper_is_reserved_for_stage_c():
+@pytest.mark.parametrize("model", [None, "sa_noft2", "sa_noft2_qcr"])
+def test_viscous_finite_taper_builds_with_the_physical_wall_distance(model):
     doc = document(taper_rate=0.2)
     doc["freestream"]["reynolds"] = 1e6
-    with pytest.raises(CaseError, match="Euler only"):
-        parse_case(doc, {})
-    case = parse_case(document(taper_rate=0.2), {"sectional": {"depth": 0.1}})
+    if model:
+        doc["turbulence"] = {"model": model}
+    case = parse_case(doc, {"sectional": {"depth": 0.1}})
     from jaxrans.numerics.residual import make_residual
-    with pytest.raises(ValueError, match="Euler only"):
-        make_residual(case.grid(), replace(case.flow, reynolds=1e6), case.numerics)
+    op = make_residual(case.grid(), case.flow, case.numerics)
+    assert op.viscosity is not None
+    if model:
+        assert np.all(np.asarray(op.distance)[op.atlas.interior] > 0)
 
 
 def test_finite_taper_rejects_the_unextended_point_vortex_model():
@@ -97,11 +124,17 @@ def test_an_extrusion_crossing_the_apex_is_refused():
 
 
 @pytest.mark.parametrize("solver", ["explicit", "implicit"])
-def test_a_finite_taper_euler_case_runs_and_writes_physical_section_outputs(tmp_path, solver):
+@pytest.mark.parametrize("physics", ["euler", "laminar", "sa", "qcr"])
+def test_a_finite_taper_case_runs_and_writes_physical_section_outputs(tmp_path, solver, physics):
     import json
     from jaxrans import run
 
-    case = parse_case(document(taper_rate=0.2), {
+    doc = document(taper_rate=0.2)
+    if physics != "euler":
+        doc["freestream"]["reynolds"] = 1e6
+    if physics in ("sa", "qcr"):
+        doc["turbulence"] = {"model": "sa_noft2_qcr" if physics == "qcr" else "sa_noft2"}
+    case = parse_case(doc, {
         "sectional": {"depth": 0.1}, "time_integration": {"solver": solver},
         "convergence": {"max_iters": 3, "block_iters": 1, "forces_tol": None},
         "implicit": {"krylov_subspace": 3, "krylov_restarts": 1},
@@ -110,6 +143,9 @@ def test_a_finite_taper_euler_case_runs_and_writes_physical_section_outputs(tmp_
     assert result.history.n_iters == 3
     assert np.isfinite(np.asarray(result.U)).all() and np.isfinite(result.forces.cl)
     assert "y_streamwise" in result.surface()
+    if physics != "euler":
+        assert np.isfinite(result.forces.cd_friction)
+        assert np.isfinite(result.surface()["cf_z"]).all()
     out = result.write()
     metadata = json.loads((out / "sectional_metadata.json").read_text())["extra"]["sectional"]
     assert metadata["streamwise_chord"] == pytest.approx(1.0)

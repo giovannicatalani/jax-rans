@@ -160,8 +160,10 @@ class Result:
                                    "reference_sweep_deg": self.grid.spec.reference_sweep_deg,
                                    "relaxation_start": self.grid.relaxation_start,
                                    "relaxation_end": self.grid.relaxation_end,
+                                   "primitive_closure": "cartesian_copy_fixed_reference_viscosity",
                                    **({"streamwise_chord": self.grid.geometry.chord,
-                                       "relaxation_law": "quintic_wall_distance"}
+                                       "relaxation_law": "quintic_wall_distance",
+                                       "sa_wall_distance": "positive_conical_sectors"}
                                       if self.grid.geometry is not None else {})}}
                    if isinstance(self.grid, SectionalAtlas) else {}),
                 **({"grid_sequencing": list(self.levels)} if self.levels else {}),

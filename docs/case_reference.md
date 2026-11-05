@@ -43,7 +43,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `reference_area` | number or null | `null` | all | 3D grids (required there): area the force coefficients are per; 2D coefficients are per unit span |
 | `moment_centre` | list | `[0.25, 0.0, 0.0]` | all | point the pitching moment is about, `[x, y]` or `[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D) |
 | `section` | string | `streamwise` | all | swept/sectional cases: the plane the 2D section is given in; `streamwise` is mapped to the normal plane (cosine scaling at zero taper), `normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise (docs/swept.md); one of `normal`, `streamwise` |
-| `sectional` | object or null |  | all | sectional 3D stencil: model, leading_edge_sweep_deg and taper_rate; finite taper is Euler only (docs/sectional.md); replaces freestream.sweep_deg |
+| `sectional` | object or null |  | all | sectional 3D stencil: model, leading_edge_sweep_deg and taper_rate; Euler, laminar and SA/QCR (docs/sectional.md); replaces freestream.sweep_deg |
 
 ### `domain.sectional`
 
@@ -53,7 +53,7 @@ Optional object; mutually exclusive with `freestream.sweep_deg`. The source mesh
 |---|---|---|---|
 | `model` | string | `conical` | sectional formulation; one of `conical` |
 | `leading_edge_sweep_deg` | number | `0.0` | geometric leading-edge sweep, degrees, strictly between -90 and 90 |
-| `taper_rate` | number | `0.0` | -dc/ds along geometric span, positive for decreasing chord; finite values require Euler |
+| `taper_rate` | number | `0.0` | -dc/ds along geometric span, positive for decreasing chord |
 
 ### `boundary_conditions`
 
