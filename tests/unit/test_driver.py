@@ -7,6 +7,8 @@ own peak, and the march must end only when every case is finished.
 from __future__ import annotations
 
 import jax.numpy as jnp
+import numpy as np
+import pytest
 
 from jaxrans.solvers.driver import ExitReason, run_to_steady
 
@@ -71,3 +73,60 @@ def test_a_settled_stop_does_not_hide_a_failure() -> None:
                                block_iters=10, on_block=lambda b, state, residuals: True)
     assert history.case_reasons == (ExitReason.SETTLED, ExitReason.NON_FINITE)
     assert history.reason == ExitReason.NON_FINITE
+
+
+def test_finished_cases_are_frozen_and_histories_trimmed() -> None:
+    state, history = run_to_steady(decay([0.5, 0.9, 0.1]), jnp.ones(3),
+                                   max_iters=100, tol=0.01, block_iters=2,
+                                   active_mask=np.array([True, True, False]))
+    assert history.case_iterations == (8, 46, 0)
+    assert float(state[0]) == pytest.approx(0.5**8)
+    assert float(state[1]) == pytest.approx(0.9**46)
+    assert float(state[2]) == 1.0
+    assert history.case(0).residual.shape == (8,)
+    assert history.case(2).reason == ExitReason.SKIPPED
+    assert history.case(2).residual.size == 0
+
+
+def test_individual_settled_and_health_checks() -> None:
+    state, history = run_to_steady(decay([0.99, 0.9, 0.8]), jnp.ones(3),
+                                   max_iters=8, tol=1e-12, block_iters=2,
+                                   active_mask=np.ones(3, dtype=bool),
+                                   on_block=lambda *args: np.array([True, False, True]),
+                                   finite_check=lambda s: jnp.array([True, True, False]))
+    assert history.case_reasons == (ExitReason.SETTLED, ExitReason.MAX_ITERS, ExitReason.NON_FINITE)
+    assert history.case_iterations == (2, 8, 2)
+    assert float(state[0]) == pytest.approx(0.99**2)
+
+
+def test_masked_blocks_are_reused_across_rounds() -> None:
+    traces = []
+
+    def step(carry):
+        traces.append(True)   # Python runs at tracing time, not at device iterations.
+        value, rate = carry
+        value = value * rate
+        return (value, rate), value
+
+    for rate in (0.5, 0.8):
+        _, history = run_to_steady(step, (jnp.ones(1), jnp.array([rate])),
+                                   max_iters=20, tol=0.1, block_iters=2, active_mask=[True])
+        assert history.converged
+    assert len(traces) == 1
+
+
+@pytest.mark.parametrize("mask", [[], [False], [[True]]])
+def test_invalid_active_mask(mask) -> None:
+    with pytest.raises(ValueError, match="active_mask"):
+        run_to_steady(decay([0.5]), jnp.ones(1), max_iters=8, tol=0.01, active_mask=mask)
+
+
+def test_mask_requires_a_case_axis_on_every_leaf() -> None:
+    with pytest.raises(ValueError, match="leading axis"):
+        run_to_steady(decay(0.5), jnp.asarray(1.), max_iters=8, tol=0.01, active_mask=[True])
+
+
+def test_exact_zero_residual_is_converged() -> None:
+    _, history = run_to_steady(lambda state: (state, jnp.zeros_like(state)), jnp.ones(1),
+                               max_iters=8, tol=0.01, block_iters=2, active_mask=[True])
+    assert history.case_reasons == (ExitReason.CONVERGED,)

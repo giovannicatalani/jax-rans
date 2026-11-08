@@ -1,0 +1,16 @@
+{
+  "batch_size": 2,
+  "profiles": [
+    {
+      "name": "naca0012",
+      "case": "naca0012_euler",
+      "alpha": [-2, 6, 1]
+    },
+    {
+      "name": "naca2412",
+      "case": "naca0012_euler",
+      "alpha": [-2, 6, 1],
+      "overrides": ["case.domain.airfoil=naca2412"]
+    }
+  ]
+}

@@ -128,6 +128,90 @@ python -m jaxrans.polar examples/rae2822_transonic_sa --alpha -2 5.5 0.5
 batch, split over every visible GPU. The output is `polar.dat` (one row per
 angle), `polar_metadata.json` and a normal result directory per angle.
 
+To initialize each angle from the previous solution, use continuation:
+
+```bash
+python -m jaxrans.polar examples/rae2822_transonic_sa --alpha -2 5.5 0.5 --mode continuation
+```
+
+Angles follow the requested order; `--alpha 5.5 -2 -0.5` follows a descending
+branch. The first angle starts from freestream (with grid sequencing if
+configured). Later angles inherit the conservative interior field, including
+the turbulence variable, on the same mesh. Boundary conditions use the new
+angle; CFL, residual reference and convergence histories start afresh.
+The chain advances only after residual convergence or the configured force
+settling criterion. A non-finite result, stalled solver or iteration limit
+stops that profile's chain, retaining the failed point and earlier results.
+The command writes partial output and exits with status 1 on such a failure.
+Metadata records the requested angles, each point's status and its source angle.
+The table's `settled` column remains a CL-spread diagnostic, distinct from the
+solver's exit reason.
+
+### Several profiles with continuation
+
+```bash
+python -m jaxrans.campaign examples/polar_campaign.json --batch-size 2 --out results/campaign
+```
+
+The manifest lists profiles; case paths are relative to the manifest:
+
+```json
+{
+  "batch_size": 2,
+  "profiles": [
+    {"name": "naca0012", "case": "naca0012_euler", "alpha": [-2, 6, 1]},
+    {"name": "naca2412", "case": "naca0012_euler", "alpha": [-2, 6, 1],
+     "overrides": ["case.domain.airfoil=naca2412"]}
+  ]
+}
+```
+
+Each profile may instead provide an explicit `"alphas": [0, 1, 2, 1, 0]`
+list, allowing different ranges and sweep directions. Profile names must be
+unique directory names consisting of letters, digits, `_`, `-`, or `.` and
+starting with a letter or digit. Profiles with the same topology, geometry
+array shapes, physics and solver settings run in one `jax.vmap` batch, with
+their own geometry and wall distance. Different Mach/Reynolds values, models,
+solver settings or mesh connectivity form separate groups automatically;
+arbitrary meshes are not padded into one common mesh. `--batch-size` limits
+the profiles advanced together. `--devices` distributes the profile axis
+over visible devices (default: as many as the batch can use).
+
+Angles advance in synchronized rounds. A converged profile's complete solver
+state is frozen between blocks while other profiles finish their angle.
+Each profile retains its own stopping iteration and trimmed history. If one
+profile fails, the other chains continue. A shorter chain becomes inactive
+after its last angle. Optional coarse-grid startup runs individually before
+the first final-grid batch; it is not repeated at later angles.
+
+Output contains one polar directory per profile and `campaign_metadata.json`
+with batch membership, wall time, requested/calculated angles and exit reasons.
+Each polar's timing sums its active rounds' shared batch time; these times
+must not be added to estimate campaign wall time. `case_iterations` counts
+actual steps per profile, excluding frozen waits. Repeated angles or angles
+that round to the same two-decimal directory name use indexed point directories.
+Campaign exit status is 0 for success, 1 for an incomplete chain, and 2 for
+invalid input. Measure wall time against the independent-angle batch on your
+case: continuation can reduce iterations while changing GPU utilization.
+Near stall, increasing and decreasing sweeps can follow different branches.
+
+The Python interface is:
+
+```python
+from jaxrans import load_case
+from jaxrans.campaign import PolarRequest, run_campaign
+
+campaign = run_campaign([
+    PolarRequest("profile_a", load_case("my_case_a"), [-2, 0, 2, 4]),
+    PolarRequest("profile_b", load_case("my_case_b"), [4, 2, 0]),
+], batch_size=2)
+campaign.write("results/campaign")
+```
+
+For a single profile, `run_polar(case, alphas, mode="continuation")` uses
+the same implementation. `run(case, grid, initial=previous.U)` also supports
+a same-mesh restart and bypasses grid sequencing.
+
 ## Boundary conditions
 
 Every grid has named patches on its boundaries, and `boundary_conditions`
