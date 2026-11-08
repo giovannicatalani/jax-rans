@@ -177,7 +177,7 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, initial: Array | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
     flow, numerics = case.flow, case.numerics
@@ -185,22 +185,36 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
             grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
-        return (implicit.make_newton_step(operator, case.implicit, jacobian),
-                implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
-    return (explicit.make_rk_step(operator, scheme=case.rk_scheme),
-            explicit.initial_state(operator, dtype=numerics.dtype))
+        step = implicit.make_newton_step(operator, case.implicit, jacobian)
+        state = implicit.initial_state(operator, case.implicit, dtype=numerics.dtype)
+    else:
+        step = explicit.make_rk_step(operator, scheme=case.rk_scheme)
+        state = explicit.initial_state(operator, dtype=numerics.dtype)
+    if initial is not None:
+        initial = jnp.asarray(initial, dtype=numerics.dtype)
+        if initial.shape != state.U.shape:
+            raise ValueError(f"initial field must have shape {state.U.shape}, got {initial.shape}")
+        # Only physical cells are inherited; ghosts and gaps belong to the new freestream.
+        state = state._replace(U=jnp.where(grid.interior, initial, state.U))
+    return step, state
 
 
 def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
-        on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None) -> Result:
+        on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None,
+        *, initial: Array | None = None) -> Result:
     """March ``case`` to steady state on ``grid`` (default: ``case.grid()``),
     after its ``sequencing`` coarser grids, each started from the one before;
     ``on_level(level, grid)`` announces each grid (0: the case's own).
     ``devices`` (two or more) split the state in slabs along the canvas's
     first axis, one per device (``numerics/slabs.py``). Only the case's own
-    grid is split; its coarser levels, small, run on one device."""
+    grid is split; its coarser levels, small, run on one device.
+    ``initial`` restarts on this exact grid, copying its interior field,
+    resetting solver control, and bypassing grid sequencing."""
     grid = case.grid() if grid is None else grid
     devices = tuple(devices) if devices is not None and len(devices) > 1 else None
+    if initial is not None:
+        # A restart is already on the final grid: do not repeat grid sequencing.
+        return _march(case, grid, progress, None, devices, initial=initial)
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
         coarse = case.grid(coarsen=level)
@@ -216,14 +230,14 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
 
 
 def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Array, Atlas] | None,
-           devices: Sequence | None = None) -> Result:
+           devices: Sequence | None = None, *, initial: Array | None = None) -> Result:
     """One grid to steady state, from freestream or from ``start``, a coarser
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
     length = case.grid_spec.force_reference()
     if devices:
         grid = SlabAtlas.of(grid, devices)
-    step, state = make_stepper(case, grid)
+    step, state = make_stepper(case, grid, initial=initial)
     if start is not None:
         state = state._replace(U=prolong(*start, grid, state.U))
 

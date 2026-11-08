@@ -52,8 +52,11 @@ that it is O(1) beside the flow variables; the stresses and heat flux use
   upwind approximate Jacobian (Mavriplis, AIAA J. 37 (1999)).
 
 Both paths drive the same residual through the same on-device loop, so they
-share their converged solutions. A polar maps the step over the freestream
-and runs every angle at once, split over GPUs.
+share their converged solutions. By default a polar maps the step over the
+freestream and runs every angle at once, split over GPUs. In continuation
+mode each angle inherits its profile's previous field, with fresh CFL and
+convergence control. A campaign instead batches compatible profiles over
+their geometry, advancing each profile's alpha sequence in synchronized rounds.
 
 ## Derivatives
 
