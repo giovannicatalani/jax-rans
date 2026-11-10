@@ -152,6 +152,7 @@ def run_to_steady(
     devices: Sequence | None = None,
     slabs: Sequence | None = None,
     active_mask: np.ndarray | None = None,
+    allow_exact_zero: bool = True,
 ) -> tuple[Any, ConvergenceHistory]:
     """Iterate until the residual is ``tol`` times its running **peak**, per case.
 
@@ -219,7 +220,8 @@ def run_to_steady(
         if finite_check is not None:
             failed |= ~np.asarray(finite_check(current), dtype=bool)
         reasons[running & failed] = ExitReason.NON_FINITE
-        reasons[running & ~failed & (((peak > 0) & (last <= tol * peak)) | (last == 0))] = ExitReason.CONVERGED
+        zero = (last == 0) if allow_exact_zero else np.zeros_like(last, dtype=bool)
+        reasons[running & ~failed & (((peak > 0) & (last <= tol * peak)) | zero)] = ExitReason.CONVERGED
         # A whole block with bitwise the same residual: no step was accepted
         # (the state is frozen), which would also look settled.
         frozen = (len(columns) > 1) & np.all(columns == columns[0], axis=0)

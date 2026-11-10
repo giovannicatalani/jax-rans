@@ -194,6 +194,10 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),
         Key("tol", "number", _N.tol, "residual drop from its running peak"),
+        Key("equation_tol", "number", _N.equation_tol,
+            "required relative drop of every normalized equation residual"),
+        Key("equation_abs_tol", "number", _N.equation_abs_tol,
+            "absolute floor for each normalized equation residual"),
         Key("forces_tol", "number|null", _N.forces_tol, "stop once CL, CD and CM each vary by less than "
             "this over the last quarter of the iterations (at least four blocks there); null: run to `tol` "
             "or `max_iters`"),

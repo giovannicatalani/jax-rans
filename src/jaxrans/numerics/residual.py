@@ -239,6 +239,18 @@ class ResidualOperator:
         weight = jnp.where(self.atlas.interior, self.grid.volume, 0.0)
         return jnp.sqrt(jnp.sum(weight * residual[variable] ** 2) / jnp.sum(weight))
 
+    def equation_norms(self, U: Array) -> Array:
+        """Volume-weighted L2 of R/V, scaled by each freestream conserved variable."""
+        R = self.residual(U)
+        volume = jnp.where(self.atlas.interior, self.grid.volume, 1.0)
+        weights = jnp.where(self.atlas.interior, self.grid.volume, 0.0)
+        reference = jnp.abs(self.initial_state())
+        scales = jnp.sum(reference * weights, axis=tuple(range(1, R.ndim))) / jnp.sum(weights)
+        velocity = jnp.max(scales[1:1 + self.components])
+        scales = scales.at[1:1 + self.components].set(velocity)
+        axes = tuple(range(1, R.ndim))
+        return jnp.sqrt(jnp.sum(weights * (R / volume) ** 2, axis=axes) / jnp.sum(weights)) / jnp.maximum(scales, 1e-12)
+
     def wave_speeds(self, U: Array):
         return face_wave_speeds(U, self.atlas, self.gamma, self.viscosity, self.model)
 
