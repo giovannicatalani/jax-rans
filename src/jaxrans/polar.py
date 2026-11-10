@@ -80,7 +80,7 @@ class Polar:
                           float(r.cl_spread <= SETTLED_CL_SPREAD)]
                          for a, r in zip(self.alphas, self.results)]).reshape(-1, 9)
 
-    def write(self, directory: str | Path) -> Path:
+    def write(self, directory: str | Path, *, preserve_prefix: int = 0) -> Path:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         np.savetxt(directory / "polar.dat", self.table(),
@@ -99,6 +99,8 @@ class Polar:
         names = [f"alpha_{a:+.2f}" for a in self.alphas]
         unique_names = len(set(names)) == len(names)
         for k, (alpha, result) in enumerate(zip(self.alphas, self.results)):
+            if k < preserve_prefix:
+                continue
             name = names[k] if unique_names else f"point_{k:04d}_alpha_{alpha:+.8g}"
             result.write(directory / name, extra={
                 "polar_mode": self.mode,
