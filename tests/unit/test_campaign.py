@@ -7,6 +7,7 @@ lets us exercise multiple converged angles without a long CFD calculation.
 from dataclasses import replace
 from pathlib import Path
 import json
+import csv
 import os
 
 import jax.numpy as jnp
@@ -144,7 +145,7 @@ def test_force_settling_continues_to_next_angle(cases, grids, contraction):
 
 
 def test_one_unconverged_equation_prevents_settling(cases):
-    numerics = cases[0].numerics
+    numerics = replace(cases[0].numerics, forces_tol=1e-4)
     peak = np.ones(4)
     current = np.array([1e-9, 1e-9, 1e-9, 1e-2])
     assert not equations_settled(current, peak, numerics)
@@ -270,6 +271,10 @@ def test_manifest_resolves_relative_cases_and_writes_results(contraction, tmp_pa
     assert main([str(manifest), "--out", str(tmp_path / "out")]) == 0
     output = capsys.readouterr().out
     assert "residual " in output and " CL " in output
+    with (tmp_path / "out" / "points.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert [float(row["alpha_deg"]) for row in rows] == [1, 0]
+    assert all(row["status"] and row["residual_energy"] and row["cl"] for row in rows)
     summary = (tmp_path / "out" / "summary.txt").read_text()
     assert summary in output
     assert "2/2 angles calculated" in summary
@@ -327,6 +332,14 @@ def test_resume_preserves_converged_points_and_extends_polar(contraction, tmp_pa
     assert meta["points"][1]["initial_alpha"] == 0
     entry["overrides"] = list(SMALL) + ["case.freestream.mach=0.6"]
     manifest.write_text(json.dumps({"profiles": [entry]}))
+    with pytest.raises(SystemExit):
+        main([str(manifest), "--out", str(out), "--resume", "--quiet"])
+    entry["overrides"] = list(SMALL)
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    point_meta = next(point.glob("*_metadata.json"))
+    old = json.loads(point_meta.read_text())
+    old["config"]["numerics"].pop("equation_tol")
+    point_meta.write_text(json.dumps(old))
     with pytest.raises(SystemExit):
         main([str(manifest), "--out", str(out), "--resume", "--quiet"])
 

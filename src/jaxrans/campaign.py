@@ -17,6 +17,7 @@ end of the campaign, so an interrupted run cannot resume its unsaved progress.
 from __future__ import annotations
 
 import argparse
+import csv
 import dataclasses
 import hashlib
 import json
@@ -190,7 +191,7 @@ def _equation_norms(case: Case, template: Atlas, U, q, g):
                          distance=g["distance"]).equation_norms(U)
 
 
-def _run_group(requests, grids, geometries, devices, progress, progress_with_residual) -> list[Polar]:
+def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None) -> list[Polar]:
     case, template = requests[0].case, grids[0]
     use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
     n = len(requests)
@@ -295,6 +296,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
                             Timing.of(h, case.block_iters, grids[k].cells, devices=used_devices),
                             levels[k] if point == 0 else ())
             results[k].append(result)
+            if on_point is not None:
+                on_point(request.name, float(angles[k]), result)
             elapsed[k] += history.seconds
             alive[k] = h.reason in SUCCESS
     return [Polar(r.case, np.asarray(r.alphas[:len(rows)]), rows,
@@ -307,7 +310,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
 def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = None,
                  devices: int | None = None,
                  progress: Callable[[str, float, int, float], None] | None = None,
-                 progress_with_residual: Callable[[str, float, int, float, float], None] | None = None) -> Campaign:
+                 progress_with_residual: Callable[[str, float, int, float, float], None] | None = None,
+                 on_point=None, on_group=None) -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
 
     Different topology or physics forms a separate batch. Within a batch the
@@ -342,8 +346,10 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
         for start in range(0, len(group), size):
             chunk = group[start:start + size]
             reqs, grids, geometries = zip(*chunk)
+            if on_group is not None:
+                on_group(reqs)
             batches.append(tuple(r.name for r in reqs))
-            for request, polar in zip(reqs, _run_group(reqs, grids, geometries, devices, progress, progress_with_residual)):
+            for request, polar in zip(reqs, _run_group(reqs, grids, geometries, devices, progress, progress_with_residual, on_point)):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
 
@@ -376,6 +382,13 @@ def _resume_prefix(request: PolarRequest, directory: Path) -> tuple[list[Result]
                 raise ValueError(f"{folder}: expected one {suffix} file, found {len(matches)}")
             return matches[0]
         saved = json.loads(one("_metadata.json").read_text())
+        old_numerics = saved.get("config", {}).get("numerics", {})
+        if ("equation_tol" not in old_numerics or "equation_abs_tol" not in old_numerics or
+                old_numerics["equation_tol"] > request.case.numerics.equation_tol or
+                old_numerics["equation_abs_tol"] > request.case.numerics.equation_abs_tol or
+                (request.case.numerics.forces_tol is None and old_numerics.get("tol", 1.0) > request.case.numerics.tol)):
+            raise ValueError(f"{folder}: saved point was not certified by the current equation tolerances; "
+                             "start a fresh campaign in a new output directory")
         with np.load(one("_fields.npz"), allow_pickle=False) as fields:
             if int(fields["n_blocks"]) != len(grid.mesh):
                 raise ValueError(f"{folder}: saved mesh has a different number of blocks")
@@ -438,6 +451,39 @@ def main(argv: list[str] | None = None) -> int:
         def progress(name, alpha, iteration, cl, residual):
             print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} CL {cl:+.6f}", flush=True)
 
+        def announce(requests):
+            for request in requests:
+                print(f"{request.name}: Mach {request.case.flow.mach:g}, "
+                      f"alpha {request.alphas[0]:+g} (preparation/compilation)", flush=True)
+
+        args.out.mkdir(parents=True, exist_ok=True)
+        csv_path = args.out / "points.csv"
+        columns = ["profile", "case", "mach", "alpha_deg", "reynolds", "gamma", "turbulence",
+                   "cl", "cd", "cd_friction", "cm", "iterations", "status", "residual_mass_history",
+                   "residual_mass", "residual_momentum_x", "residual_momentum_y", "residual_momentum_z",
+                   "residual_energy", "residual_sa"]
+        if not args.resume or not csv_path.exists():
+            with csv_path.open("w", newline="") as stream:
+                csv.DictWriter(stream, fieldnames=columns).writeheader()
+
+        def save_point(name, alpha, result):
+            flow = result.case.flow
+            norms = np.asarray(make_residual(result.grid, flow, result.case.numerics).equation_norms(result.U))
+            labels = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:result.grid.components]], "energy"]
+            if len(norms) > len(labels):
+                labels.append("sa")
+            row = {"profile": name, "case": result.case.name, "mach": flow.mach, "alpha_deg": alpha,
+                   "reynolds": flow.reynolds, "gamma": flow.gamma, "turbulence": flow.turbulence,
+                   "cl": result.forces.cl, "cd": result.forces.cd, "cd_friction": result.forces.cd_friction,
+                   "cm": result.forces.cm, "iterations": result.history.n_iters, "status": result.history.reason,
+                   "residual_mass_history": result.history.residual[-1]}
+            row.update({f"residual_{label}": float(value) for label, value in zip(labels, norms)})
+            with csv_path.open("a", newline="") as stream:
+                csv.DictWriter(stream, fieldnames=columns).writerow(row)
+            if not args.quiet:
+                print(f"{name} alpha {alpha:+g}: {result.history.reason} after "
+                      f"{result.history.n_iters} iterations (points.csv updated)", flush=True)
+
         devices = args.devices if args.devices is not None else doc.get("devices")
         preserved = {}
         if args.resume:
@@ -468,7 +514,8 @@ def main(argv: list[str] | None = None) -> int:
                     retry = dataclasses.replace(request, alphas=remaining, grid=grid,
                                                 initial=prefix[-1].U if prefix else None)
                     new = run_campaign([retry], devices=devices,
-                                       progress_with_residual=None if args.quiet else progress)
+                                       progress_with_residual=None if args.quiet else progress, on_point=save_point,
+                                       on_group=None if args.quiet else announce)
                     tail = new.polars[request.name]
                     batches.extend(new.batches)
                     rows = prefix + tail.results
@@ -483,7 +530,8 @@ def main(argv: list[str] | None = None) -> int:
             campaign = Campaign(polars, tuple(batches), time.perf_counter() - begun)
         else:
             campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
-                                    devices=devices, progress_with_residual=None if args.quiet else progress)
+                                    devices=devices, progress_with_residual=None if args.quiet else progress,
+                                    on_point=save_point, on_group=None if args.quiet else announce)
         out = campaign.write(args.out, preserve_prefix=preserved)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")

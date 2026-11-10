@@ -50,6 +50,21 @@ def test_compressible_sa_diffusion_density_correction(nu_tilde) -> None:
 GRIDS = Path(__file__).resolve().parents[2] / "data" / "grids"
 
 
+def test_rae_continuation_moves_from_uniform_freestream() -> None:
+    from jaxrans import load_case, run
+    from jaxrans.simulation import make_stepper
+
+    case = load_case(Path(__file__).resolve().parents[2] / "examples/rae2822_sensitivity", (
+        "case.domain.cells_airfoil=64", "case.domain.cells_wake=16", "case.domain.cells_normal=32",
+        "case.domain.wall_spacing=0.0001", "numerical.convergence.max_iters=20",
+        "numerical.convergence.block_iters=20"))
+    grid = case.grid()
+    initial = np.asarray(make_stepper(case, grid)[1].U)
+    result = run(case, grid)
+    assert result.history.reason != "stalled"
+    assert np.max(np.abs(np.asarray(result.U) - initial)) > 1e-6
+
+
 def flow(mach=0.15, alpha=10.0, reynolds=6e6):
     return FlowConditions(mach, alpha, reynolds, sutherland_ratio=198.6 / 540.0,
                           turbulence="sa_noft2")
