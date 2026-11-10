@@ -50,6 +50,13 @@ def cl_spread(cl_history: np.ndarray) -> float:
     return float(tail.max() - tail.min()) if tail.size >= 4 else float("nan")
 
 
+def equations_settled(current: np.ndarray, peak: np.ndarray, numerics) -> bool:
+    """Every equation must meet a relative drop or a normalized absolute floor."""
+    relative = numerics.tol if numerics.forces_tol is None else numerics.equation_tol
+    floor = 0.0 if numerics.forces_tol is None else numerics.equation_abs_tol
+    return bool(np.all(np.isfinite(current) & (current <= np.maximum(floor, relative * peak))))
+
+
 @dataclass(frozen=True)
 class Timing:
     """Wall clock of a run; the first block carries the compilation, the later
@@ -261,8 +268,13 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     cl_history: list[float] = []
     coefficients: list[tuple[float, float, float]] = []
     peak = [0.0]
+    equation_peak = None
+    equation_operator = make_residual(grid, flow, numerics)
 
     def on_block(index: int, current, residuals: np.ndarray) -> bool:
+        nonlocal equation_peak
+        equation_norms = np.asarray(equation_operator.equation_norms(current.U))
+        equation_peak = equation_norms if equation_peak is None else np.maximum(equation_peak, equation_norms)
         finite = residuals[np.isfinite(residuals)]
         if finite.size:
             peak[0] = max(peak[0], float(finite.max()))
@@ -274,13 +286,15 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
             orders = float(np.log10(peak[0] / last)) if peak[0] > 0.0 and last > 0.0 else 0.0
             progress((index + 1) * case.block_iters, last, orders, forces)
         # NaN (too few blocks) compares false: a short run never stops here.
-        return numerics.forces_tol is not None and all(
+        forces_settled = numerics.forces_tol is None or all(
             cl_spread(h) < numerics.forces_tol for h in np.transpose(coefficients))
+        return forces_settled and equations_settled(equation_norms, equation_peak, numerics)
 
     state, history = run_to_steady(
         step, state,
-        max_iters=numerics.max_iters, tol=numerics.tol, block_iters=case.block_iters,
+        max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
         on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)), slabs=devices,
+        allow_exact_zero=False,
     )
     return Result(
         case=case, grid=grid, U=state.U,

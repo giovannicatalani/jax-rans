@@ -38,7 +38,7 @@ from .mesh.coarsen import prolong
 from .numerics.residual import make_residual
 from .polar import ContinuationTiming, Polar, alpha_range, at_alpha, validate_alphas
 from .post.forces import force_coefficients, integrate_forces
-from .simulation import Result, Timing, _march, cl_spread, make_stepper
+from .simulation import Result, Timing, _march, cl_spread, equations_settled, make_stepper
 from .solvers.driver import ConvergenceHistory, ExitReason, run_to_steady
 
 SUCCESS = (ExitReason.CONVERGED, ExitReason.SETTLED)
@@ -184,6 +184,12 @@ def _coarse_start(case: Case, grid: Atlas):
     return prolong(*start, grid, default), tuple(levels)
 
 
+def _equation_norms(case: Case, template: Atlas, U, q, g):
+    atlas = _with_geometry(template, g)
+    return make_residual(atlas, case.flow, case.numerics, freestream=q,
+                         distance=g["distance"]).equation_norms(U)
+
+
 def _run_group(requests, grids, geometries, devices, progress, progress_with_residual) -> list[Polar]:
     case, template = requests[0].case, grids[0]
     use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
@@ -213,6 +219,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         return jnp.stack([c["cl"], c["cd"], c["cm"]])
 
     monitor = jax.jit(jax.vmap(coefficients))
+
+    equation_monitor = jax.jit(jax.vmap(lambda U, q, g: _equation_norms(case, template, U, q, g)))
     results = [[] for _ in requests]
     alive = np.ones(n, dtype=bool)
     previous = None
@@ -246,8 +254,12 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             states = states._replace(U=jnp.stack([starts[k] for k in indices]))
         active_padded = np.r_[active, np.zeros(len(indices) - n, dtype=bool)]
         samples = []
+        equation_peak = None
 
         def on_block(b, carry, residuals):
+            nonlocal equation_peak
+            equation_values = np.asarray(equation_monitor(carry[0].U, carry[1], carry[2]))
+            equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
             values = np.asarray(monitor(carry[0].U, carry[1], carry[2]))
             samples.append(values)
             if progress is not None or progress_with_residual is not None:
@@ -258,16 +270,18 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
                             progress(*args)
                         if progress_with_residual is not None:
                             progress_with_residual(*args, float(residuals[-1, k]))
-            if case.numerics.forces_tol is None:
-                return False
             histories = np.asarray(samples)
-            return np.array([all(cl_spread(histories[:, k, j]) < case.numerics.forces_tol for j in range(3))
-                             for k in range(len(indices))])
+            return np.array([
+                (case.numerics.forces_tol is None or
+                 all(cl_spread(histories[:, k, j]) < case.numerics.forces_tol for j in range(3)))
+                and equations_settled(equation_values[k], equation_peak[k], case.numerics)
+                for k in range(len(indices))])
 
         carry, history = run_to_steady(
-            step, (states, q, geometry), max_iters=case.numerics.max_iters, tol=case.numerics.tol,
+            step, (states, q, geometry), max_iters=case.numerics.max_iters, tol=0.0,
             block_iters=case.block_iters, devices=use, active_mask=active_padded, on_block=on_block,
-            finite_check=lambda c: jnp.all(jnp.isfinite(c[0].U), axis=tuple(range(1, c[0].U.ndim))))
+            finite_check=lambda c: jnp.all(jnp.isfinite(c[0].U), axis=tuple(range(1, c[0].U.ndim))),
+            allow_exact_zero=False)
         previous = carry[0].U
         for k, request in enumerate(requests):
             if not active[k]:

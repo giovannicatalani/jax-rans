@@ -19,6 +19,7 @@ from jaxrans.campaign import PolarRequest, main, run_campaign
 from jaxrans.polar import alpha_range, at_alpha, run_polar
 from jaxrans.simulation import make_stepper
 from jaxrans.solvers.driver import ExitReason
+from jaxrans.simulation import equations_settled
 
 ROOT = Path(__file__).resolve().parents[2]
 SMALL = ("case.domain.cells_airfoil=32", "case.domain.cells_normal=16",
@@ -50,6 +51,12 @@ def contraction(monkeypatch):
         return step, initial
 
     monkeypatch.setattr(module, "make_stepper", factory)
+    def toy_equation_norms(case, template, U, q, g):
+        _, initial = factory(case, template, freestream=q)
+        target = initial.U * (1.02 + 0.01 * jnp.tanh(template.grid.xc) + q[2])
+        return jnp.full((U.shape[0],), jnp.max(jnp.abs(target - U)))
+
+    monkeypatch.setattr(module, "_equation_norms", toy_equation_norms)
     return factory
 
 
@@ -123,7 +130,8 @@ def test_progress_reports_each_profile_residual(cases, grids, contraction):
     assert old == [entry[:4] for entry in detailed]
     for name, _, iteration, _, residual in detailed:
         history = campaign.polars[name].results[0].history.residual
-        assert residual == pytest.approx(history[iteration - 1])
+        if iteration <= len(history):
+            assert residual == pytest.approx(history[iteration - 1])
 
 
 def test_force_settling_continues_to_next_angle(cases, grids, contraction):
@@ -133,6 +141,15 @@ def test_force_settling_continues_to_next_angle(cases, grids, contraction):
     polar = campaign.polars["p"]
     assert list(polar.alphas) == [0, 1]
     assert all(result.history.reason == ExitReason.SETTLED for result in polar.results)
+
+
+def test_one_unconverged_equation_prevents_settling(cases):
+    numerics = cases[0].numerics
+    peak = np.ones(4)
+    current = np.array([1e-9, 1e-9, 1e-9, 1e-2])
+    assert not equations_settled(current, peak, numerics)
+    current[-1] = 1e-9
+    assert equations_settled(current, peak, numerics)
 
 
 def test_single_polar_mode_uses_continuation(cases, grids, contraction):
