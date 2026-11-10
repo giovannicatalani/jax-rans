@@ -176,7 +176,7 @@ class ImplicitConfig:
     krylov_restarts: int = 2
     krylov_success: float = 0.5
     max_relative_update: float | None = None
-    nonlinear_growth_limit: float | None = 2.0
+    nonlinear_growth_limit: float | None = None
 
     def __post_init__(self) -> None:
         if not self.cfl > 0.0:

@@ -122,14 +122,16 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `krylov_restarts` | integer | `2` | GMRES restarts |
 | `krylov_success` | number | `0.5` | linear residual reduction for the CFL to grow |
 | `max_relative_update` | number or null | `null` | bound on a step's relative change of density, pressure and nu~ (0.2 for SA at incidence) |
-| `nonlinear_growth_limit` | number or null | `2.0` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
+| `nonlinear_growth_limit` | number or null | `null` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
 
 ### `convergence`
 
 | key | type | default | meaning |
 |---|---|---|---|
 | `max_iters` | integer | `40000` | iteration ceiling |
-| `tol` | number | `1e-12` | residual drop from its running peak |
-| `forces_tol` | number or null | `0.0001` | stop once CL, CD and CM each vary by less than this over the last quarter of the iterations (at least four blocks there); null: run to `tol` or `max_iters` |
+| `tol` | number | `1e-12` | required relative drop per equation when forces_tol is null |
+| `equation_tol` | number | `0.0001` | required relative drop of every normalized equation residual |
+| `equation_abs_tol` | number | `1e-08` | absolute floor for each normalized equation residual |
+| `forces_tol` | number or null | `0.0001` | also require CL, CD and CM to vary by less than this over the last quarter of the iterations (at least four blocks there); null: use `tol` on every equation |
 | `grid_sequencing` | integer | `0` | solve first on this many coarser grids, each the next with every other node (cell counts, patch and interface limits must stay even), each to settled forces or `max_iters`, and start the next from it; 0: the grid only |
 | `block_iters` | integer | 200 explicit, 20 implicit | iterations per device call; forces are monitored at this interval |
