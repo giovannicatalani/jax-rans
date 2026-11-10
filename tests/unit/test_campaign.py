@@ -115,6 +115,26 @@ def test_batch_limit_and_incompatible_physics_form_separate_groups(cases, grids,
     assert campaign.successful
 
 
+def test_progress_reports_each_profile_residual(cases, grids, contraction):
+    requests = [PolarRequest(f"p{k}", c, [0], g) for k, (c, g) in enumerate(zip(cases, grids))]
+    old, detailed = [], []
+    campaign = run_campaign(requests, progress=lambda *args: old.append(args),
+                            progress_with_residual=lambda *args: detailed.append(args))
+    assert old == [entry[:4] for entry in detailed]
+    for name, _, iteration, _, residual in detailed:
+        history = campaign.polars[name].results[0].history.residual
+        assert residual == pytest.approx(history[iteration - 1])
+
+
+def test_force_settling_continues_to_next_angle(cases, grids, contraction):
+    numerics = replace(cases[0].numerics, tol=1e-30, forces_tol=1.0, max_iters=40)
+    case = replace(cases[0], numerics=numerics)
+    campaign = run_campaign([PolarRequest("p", case, [0, 1], grids[0])])
+    polar = campaign.polars["p"]
+    assert list(polar.alphas) == [0, 1]
+    assert all(result.history.reason == ExitReason.SETTLED for result in polar.results)
+
+
 def test_single_polar_mode_uses_continuation(cases, grids, contraction):
     polar = run_polar(replace(cases[0], name="NACA 0012"), [1, 0], grid=grids[0], mode="continuation")
     assert polar.mode == "continuation"
@@ -225,12 +245,19 @@ def test_repeated_angles_have_distinct_output_directories(cases, grids, contract
     assert all(list(d.glob("*_metadata.json")) for d in directories)
 
 
-def test_manifest_resolves_relative_cases_and_writes_results(contraction, tmp_path):
+def test_manifest_resolves_relative_cases_and_writes_results(contraction, tmp_path, capsys):
     manifest = tmp_path / "campaign.json"
     manifest.write_text(json.dumps({"profiles": [
         {"name": "naca", "case": os.path.relpath(ROOT / "examples/naca0012_euler", tmp_path),
          "alpha": [1, 0, -1], "overrides": list(SMALL)}]}))
-    assert main([str(manifest), "--out", str(tmp_path / "out"), "--quiet"]) == 0
+    assert main([str(manifest), "--out", str(tmp_path / "out")]) == 0
+    output = capsys.readouterr().out
+    assert "residual " in output and " CL " in output
+    summary = (tmp_path / "out" / "summary.txt").read_text()
+    assert summary in output
+    assert "2/2 angles calculated" in summary
+    assert "maximum CL" in summary and "minimum CD" in summary
+    assert "iterations" in summary and "residual" in summary
     meta = json.loads((tmp_path / "out" / "campaign_metadata.json").read_text())
     assert meta["profiles"]["naca"]["calculated_alphas"] == [1, 0]
 
@@ -244,6 +271,9 @@ def test_manifest_failure_returns_one_and_retains_failed_point(contraction, tmp_
     meta = json.loads((tmp_path / "out" / "campaign_metadata.json").read_text())
     assert not meta["successful"]
     assert meta["profiles"]["naca"]["calculated_alphas"] == [0]
+    summary = (tmp_path / "out" / "summary.txt").read_text()
+    assert "incomplete" in summary and "1/2 angles calculated" in summary
+    assert "max_iters" in summary and "maximum CL" not in summary
 
 
 def test_manifest_does_not_ignore_invalid_cli_batch_size(tmp_path):
