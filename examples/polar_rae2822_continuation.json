@@ -1,0 +1,12 @@
+{
+  "batch_size": 1,
+  "profiles": [
+    {
+      "name": "rae2822_transonic_sa",
+      "case": "rae2822_sensitivity",
+      "machs": [0.729],
+      "overrides": ["numerical.convergence.forces_tol=0.0001"],
+      "alpha": [-2, 5.5, 0.5]
+    }
+  ]
+}

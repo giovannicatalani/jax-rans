@@ -5,6 +5,9 @@
 Topology and solver configuration are static within a batch; geometry is a
 dynamic argument of the vmapped step. Angles advance in synchronized rounds.
 Failed chains stop independently; finished entries are frozen between blocks.
+Each profile may specify ``machs``: a list of freestream Mach numbers, each
+run as a separate continuation in a directory named ``<name>_mach_<value>``.
+If omitted, the Mach number from the case (or its overrides) is used.
 """
 
 from __future__ import annotations
@@ -55,11 +58,44 @@ class Campaign:
         return all(len(p.results) == len(p.requested_alphas)
                    and all(r.history.reason in SUCCESS for r in p.results) for p in self.polars.values())
 
+    def summary(self) -> str:
+        """Human-readable calculation and polar statistics, including failed points."""
+        lines = [f"Campaign: {'complete' if self.successful else 'incomplete'}; "
+                 f"{len(self.polars)} profile(s), {len(self.batches)} batch(es), {self.seconds:.1f} s wall time"]
+        for name, polar in self.polars.items():
+            results = polar.results
+            count = sum(r.history.reason in SUCCESS for r in results)
+            lines.append(f"\n{name}: {len(results)}/{len(polar.requested_alphas)} angles calculated, "
+                         f"{count} converged or settled; {polar.timing.iterations} case iterations, "
+                         f"{polar.timing.total:.1f} s profile time")
+            if not results:
+                continue
+            lines.append(f"  Mesh: {results[0].cells} cells; devices: {polar.timing.devices}")
+            lines.append("  alpha (deg)        CL        CD        CM   iterations     residual  status")
+            for alpha, result in zip(polar.alphas, results):
+                residual = result.history.residual[-1] if len(result.history.residual) else float('nan')
+                lines.append(f"  {alpha:10.3f} {result.forces.cl:9.5f} {result.forces.cd:9.5f} "
+                             f"{result.forces.cm:9.5f} {result.history.n_iters:12d} "
+                             f"{residual:12.3e}  {result.history.reason}")
+            valid = [(float(a), r) for a, r in zip(polar.alphas, results)
+                     if r.history.reason in SUCCESS and np.isfinite(r.forces.cl) and np.isfinite(r.forces.cd)]
+            if valid:
+                a_min, r_min = min(valid, key=lambda x: x[1].forces.cd)
+                a_max, r_max = max(valid, key=lambda x: x[1].forces.cl)
+                lines.append(f"  Converged points: maximum CL {r_max.forces.cl:.5f} at {a_max:+g} deg; "
+                             f"minimum CD {r_min.forces.cd:.5f} at {a_min:+g} deg")
+                positive_drag = [(a, r) for a, r in valid if r.forces.cd > 0]
+                if positive_drag:
+                    a_best, r_best = max(positive_drag, key=lambda x: x[1].forces.cl / x[1].forces.cd)
+                    lines.append(f"  Maximum CL/CD: {r_best.forces.cl / r_best.forces.cd:.3f} at {a_best:+g} deg")
+        return "\n".join(lines)
+
     def write(self, directory: str | Path) -> Path:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         for name, polar in self.polars.items():
             polar.write(directory / name)
+        (directory / "summary.txt").write_text(self.summary() + "\n")
         (directory / "campaign_metadata.json").write_text(json.dumps({
             "mode": "continuation", "seconds": self.seconds, "batches": self.batches,
             "successful": self.successful,
@@ -142,7 +178,7 @@ def _coarse_start(case: Case, grid: Atlas):
     return prolong(*start, grid, default), tuple(levels)
 
 
-def _run_group(requests, grids, geometries, devices, progress) -> list[Polar]:
+def _run_group(requests, grids, geometries, devices, progress, progress_with_residual) -> list[Polar]:
     case, template = requests[0].case, grids[0]
     use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
     n = len(requests)
@@ -201,10 +237,14 @@ def _run_group(requests, grids, geometries, devices, progress) -> list[Polar]:
         def on_block(b, carry, residuals):
             values = np.asarray(monitor(carry[0].U, carry[1], carry[2]))
             samples.append(values)
-            if progress is not None:
+            if progress is not None or progress_with_residual is not None:
                 for k, request in enumerate(requests):
                     if active[k]:
-                        progress(request.name, float(angles[k]), (b + 1) * case.block_iters, float(values[k, 0]))
+                        args = (request.name, float(angles[k]), (b + 1) * case.block_iters, float(values[k, 0]))
+                        if progress is not None:
+                            progress(*args)
+                        if progress_with_residual is not None:
+                            progress_with_residual(*args, float(residuals[-1, k]))
             if case.numerics.forces_tol is None:
                 return False
             histories = np.asarray(samples)
@@ -239,13 +279,16 @@ def _run_group(requests, grids, geometries, devices, progress) -> list[Polar]:
 
 def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = None,
                  devices: int | None = None,
-                 progress: Callable[[str, float, int, float], None] | None = None) -> Campaign:
+                 progress: Callable[[str, float, int, float], None] | None = None,
+                 progress_with_residual: Callable[[str, float, int, float, float], None] | None = None) -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
 
     Different topology or physics forms a separate batch. Within a batch the
     geometry differs, but Mach, Reynolds and solver settings must agree.
     ``batch_size`` limits profiles per batch; devices split the profile axis.
     Progress receives ``(profile_name, alpha, iteration, CL)``.
+    Progress_with_residual receives the same arguments followed by the last
+    residual norm in the block.
     """
     requests = list(requests)
     if not requests:
@@ -273,7 +316,7 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
             chunk = group[start:start + size]
             reqs, grids, geometries = zip(*chunk)
             batches.append(tuple(r.name for r in reqs))
-            for request, polar in zip(reqs, _run_group(reqs, grids, geometries, devices, progress)):
+            for request, polar in zip(reqs, _run_group(reqs, grids, geometries, devices, progress, progress_with_residual)):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
 
@@ -291,24 +334,34 @@ def main(argv: list[str] | None = None) -> int:
         requests = []
         for entry in doc["profiles"]:
             path = args.manifest.resolve().parent / entry["case"]
-            case = load_case(path, tuple(entry.get("overrides", ())))
             angles = entry["alphas"] if "alphas" in entry else alpha_range(*entry["alpha"])
-            requests.append(PolarRequest(entry["name"], case, angles))
+            overrides = tuple(entry.get("overrides", ()))
+            if "machs" not in entry:
+                requests.append(PolarRequest(entry["name"], load_case(path, overrides), angles))
+                continue
+            machs = entry["machs"]
+            if (not isinstance(machs, list) or not machs or
+                    any(isinstance(m, bool) or not isinstance(m, (int, float)) or
+                        not np.isfinite(m) or m <= 0 for m in machs)):
+                raise ValueError("machs must be a non-empty list of finite positive numbers")
+            if len(set(machs)) != len(machs):
+                raise ValueError("machs must not contain duplicates")
+            for mach in machs:
+                label = repr(float(mach)).replace("+", "p").replace("-", "m")
+                case = load_case(path, overrides + (f"case.freestream.mach={float(mach)!r}",))
+                requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles))
 
-        def progress(name, alpha, iteration, cl):
-            print(f"{name} alpha {alpha:+g}: {iteration:8d} CL {cl:+.6f}", flush=True)
+        def progress(name, alpha, iteration, cl, residual):
+            print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} CL {cl:+.6f}", flush=True)
 
         campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
                                 devices=args.devices if args.devices is not None else doc.get("devices"),
-                                progress=None if args.quiet else progress)
+                                progress_with_residual=None if args.quiet else progress)
         out = campaign.write(args.out)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
-    for name, polar in campaign.polars.items():
-        last = polar.results[-1]
-        print(f"{name}: {len(polar.results)}/{len(polar.requested_alphas)} angles, "
-              f"last alpha {polar.alphas[-1]:+g}: {last.history.reason}")
-    print(f"{len(campaign.polars)} profiles, {len(campaign.batches)} batches, {campaign.seconds:.1f} s; written to {out}")
+    print(campaign.summary())
+    print(f"Results written to {out}")
     return 0 if campaign.successful else 1
 
 
