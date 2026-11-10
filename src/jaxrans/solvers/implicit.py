@@ -141,6 +141,15 @@ def make_newton_step(
         candidate = U + dU
         physical = jnp.all(is_physical(candidate, gamma, operator.components)) & jnp.all(jnp.isfinite(dU))
         accept = physical & (linear_reduction < 1.0)
+        if config.nonlinear_growth_limit is not None:
+            def candidate_norm(_: None) -> Array:
+                return operator.norm(operator.residual(candidate))
+
+            # Avoid evaluating the residual at an unphysical state. A modest
+            # nonmonotone allowance lets pseudo-transient startup proceed.
+            nonlinear = jax.lax.cond(physical, candidate_norm, lambda _: jnp.inf, None)
+            accept = accept & jnp.isfinite(nonlinear) & (
+                nonlinear <= config.nonlinear_growth_limit * jnp.maximum(norm, 1e-300))
 
         # Switched evolution relaxation: grow the CFL by the residual reduction
         # achieved, capped, and only when the Krylov solve earned it. Mulder and

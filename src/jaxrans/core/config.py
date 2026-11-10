@@ -171,6 +171,7 @@ class ImplicitConfig:
     krylov_restarts: int = 2
     krylov_success: float = 0.5
     max_relative_update: float | None = None
+    nonlinear_growth_limit: float | None = 2.0
 
     def __post_init__(self) -> None:
         if not self.cfl > 0.0:
@@ -206,6 +207,8 @@ class ImplicitConfig:
             raise ValueError(
                 f"max_relative_update must be positive or None, got {self.max_relative_update}"
             )
+        if self.nonlinear_growth_limit is not None and self.nonlinear_growth_limit < 1.0:
+            raise ValueError("nonlinear_growth_limit must be at least 1 or None")
         if not 0.0 < self.krylov_success < 1.0:
             raise ValueError(
                 f"krylov_success must lie in (0, 1), got {self.krylov_success}"
