@@ -9,9 +9,9 @@ Failed chains stop independently; finished entries are frozen between blocks.
 Each profile may specify ``machs``: a list of freestream Mach numbers, each
 run as a separate continuation in a directory named ``<name>_mach_<value>``.
 If omitted, the Mach number from the case (or its overrides) is used.
-Resume reuses saved successful points and retries the first unsuccessful point;
-profiles without saved results start from scratch. Results are written at the
-end of the campaign, so an interrupted run cannot resume its unsaved progress.
+Each completed angle is checkpointed with its fields and metadata. Resume
+reuses saved successful points and retries the first unsuccessful point;
+profiles without a complete saved point start from scratch.
 """
 
 from __future__ import annotations
@@ -466,6 +466,9 @@ def main(argv: list[str] | None = None) -> int:
             with csv_path.open("w", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=columns).writeheader()
 
+        request_by_name = {request.name: request for request in requests}
+        checkpoint_points = {request.name: [] for request in requests}
+
         def save_point(name, alpha, result):
             flow = result.case.flow
             norms = np.asarray(make_residual(result.grid, flow, result.case.numerics).equation_norms(result.U))
@@ -480,9 +483,58 @@ def main(argv: list[str] | None = None) -> int:
             row.update({f"residual_{label}": float(value) for label, value in zip(labels, norms)})
             with csv_path.open("a", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=columns).writerow(row)
+
+            # Persist each finished angle immediately. A process interruption can
+            # then resume from the last successful point instead of losing the
+            # fields held by the in-memory Campaign.
+            request = request_by_name[name]
+            points = checkpoint_points[name]
+            matching = next((k for k, point in enumerate(points)
+                             if float(point["alpha"]) == float(alpha)), None)
+            if matching is None:
+                matching = len(points)
+                points.append({})
+            point_name = (f"alpha_{alpha:+.2f}" if len(set(f"{a:+.2f}" for a in request.alphas))
+                          == len(request.alphas) else
+                          f"point_{matching:04d}_alpha_{alpha:+.8g}")
+            profile_dir = args.out / name
+            result.write(profile_dir / point_name, extra={
+                "polar_mode": "continuation",
+                "initial_alpha": float(request.alphas[matching - 1]) if matching else None,
+            })
+            points[matching] = {
+                "alpha": float(alpha), "exit_reason": result.history.reason,
+                "iterations": result.history.n_iters,
+                "initial_alpha": float(request.alphas[matching - 1]) if matching else None,
+                "cl": float(result.forces.cl), "cd": float(result.forces.cd),
+                "cd_friction": float(result.forces.cd_friction), "cm": float(result.forces.cm),
+                "orders_dropped": float(result.history.orders_dropped),
+                "cl_spread": float(result.cl_spread),
+                "settled": int(result.history.reason in SUCCESS),
+            }
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            metadata_path = profile_dir / "polar_metadata.json"
+            metadata_tmp = profile_dir / ".polar_metadata.json.tmp"
+            metadata_tmp.write_text(json.dumps({
+                "case": request.case.name, "case_setup": request.case.raw,
+                "alphas": [point["alpha"] for point in points],
+                "timing": result.timing.record(), "settled_cl_spread": 1e-4,
+                "mode": "continuation", "requested_alphas": list(request.alphas),
+                "points": points,
+            }, indent=2, default=float))
+            metadata_tmp.replace(metadata_path)
+
+            table = np.asarray([[point["alpha"], point.get("cl", np.nan), point.get("cd", np.nan),
+                                 point.get("cd_friction", np.nan), point.get("cm", np.nan),
+                                 point.get("orders_dropped", np.nan), point["iterations"],
+                                 point.get("cl_spread", np.nan), point.get("settled", 0)]
+                                for point in points])
+            np.savetxt(profile_dir / "polar.dat", table,
+                       header="alpha_deg cl cd cd_friction cm orders_dropped iterations cl_spread settled",
+                       fmt=["%.4f", "%.8f", "%.8f", "%.8f", "%.8f", "%.3f", "%d", "%.3e", "%d"])
             if not args.quiet:
                 print(f"{name} alpha {alpha:+g}: {result.history.reason} after "
-                      f"{result.history.n_iters} iterations (points.csv updated)", flush=True)
+                      f"{result.history.n_iters} iterations (checkpoint saved)", flush=True)
 
         devices = args.devices if args.devices is not None else doc.get("devices")
         preserved = {}
@@ -502,7 +554,17 @@ def main(argv: list[str] | None = None) -> int:
                         source = legacy
                 if request.name in polars:
                     raise ValueError(f"duplicate resume output directory: {request.name}")
-                if source.exists():
+                if source.is_dir() and (source / "polar_metadata.json").is_file():
+                    saved_meta = json.loads((source / "polar_metadata.json").read_text())
+                    saved_points = [dict(point) for point in saved_meta.get("points", [])]
+                    polar_path = source / "polar.dat"
+                    if polar_path.is_file() and saved_points:
+                        saved_table = np.loadtxt(polar_path, comments="#", ndmin=2)
+                        for point, values in zip(saved_points, saved_table):
+                            point.update(dict(zip(("alpha", "cl", "cd", "cd_friction", "cm",
+                                                   "orders_dropped", "iterations", "cl_spread", "settled"),
+                                                  values.tolist())))
+                    checkpoint_points[request.name] = saved_points
                     prefix, grid = _resume_prefix(request, source)
                     if source != directory:
                         shutil.copytree(source, directory)

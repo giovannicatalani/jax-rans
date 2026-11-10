@@ -140,7 +140,9 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("reynolds", "number|null", None, "per unit length of the grid (per chord for a grid of unit "
             "chord); `null` is inviscid"),
         Key("temperature", "number", None, "absolute, in the unit of `sutherland_temperature`; "
-            "Sutherland's law needs it"),
+            "static freestream temperature; Sutherland's law needs it unless `total_temperature` is given"),
+        Key("total_temperature", "number", None, "absolute total freestream temperature, in the unit of "
+            "`sutherland_temperature`; converted to static temperature at the current Mach"),
     ),
     "material_properties": (
         Key("specific_heat_ratio", "number", constants.GAMMA_AIR, ""),

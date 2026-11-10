@@ -70,7 +70,8 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `alpha_deg` | number | `0.0` | incidence, degrees (streamwise when swept) |
 | `sweep_deg` | number or null | `null` | 2D grids: sweep of an infinite swept wing (2.5D), degrees, the spanwise velocity M cos(alpha) sin(sweep); `null` is plain 2D (docs/swept.md) |
 | `reynolds` | number or null | `null` | per unit length of the grid (per chord for a grid of unit chord); `null` is inviscid |
-| `temperature` | number |  | absolute, in the unit of `sutherland_temperature`; Sutherland's law needs it |
+| `temperature` | number |  | absolute, in the unit of `sutherland_temperature`; static freestream temperature; Sutherland's law needs it unless `total_temperature` is given |
+| `total_temperature` | number |  | absolute total freestream temperature, in the unit of `sutherland_temperature`; converted to static temperature at the current Mach |
 
 ### `material_properties`
 

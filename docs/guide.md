@@ -152,6 +152,16 @@ the first final-grid batch; it is not repeated at later angles.
 
 Output contains one polar directory per profile and `campaign_metadata.json`
 with batch membership, wall time, requested/calculated angles and exit reasons.
+Each completed angle is written immediately with its fields and metadata, so an
+interrupted command can continue from the last successful angle:
+
+```bash
+python -m jaxrans.campaign examples/polar_campaign.json --out results/campaign --resume
+```
+
+An interruption during an angle can lose that angle's in-memory progress; the
+previously completed angles remain available. `points.csv` records progress
+but does not contain restartable solution fields.
 Each polar's timing sums its active rounds' shared batch time; these times
 must not be added to estimate campaign wall time. `case_iterations` counts
 actual steps per profile, excluding frozen waits. Repeated angles or angles
