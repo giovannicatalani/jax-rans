@@ -50,6 +50,13 @@ def cl_spread(cl_history: np.ndarray) -> float:
     return float(tail.max() - tail.min()) if tail.size >= 4 else float("nan")
 
 
+def equations_settled(current: np.ndarray, peak: np.ndarray, numerics) -> bool:
+    """Every equation must meet a relative drop or a normalized absolute floor."""
+    relative = numerics.tol if numerics.forces_tol is None else numerics.equation_tol
+    floor = 0.0 if numerics.forces_tol is None else numerics.equation_abs_tol
+    return bool(np.all(np.isfinite(current) & (current <= np.maximum(floor, relative * peak))))
+
+
 @dataclass(frozen=True)
 class Timing:
     """Wall clock of a run; the first block carries the compilation, the later
@@ -138,6 +145,21 @@ class Result:
         ``<case output>/<case name>``). Returns the directory."""
         directory = Path(directory) if directory is not None else self.case.output / self.case.name
         writer = ResultWriter(directory, case_name=self.case.name)
+        operator = make_residual(self.grid, self.case.flow, self.case.numerics)
+        residual = np.asarray(operator.residual(self.U))
+        volume = np.asarray(self.grid.grid.volume)
+        mask = np.asarray(self.grid.interior)
+        names = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:self.grid.components]], "energy"]
+        if residual.shape[0] > len(names):
+            names.append("sa")
+        reference = np.abs(np.asarray(operator.initial_state())[:, mask]).mean(axis=1)
+        reference[1:1 + self.grid.components] = max(reference[1:1 + self.grid.components].max(), 1e-12)
+        scales = np.maximum(reference, 1e-12)
+        rates = residual[:, mask] / volume[mask] / scales[:, None]
+        weights = volume[mask] / volume[mask].sum()
+        equation_residuals = {name: {"l2_volume": float(np.sqrt(np.sum(weights * row**2))),
+                                      "linf": float(np.max(np.abs(row)))}
+                              for name, row in zip(names, rates)}
         writer.write_metadata(
             {"flow": self.case.flow, "numerics": self.case.numerics, "implicit": self.case.implicit},
             extra={
@@ -145,6 +167,7 @@ class Result:
                 "grid": self.case.grid_spec.describe(self.case.directory),
                 "cells": self.cells,
                 "grid_quality": quality(self.grid.mesh).record(),
+                "equation_residuals": equation_residuals,
                 "bodies": [dict(zip(("cl", "cd", "cm"), b)) for b in self.forces.bodies],
                 "cl": self.forces.cl, "cd": self.forces.cd,
                 "cd_friction": self.forces.cd_friction, "cm": self.forces.cm,
@@ -177,7 +200,7 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, initial: Array | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
     flow, numerics = case.flow, case.numerics
@@ -185,22 +208,36 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
             grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
-        return (implicit.make_newton_step(operator, case.implicit, jacobian),
-                implicit.initial_state(operator, case.implicit, dtype=numerics.dtype))
-    return (explicit.make_rk_step(operator, scheme=case.rk_scheme),
-            explicit.initial_state(operator, dtype=numerics.dtype))
+        step = implicit.make_newton_step(operator, case.implicit, jacobian)
+        state = implicit.initial_state(operator, case.implicit, dtype=numerics.dtype)
+    else:
+        step = explicit.make_rk_step(operator, scheme=case.rk_scheme)
+        state = explicit.initial_state(operator, dtype=numerics.dtype)
+    if initial is not None:
+        initial = jnp.asarray(initial, dtype=numerics.dtype)
+        if initial.shape != state.U.shape:
+            raise ValueError(f"initial field must have shape {state.U.shape}, got {initial.shape}")
+        # Only physical cells are inherited; ghosts and gaps belong to the new freestream.
+        state = state._replace(U=jnp.where(grid.interior, initial, state.U))
+    return step, state
 
 
 def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
-        on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None) -> Result:
+        on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None,
+        *, initial: Array | None = None) -> Result:
     """March ``case`` to steady state on ``grid`` (default: ``case.grid()``),
     after its ``sequencing`` coarser grids, each started from the one before;
     ``on_level(level, grid)`` announces each grid (0: the case's own).
     ``devices`` (two or more) split the state in slabs along the canvas's
     first axis, one per device (``numerics/slabs.py``). Only the case's own
-    grid is split; its coarser levels, small, run on one device."""
+    grid is split; its coarser levels, small, run on one device.
+    ``initial`` restarts on this exact grid, copying its interior field,
+    resetting solver control, and bypassing grid sequencing."""
     grid = case.grid() if grid is None else grid
     devices = tuple(devices) if devices is not None and len(devices) > 1 else None
+    if initial is not None:
+        # A restart is already on the final grid: do not repeat grid sequencing.
+        return _march(case, grid, progress, None, devices, initial=initial)
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
         coarse = case.grid(coarsen=level)
@@ -216,22 +253,27 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
 
 
 def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Array, Atlas] | None,
-           devices: Sequence | None = None) -> Result:
+           devices: Sequence | None = None, *, initial: Array | None = None) -> Result:
     """One grid to steady state, from freestream or from ``start``, a coarser
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
     length = case.grid_spec.force_reference()
     if devices:
         grid = SlabAtlas.of(grid, devices)
-    step, state = make_stepper(case, grid)
+    step, state = make_stepper(case, grid, initial=initial)
     if start is not None:
         state = state._replace(U=prolong(*start, grid, state.U))
 
     cl_history: list[float] = []
     coefficients: list[tuple[float, float, float]] = []
     peak = [0.0]
+    equation_peak = None
+    equation_operator = make_residual(grid, flow, numerics)
 
     def on_block(index: int, current, residuals: np.ndarray) -> bool:
+        nonlocal equation_peak
+        equation_norms = np.asarray(equation_operator.equation_norms(current.U))
+        equation_peak = equation_norms if equation_peak is None else np.maximum(equation_peak, equation_norms)
         finite = residuals[np.isfinite(residuals)]
         if finite.size:
             peak[0] = max(peak[0], float(finite.max()))
@@ -243,13 +285,15 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
             orders = float(np.log10(peak[0] / last)) if peak[0] > 0.0 and last > 0.0 else 0.0
             progress((index + 1) * case.block_iters, last, orders, forces)
         # NaN (too few blocks) compares false: a short run never stops here.
-        return numerics.forces_tol is not None and all(
+        forces_settled = numerics.forces_tol is None or all(
             cl_spread(h) < numerics.forces_tol for h in np.transpose(coefficients))
+        return forces_settled and equations_settled(equation_norms, equation_peak, numerics)
 
     state, history = run_to_steady(
         step, state,
-        max_iters=numerics.max_iters, tol=numerics.tol, block_iters=case.block_iters,
+        max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
         on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)), slabs=devices,
+        allow_exact_zero=False,
     )
     return Result(
         case=case, grid=grid, U=state.U,

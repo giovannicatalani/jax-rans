@@ -7,6 +7,7 @@ Each layer only imports from the layers below it.
 ```
 simulation.py, __main__.py   load a case, build the operator, iterate, write the result
 polar.py      many angles at once: the step mapped over the freestream, split over GPUs
+campaign.py   compatible profiles batched over geometry, each continued through its alpha list
 derivatives.py  sensitivity: derivatives of the forces in the angle of attack and Mach number
 plot.py       figures from written results
 case/         schema (every key, declared once), loader, domain (where the grid comes from)

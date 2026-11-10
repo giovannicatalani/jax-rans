@@ -111,10 +111,11 @@ SOLVERS: tuple[str, ...] = ("explicit", "implicit")
 
 @dataclass(frozen=True)
 class NumericsConfig:
-    """Discretization and stepping (``docs/case_reference.md``). ``tol`` is relative
-    to the residual's running peak; ``forces_tol`` the largest spread of CL, CD
-    and CM over the last quarter of a run for it to stop as settled (``None``:
-    never); ``far_field`` keys ``numerics.boundary.FAR_FIELDS``."""
+    """Discretization and stepping (``docs/case_reference.md``). Each normalized
+    equation residual must fall below its relative peak threshold or absolute
+    floor; force stability is additionally required when ``forces_tol`` is set.
+    With ``forces_tol=None``, ``tol`` applies to every equation without an
+    absolute floor. ``far_field`` keys ``numerics.boundary.FAR_FIELDS``."""
 
     flux: str = "hllc"
     limiter: str = "minmod"
@@ -122,6 +123,8 @@ class NumericsConfig:
     max_iters: int = 40_000
     tol: float = 1.0e-12
     forces_tol: float | None = 1.0e-4
+    equation_tol: float = 1.0e-4
+    equation_abs_tol: float = 1.0e-8
     n_ghost: int = 2
     solver: str = "explicit"
     far_field: str = "characteristic"
@@ -136,6 +139,8 @@ class NumericsConfig:
             raise ValueError(f"tol must lie in (0, 1), got {self.tol}")
         if self.forces_tol is not None and not self.forces_tol > 0.0:
             raise ValueError(f"forces_tol must be positive or null, got {self.forces_tol}")
+        if not 0.0 < self.equation_tol < 1.0 or self.equation_abs_tol <= 0.0:
+            raise ValueError("equation tolerances must be positive, with equation_tol below 1")
         if self.n_ghost < 2:
             raise ValueError(
                 f"n_ghost must be >= 2 for MUSCL reconstruction, got {self.n_ghost}"
@@ -171,6 +176,7 @@ class ImplicitConfig:
     krylov_restarts: int = 2
     krylov_success: float = 0.5
     max_relative_update: float | None = None
+    nonlinear_growth_limit: float | None = None
 
     def __post_init__(self) -> None:
         if not self.cfl > 0.0:
@@ -206,6 +212,8 @@ class ImplicitConfig:
             raise ValueError(
                 f"max_relative_update must be positive or None, got {self.max_relative_update}"
             )
+        if self.nonlinear_growth_limit is not None and self.nonlinear_growth_limit < 1.0:
+            raise ValueError("nonlinear_growth_limit must be at least 1 or None")
         if not 0.0 < self.krylov_success < 1.0:
             raise ValueError(
                 f"krylov_success must lie in (0, 1), got {self.krylov_success}"

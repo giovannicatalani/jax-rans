@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Callable, Protocol, Sequence
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 from jax import Array, lax
 
@@ -37,6 +39,7 @@ class ExitReason:
     MAX_ITERS = "max_iters"
     NON_FINITE = "non_finite"
     STALLED = "stalled"
+    SKIPPED = "skipped"
 
 
 @dataclass
@@ -50,10 +53,12 @@ class ConvergenceHistory:
     seconds: float = float("nan")
     first_block_seconds: float = float("nan")
     case_reasons: tuple[str, ...] = ()
+    case_iterations: tuple[int, ...] = ()
 
     def case(self, k: int) -> "ConvergenceHistory":
         """Case ``k`` of a batch, as a single run's history."""
-        return ConvergenceHistory(self.residual[:, k], self.case_reasons[k], self.n_iters,
+        n = self.case_iterations[k] if self.case_iterations else self.n_iters
+        return ConvergenceHistory(self.residual[:n, k], self.case_reasons[k], n,
                                   self.seconds, self.first_block_seconds)
 
     @property
@@ -120,6 +125,21 @@ def _mesh(devices: Sequence, axis: str = BATCH_AXIS):
     return Mesh(np.array(devices), (axis,))
 
 
+@lru_cache(maxsize=16)
+def _masked_block(step, block_iters, devices):
+    """Reuse one executable across continuation rounds (freestream is dynamic)."""
+    def masked_step(carry):
+        current, active, last = carry
+        candidate, residual = step(current)
+        kept = jax.tree_util.tree_map(
+            lambda new, old: jnp.where(active.reshape(active.shape + (1,) * (old.ndim - 1)),
+                                      new, old), candidate, current)
+        residual = jnp.where(active, residual, last)
+        return (kept, active, residual), residual
+
+    return make_block(masked_step, block_iters, devices)
+
+
 def run_to_steady(
     step: StepFunction,
     state: Any,
@@ -127,10 +147,12 @@ def run_to_steady(
     max_iters: int,
     tol: float,
     block_iters: int = 100,
-    on_block: Callable[[int, Any, np.ndarray], bool | None] | None = None,
+    on_block: Callable[[int, Any, np.ndarray], bool | np.ndarray | None] | None = None,
     finite_check: Callable[[Any], Array] | None = None,
     devices: Sequence | None = None,
     slabs: Sequence | None = None,
+    active_mask: np.ndarray | None = None,
+    allow_exact_zero: bool = True,
 ) -> tuple[Any, ConvergenceHistory]:
     """Iterate until the residual is ``tol`` times its running **peak**, per case.
 
@@ -143,11 +165,27 @@ def run_to_steady(
     taken. ``finite_check(state)`` is an optional device-side health test.
     ``devices`` split a batch of cases, ``slabs`` one case (the step's own,
     ``numerics/slabs.py``).
+    With ``active_mask`` every state leaf has a leading case axis. Finished
+    cases are frozen between blocks, inactive entries are skipped, and
+    ``case(k)`` trims their history to their actual stopping iteration.
+    ``on_block`` and ``finite_check`` may return one boolean per case.
     """
+    masked = active_mask is not None
+    if masked:
+        if slabs:
+            raise ValueError("active_mask cannot be combined with spatial slabs")
+        active_mask = np.asarray(active_mask, dtype=bool)
+        if active_mask.ndim != 1 or not active_mask.size or not active_mask.any():
+            raise ValueError("active_mask must be a nonempty vector with an active case")
+        if any(np.ndim(leaf) < 1 or np.shape(leaf)[0] != active_mask.size
+               for leaf in jax.tree_util.tree_leaves(state)):
+            raise ValueError("every masked state leaf must have a leading axis matching active_mask")
+        state = (state, jnp.asarray(active_mask), jnp.zeros(active_mask.shape))
     shardings = slab_shardings(state, slabs) if slabs else None
     if shardings is not None:
         state = jax.device_put(state, shardings)
-    block = make_block(step, block_iters, devices, shardings)
+    block = (_masked_block(step, block_iters, tuple(devices) if devices else None) if masked
+             else make_block(step, block_iters, devices, shardings))
     if devices is not None and len(devices) > 1:
         from jax.sharding import NamedSharding, PartitionSpec as P
 
@@ -155,7 +193,7 @@ def run_to_steady(
     n_blocks = max(1, -(-max_iters // block_iters))  # ceiling division
 
     blocks: list[np.ndarray] = []
-    peak = reasons = None
+    peak = reasons = finished_iters = None
     started = time.perf_counter()
     first_block = float("nan")
     for b in range(n_blocks):
@@ -164,38 +202,47 @@ def run_to_steady(
         if b == 0:
             first_block = time.perf_counter() - started
         blocks.append(block_residual)
-        stop = on_block(b, state, block_residual) if on_block is not None else False
+        current = state[0] if masked else state
+        stop = on_block(b, current, block_residual) if on_block is not None else False
 
         columns = block_residual.reshape(block_residual.shape[0], -1)   # (block, n_cases)
         if peak is None:
             peak = np.zeros(columns.shape[1])
             reasons = np.full(columns.shape[1], ExitReason.MAX_ITERS, dtype=object)
+            finished_iters = np.zeros(columns.shape[1], dtype=int)
+            if masked:
+                reasons[~active_mask] = ExitReason.SKIPPED
         finite = np.where(np.isfinite(columns), columns, 0.0)
         peak = np.maximum(peak, finite.max(axis=0))
         last = columns[-1]
         running = reasons == ExitReason.MAX_ITERS
         failed = ~np.all(np.isfinite(columns), axis=0)
-        if finite_check is not None and not bool(finite_check(state)):
-            failed[:] = True
+        if finite_check is not None:
+            failed |= ~np.asarray(finite_check(current), dtype=bool)
         reasons[running & failed] = ExitReason.NON_FINITE
-        reasons[running & ~failed & (peak > 0) & (last <= tol * peak)] = ExitReason.CONVERGED
+        zero = (last == 0) if allow_exact_zero else np.zeros_like(last, dtype=bool)
+        reasons[running & ~failed & (((peak > 0) & (last <= tol * peak)) | zero)] = ExitReason.CONVERGED
         # A whole block with bitwise the same residual: no step was accepted
         # (the state is frozen), which would also look settled.
         frozen = (len(columns) > 1) & np.all(columns == columns[0], axis=0)
         reasons[(reasons == ExitReason.MAX_ITERS) & frozen] = ExitReason.STALLED
-        if stop:
-            reasons[reasons == ExitReason.MAX_ITERS] = ExitReason.SETTLED
+        reasons[(reasons == ExitReason.MAX_ITERS) & np.asarray(stop, dtype=bool)] = ExitReason.SETTLED
+        finished_iters[running & (reasons != ExitReason.MAX_ITERS)] = (b + 1) * block_iters
+        if masked:
+            state = (state[0], jnp.asarray(reasons == ExitReason.MAX_ITERS), state[2])
         if not np.any(reasons == ExitReason.MAX_ITERS):
             break
 
     residual = np.concatenate(blocks) if blocks else np.zeros(0, dtype=np.float64)
-    failures = [r for r in reasons if r not in (ExitReason.CONVERGED, ExitReason.SETTLED)]
+    finished_iters[reasons == ExitReason.MAX_ITERS] = residual.shape[0]
+    failures = [r for r in reasons if r not in (ExitReason.CONVERGED, ExitReason.SETTLED, ExitReason.SKIPPED)]
     settled = ExitReason.SETTLED in reasons
-    return state, ConvergenceHistory(
+    return state[0] if masked else state, ConvergenceHistory(
         residual=residual,
         reason=failures[0] if failures else ExitReason.SETTLED if settled else ExitReason.CONVERGED,
         n_iters=int(residual.shape[0]),
         seconds=time.perf_counter() - started,
         first_block_seconds=first_block,
         case_reasons=tuple(reasons) if residual.ndim > 1 else (),
+        case_iterations=tuple(int(n) for n in finished_iters) if masked else (),
     )

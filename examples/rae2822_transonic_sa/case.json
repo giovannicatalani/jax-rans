@@ -23,11 +23,11 @@
         "mach": 0.729,
         "alpha_deg": 2.31,
         "reynolds": 6500000.0,
-        "temperature": 460.0
+        "temperature": 103.95
     },
     "material_properties": {
         "dynamic_viscosity": "sutherland",
-        "sutherland_temperature": 198.6
+        "sutherland_temperature": 110.4
     },
     "turbulence": {
         "model": "sa_noft2"

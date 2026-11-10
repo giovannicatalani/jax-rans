@@ -1,6 +1,7 @@
-"""A polar: one case at many angles of attack, batched on the GPU(s).
+"""A polar: one case at many angles of attack, batched on the GPU(s) by default.
 
     python -m jaxrans.polar CASE_DIR --alpha START STOP STEP [--devices N]
+                            [--mode batch|continuation]
                             [--set file.section.key=value ...] [--out DIR] [--quiet]
 
 The angle of attack enters the solver only through the freestream vector
@@ -11,6 +12,10 @@ case leaves latency-bound (the line preconditioner's sequential sweep). Each
 angle keeps its own CFL ramp, rejections and convergence; they never interact.
 The driver (``solvers/driver.py``) marches the batch and splits it over the
 devices.
+
+With ``--mode continuation`` the angles run sequentially in requested order,
+each initialized from the previous converged/settled solution. For several
+profiles batched together with continuation, use ``python -m jaxrans.campaign``.
 
 Output: ``<out>/polar.dat`` (alpha, CL, CD, friction, CM, orders, iterations,
 CL spread, settled), ``<out>/polar_metadata.json`` (case, timing, provenance),
@@ -41,22 +46,41 @@ from .solvers.driver import run_to_steady
 
 
 @dataclass(frozen=True)
+class ContinuationTiming:
+    """Sequential rounds; iterations count physical profile steps, not batch steps."""
+
+    total: float
+    iterations: int
+    cases: int = 1
+    devices: int = 1
+
+    def record(self) -> dict:
+        return {"total_s": self.total, "case_iterations": self.iterations,
+                "cases": self.cases, "devices": self.devices, "mode": "continuation"}
+
+    def summary(self) -> str:
+        return f"{self.total:.1f} s, {self.iterations} case iterations (continuation)"
+
+
+@dataclass(frozen=True)
 class Polar:
     """One ``Result`` per angle, and the timing of the batch."""
 
     case: Case
     alphas: np.ndarray
     results: list[Result]
-    timing: Timing
+    timing: Timing | ContinuationTiming
+    mode: str = "batch"
+    requested_alphas: tuple[float, ...] = ()
 
     def table(self) -> np.ndarray:
         """Rows ``alpha, CL, CD, CD friction, CM, orders, iterations, CL spread, settled``."""
         return np.array([[a, r.forces.cl, r.forces.cd, r.forces.cd_friction, r.forces.cm,
                           r.history.orders_dropped, r.history.n_iters, r.cl_spread,
                           float(r.cl_spread <= SETTLED_CL_SPREAD)]
-                         for a, r in zip(self.alphas, self.results)])
+                         for a, r in zip(self.alphas, self.results)]).reshape(-1, 9)
 
-    def write(self, directory: str | Path) -> Path:
+    def write(self, directory: str | Path, *, preserve_prefix: int = 0) -> Path:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         np.savetxt(directory / "polar.dat", self.table(),
@@ -65,10 +89,23 @@ class Polar:
         (directory / "polar_metadata.json").write_text(json.dumps({
             "case": self.case.name, "case_setup": self.case.raw, "alphas": self.alphas.tolist(),
             "timing": self.timing.record(), "settled_cl_spread": SETTLED_CL_SPREAD,
+            "mode": self.mode, "requested_alphas": list(self.requested_alphas) or self.alphas.tolist(),
+            "points": [{"alpha": float(a), "exit_reason": r.history.reason,
+                        "iterations": r.history.n_iters,
+                        "initial_alpha": float(self.alphas[k - 1]) if self.mode == "continuation" and k else None}
+                       for k, (a, r) in enumerate(zip(self.alphas, self.results))],
             "git": git_revision(), "environment": environment_record(),
         }, indent=2, default=float))
-        for alpha, result in zip(self.alphas, self.results):
-            result.write(directory / f"alpha_{alpha:+.2f}")
+        names = [f"alpha_{a:+.2f}" for a in self.alphas]
+        unique_names = len(set(names)) == len(names)
+        for k, (alpha, result) in enumerate(zip(self.alphas, self.results)):
+            if k < preserve_prefix:
+                continue
+            name = names[k] if unique_names else f"point_{k:04d}_alpha_{alpha:+.8g}"
+            result.write(directory / name, extra={
+                "polar_mode": self.mode,
+                "initial_alpha": float(self.alphas[k - 1]) if self.mode == "continuation" and k else None,
+            })
         return directory
 
 
@@ -78,11 +115,29 @@ def at_alpha(case: Case, alpha: float) -> Case:
 
 
 def run_polar(case: Case, alphas, grid: Atlas | None = None, devices: int | None = None,
-              progress=None) -> Polar:
-    """``case`` at every angle of ``alphas`` (degrees) at once, split over
-    ``devices`` (default all); ``progress(iteration, CL per angle)`` per block."""
+              progress=None, *, mode: str = "batch") -> Polar:
+    """Compute angles in a batch (default) or in requested-order continuation.
+
+    Continuation stops at its first failed point and retains partial results.
+    ``progress(iteration, CL per angle)`` is called per block; continuation
+    reports a one-entry CL array for its current angle.
+    """
+    alphas = validate_alphas(alphas)
+    if devices is not None and (not isinstance(devices, int) or devices < 1 or devices > len(jax.devices())):
+        raise ValueError(f"devices must be between 1 and {len(jax.devices())}")
+    if mode == "continuation":
+        from .campaign import PolarRequest, run_campaign
+
+        def report(profile, alpha, iteration, cl):
+            if progress is not None:
+                progress(iteration, np.array([cl]))
+
+        campaign = run_campaign([PolarRequest("profile", case, tuple(alphas), grid)],
+                                devices=devices, progress=report)
+        return campaign.polars["profile"]
+    if mode != "batch":
+        raise ValueError("mode must be 'batch' or 'continuation'")
     grid = case.grid() if grid is None else grid
-    alphas = np.asarray(alphas, dtype=float)
     use = jax.devices()[: devices or len(jax.devices())]
     # Pad to a multiple of the device count with copies of the last angle.
     padded = np.concatenate([alphas, np.repeat(alphas[-1:], -alphas.size % len(use))])
@@ -121,6 +176,22 @@ def run_polar(case: Case, alphas, grid: Atlas | None = None, devices: int | None
     return Polar(case, alphas, results, timing)
 
 
+def validate_alphas(alphas) -> np.ndarray:
+    alphas = np.asarray(alphas, dtype=float)
+    if alphas.ndim != 1 or not alphas.size or not np.all(np.isfinite(alphas)) or np.any(np.abs(alphas) > 90):
+        raise ValueError("alphas must be a nonempty finite vector in [-90, 90] degrees")
+    return alphas
+
+
+def alpha_range(start: float, stop: float, step: float) -> np.ndarray:
+    if not np.all(np.isfinite([start, stop, step])) or step == 0 or (stop - start) * step < 0:
+        raise ValueError("alpha range needs a nonzero step directed from start toward stop")
+    if abs(start) > 90 or abs(stop) > 90:
+        raise ValueError("alpha range must lie in [-90, 90] degrees")
+    count = int(np.floor((stop - start) / step + 1e-10)) + 1
+    return validate_alphas(np.round(start + step * np.arange(count), 10))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m jaxrans.polar", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -128,6 +199,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--alpha", type=float, nargs=3, required=True, metavar=("START", "STOP", "STEP"),
                         help="angles START..STOP (included) by STEP, degrees")
     parser.add_argument("--devices", type=int, help="devices to split the angles over (default: all)")
+    parser.add_argument("--mode", choices=("batch", "continuation"), default="batch",
+                        help="batch angles independently, or initialize each angle from the previous solution")
     parser.add_argument("--set", dest="overrides", action="append", default=[],
                         metavar="FILE.SECTION.KEY=VALUE", help="override one key; repeatable")
     parser.add_argument("--out", type=Path, help="output directory (default: <save_path>/<case_name>_polar)")
@@ -140,18 +213,29 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
     start, stop, step = args.alpha
-    alphas = np.round(np.arange(start, stop + 0.5 * step, step), 10)
-    print(f"{case.name}: {alphas.size} angles {start:+g}..{stop:+g} deg on {[str(d) for d in jax.devices()]}")
+    try:
+        alphas = alpha_range(start, stop, step)
+    except ValueError as error:
+        parser.error(str(error))
+    print(f"{case.name}: {alphas.size} angles {start:+g}..{stop:+g} deg, mode {args.mode}")
 
     def progress(iteration, cl):
         print(f"{iteration:8d}  CL " + " ".join(f"{c:+.4f}" for c in cl))
 
-    polar = run_polar(case, alphas, devices=args.devices, progress=None if args.quiet else progress)
+    try:
+        polar = run_polar(case, alphas, devices=args.devices, progress=None if args.quiet else progress,
+                          mode=args.mode)
+    except ValueError as error:
+        parser.error(str(error))
     out = polar.write(args.out or case.output / f"{case.name}_polar")
-    print("   alpha        CL          CD   orders  CL spread  settled")
-    for row in polar.table():
-        print(f"{row[0]:+8.2f}  {row[1]:+.6f}  {row[2]:+.7f}  {row[5]:6.2f}  {row[7]:9.1e}  {bool(row[8])}")
+    print("   alpha        CL          CD   orders  CL spread  settled  exit reason")
+    for row, result in zip(polar.table(), polar.results):
+        print(f"{row[0]:+8.2f}  {row[1]:+.6f}  {row[2]:+.7f}  {row[5]:6.2f}  {row[7]:9.1e}  "
+              f"{bool(row[8])}  {result.history.reason}")
     print(f"{polar.timing.summary()}\nwritten to {out}")
+    if args.mode == "continuation":
+        from .solvers.driver import ExitReason
+        return int(any(r.history.reason not in (ExitReason.CONVERGED, ExitReason.SETTLED) for r in polar.results))
     return 0
 
 

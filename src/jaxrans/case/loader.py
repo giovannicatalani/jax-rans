@@ -175,6 +175,8 @@ def _flow(case_doc: dict) -> FlowConditions:
     inviscid = freestream["reynolds"] is None
 
     sutherland_ratio = None
+    if freestream["temperature"] is not None and freestream["total_temperature"] is not None:
+        raise CaseError("'freestream.temperature' and 'freestream.total_temperature' are mutually exclusive")
     if inviscid:
         for key in ("dynamic_viscosity", "prandtl_number", "sutherland_temperature"):
             if key in given["material_properties"]:
@@ -182,10 +184,15 @@ def _flow(case_doc: dict) -> FlowConditions:
                                 f"(freestream.reynolds is null)")
     else:
         if material["dynamic_viscosity"] == "sutherland":
-            if freestream["temperature"] is None or material["sutherland_temperature"] is None:
-                raise CaseError("Sutherland's law needs 'freestream.temperature' and "
+            temperature = freestream["temperature"]
+            if temperature is None and freestream["total_temperature"] is not None:
+                mach_factor = 1.0 + 0.5 * (material["specific_heat_ratio"] - 1.0) * freestream["mach"] ** 2
+                temperature = freestream["total_temperature"] / mach_factor
+            if temperature is None or material["sutherland_temperature"] is None:
+                raise CaseError("Sutherland's law needs 'freestream.temperature' or "
+                                "'freestream.total_temperature', and "
                                 "'material_properties.sutherland_temperature', in one absolute unit")
-            sutherland_ratio = material["sutherland_temperature"] / freestream["temperature"]
+            sutherland_ratio = material["sutherland_temperature"] / temperature
         elif material["sutherland_temperature"] is not None:
             raise CaseError("'material_properties.sutherland_temperature' given with a constant viscosity")
         if material["prandtl_number"] != constants.PRANDTL_LAMINAR:
@@ -293,6 +300,8 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
         cfl=stepping["cfl"],
         max_iters=convergence["max_iters"],
         tol=convergence["tol"],
+        equation_tol=convergence["equation_tol"],
+        equation_abs_tol=convergence["equation_abs_tol"],
         forces_tol=convergence["forces_tol"],
         solver=stepping["solver"],
         far_field=far_field,

@@ -140,7 +140,9 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("reynolds", "number|null", None, "per unit length of the grid (per chord for a grid of unit "
             "chord); `null` is inviscid"),
         Key("temperature", "number", None, "absolute, in the unit of `sutherland_temperature`; "
-            "Sutherland's law needs it"),
+            "static freestream temperature; Sutherland's law needs it unless `total_temperature` is given"),
+        Key("total_temperature", "number", None, "absolute total freestream temperature, in the unit of "
+            "`sutherland_temperature`; converted to static temperature at the current Mach"),
     ),
     "material_properties": (
         Key("specific_heat_ratio", "number", constants.GAMMA_AIR, ""),
@@ -188,13 +190,19 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
         Key("krylov_success", "number", _I.krylov_success, "linear residual reduction for the CFL to grow"),
         Key("max_relative_update", "number|null", _I.max_relative_update, "bound on a step's relative change "
             "of density, pressure and nu~ (0.2 for SA at incidence)"),
+        Key("nonlinear_growth_limit", "number|null", _I.nonlinear_growth_limit,
+            "reject a step when its nonlinear residual exceeds this multiple of the current residual"),
     ),
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),
-        Key("tol", "number", _N.tol, "residual drop from its running peak"),
-        Key("forces_tol", "number|null", _N.forces_tol, "stop once CL, CD and CM each vary by less than "
-            "this over the last quarter of the iterations (at least four blocks there); null: run to `tol` "
-            "or `max_iters`"),
+        Key("tol", "number", _N.tol, "required relative drop per equation when forces_tol is null"),
+        Key("equation_tol", "number", _N.equation_tol,
+            "required relative drop of every normalized equation residual"),
+        Key("equation_abs_tol", "number", _N.equation_abs_tol,
+            "absolute floor for each normalized equation residual"),
+        Key("forces_tol", "number|null", _N.forces_tol, "also require CL, CD and CM to vary by less than "
+            "this over the last quarter of the iterations (at least four blocks there); null: "
+            "use `tol` on every equation"),
         Key("grid_sequencing", "integer", 0, "solve first on this many coarser grids, each the next with "
             "every other node (cell counts, patch and interface limits must stay even), each to settled "
             "forces or `max_iters`, and start the next from it; 0: the grid only"),

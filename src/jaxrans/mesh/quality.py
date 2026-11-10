@@ -31,6 +31,9 @@ class Quality:
     wall_spacing: tuple[float, float]
     wall_angle_deg: float
     far_field: float
+    interface_growth_p95: float | None = None
+    interface_growth_max: float | None = None
+    interface_growth_location: str | None = None
 
     @property
     def folded(self) -> bool:
@@ -42,6 +45,8 @@ class Quality:
             out.append(f"cells as skewed as {self.min_angle_deg:.1f} deg (under {WARN_MIN_ANGLE:g})")
         if self.max_growth > WARN_GROWTH:
             out.append(f"neighbouring cells growing by up to {self.max_growth:.2f}x (over {WARN_GROWTH:g})")
+        if self.interface_growth_max is not None and self.interface_growth_max > WARN_GROWTH:
+            out.append(f"interface cells growing by up to {self.interface_growth_max:.2f}x (over {WARN_GROWTH:g})")
         return out
 
     def summary(self) -> str:
@@ -50,6 +55,9 @@ class Quality:
                 f"{self.min_angle_deg:.1f} deg, max growth {self.max_growth:.2f}, max aspect "
                 f"{self.max_aspect:.3g}; wall: first cell {lo:.2e}..{hi:.2e}, within "
                 f"{self.wall_angle_deg:.1f} deg of orthogonal; far field >= {self.far_field:.3g} from the walls")
+        if self.interface_growth_max is not None:
+            text += (f"; interface growth p95 {self.interface_growth_p95:.2f}, "
+                     f"max {self.interface_growth_max:.2f} at {self.interface_growth_location}")
         return text + "".join(f"\n  warning: {w}" for w in self.warnings())
 
     def record(self) -> dict:
@@ -104,20 +112,29 @@ def quality(mesh: Mesh) -> Quality:
                     d = np.hypot(px[:, None] - faces.a[None, ::4, 0], py[:, None] - faces.a[None, ::4, 1])
                     far = min(far, float(d.min()))
     heights = np.concatenate(heights) if heights else np.array([np.nan])
+    interfaces, locations = _interface_growth_data(mesh)
+    worst = locations[int(np.argmax(interfaces))] if interfaces.size else None
     return Quality(sum(b.ni * b.nj for b in mesh), float(min(areas)), float(min(angles)),
                    float(max(growth)), float(max(aspect)), (float(heights.min()), float(heights.max())),
-                   float(max(wall_angles)), far)
+                   float(max(wall_angles)), far,
+                   float(np.percentile(interfaces, 95)) if interfaces.size else None,
+                   float(interfaces.max()) if interfaces.size else None, worst)
 
 
 def interface_growth(mesh: Mesh) -> np.ndarray:
     """Across every interface face of a 2D multi-block mesh (each pair once),
     the larger of the two cells' widths across it over the smaller: how
     abruptly the grid changes from one block to the next."""
+    return _interface_growth_data(as_mesh(mesh))[0]
+
+
+def _interface_growth_data(mesh: Mesh) -> tuple[np.ndarray, list[str]]:
     mesh = as_mesh(mesh)
     widths = [cell_widths(np.asarray(g.x_node), np.asarray(g.y_node)) for g in mesh]
     across = {"j_min": lambda w: w[1][:, 0], "j_max": lambda w: w[1][:, -1],
               "i_min": lambda w: w[0][0, :], "i_max": lambda w: w[0][-1, :]}
     out = [np.ones(0)]
+    locations = []
     for b, g in enumerate(mesh):
         for side, read in across.items():
             for seg in g.sides.side(side):
@@ -125,7 +142,8 @@ def interface_growth(mesh: Mesh) -> np.ndarray:
                     mine = read(widths[b])[seg.start:seg.stop]
                     theirs = across[seg.side](widths[seg.block])[seg.partner_cells()]
                     out.append(np.maximum(mine / theirs, theirs / mine))
-    return np.concatenate(out)
+                    locations.extend(f"block {b} {side} cell {i}" for i in range(seg.start, seg.stop))
+    return np.concatenate(out), locations
 
 
 def _mean_edges(nodes: np.ndarray) -> list[np.ndarray]:
