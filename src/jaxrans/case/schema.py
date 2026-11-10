@@ -191,6 +191,8 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
         Key("krylov_success", "number", _I.krylov_success, "linear residual reduction for the CFL to grow"),
         Key("max_relative_update", "number|null", _I.max_relative_update, "bound on a step's relative change "
             "of density, pressure and nu~ (0.2 for SA at incidence)"),
+        Key("nonlinear_growth_limit", "number|null", _I.nonlinear_growth_limit,
+            "reject a step when its nonlinear residual exceeds this multiple of the current residual"),
     ),
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),

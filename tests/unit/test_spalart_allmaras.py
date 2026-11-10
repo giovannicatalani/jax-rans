@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax
 import numpy as np
 import pytest
 
@@ -182,6 +183,21 @@ def test_sa_neg() -> None:
         assert float(sa.eddy_viscosity(jnp.asarray(1.0), jnp.asarray(nu_t), nu)) == 0.0
         coefficient = float(sa.diffusion_coefficient(jnp.asarray(1.0), jnp.asarray(nu_t), nu))
         assert coefficient > 0.0
+
+
+@pytest.mark.parametrize("nu_t,omega", [(0.0, 0.0), (-7.1e-4, 0.0),
+                                          (-16.0 ** (1 / 3) * 1e-4, 1.0),
+                                          (1e-8, 0.0)])
+def test_sa_branches_have_finite_primal_and_derivatives(nu_t, omega) -> None:
+    def quantity(x):
+        nu = jnp.asarray(1e-4)
+        p, d = sa.source(x, nu, jnp.asarray(omega), jnp.asarray(0.01))
+        return p - d + sa.eddy_viscosity(jnp.asarray(1.0), x, nu) + sa.f_n(x, nu)
+
+    x = jnp.asarray(nu_t)
+    primal, tangent = jax.jvp(quantity, (x,), (jnp.asarray(1.0),))
+    reverse = jax.grad(quantity)(x)
+    assert all(np.isfinite(float(value)) for value in (primal, tangent, reverse))
 
 
 def test_freestream_value_is_what_tmr_quotes() -> None:

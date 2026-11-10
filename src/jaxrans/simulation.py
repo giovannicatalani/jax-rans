@@ -138,6 +138,21 @@ class Result:
         ``<case output>/<case name>``). Returns the directory."""
         directory = Path(directory) if directory is not None else self.case.output / self.case.name
         writer = ResultWriter(directory, case_name=self.case.name)
+        operator = make_residual(self.grid, self.case.flow, self.case.numerics)
+        residual = np.asarray(operator.residual(self.U))
+        volume = np.asarray(self.grid.grid.volume)
+        mask = np.asarray(self.grid.interior)
+        names = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:self.grid.components]], "energy"]
+        if residual.shape[0] > len(names):
+            names.append("sa")
+        reference = np.abs(np.asarray(operator.initial_state())[:, mask]).mean(axis=1)
+        reference[1:1 + self.grid.components] = max(reference[1:1 + self.grid.components].max(), 1e-12)
+        scales = np.maximum(reference, 1e-12)
+        rates = residual[:, mask] / volume[mask] / scales[:, None]
+        weights = volume[mask] / volume[mask].sum()
+        equation_residuals = {name: {"l2_volume": float(np.sqrt(np.sum(weights * row**2))),
+                                      "linf": float(np.max(np.abs(row)))}
+                              for name, row in zip(names, rates)}
         writer.write_metadata(
             {"flow": self.case.flow, "numerics": self.case.numerics, "implicit": self.case.implicit},
             extra={
@@ -146,6 +161,7 @@ class Result:
                 "cells": self.cells,
                 "field_dtype": str(self.U.dtype),
                 "grid_quality": quality(self.grid.mesh).record(),
+                "equation_residuals": equation_residuals,
                 "bodies": [dict(zip(("cl", "cd", "cm"), b)) for b in self.forces.bodies],
                 "cl": self.forces.cl, "cd": self.forces.cd,
                 "cd_friction": self.forces.cd_friction, "cm": self.forces.cm,

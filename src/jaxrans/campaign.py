@@ -21,6 +21,7 @@ import dataclasses
 import hashlib
 import json
 import re
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -430,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
             polars, batches = {}, []
             for request in requests:
                 directory = args.out / request.name
+                source = directory
                 # Campaigns written before the machs option used the unsuffixed name.
                 if not directory.is_dir() and "_mach_" in request.name:
                     legacy = args.out / request.name.rsplit("_mach_", 1)[0]
@@ -437,12 +439,13 @@ def main(argv: list[str] | None = None) -> int:
                     if (legacy_meta.is_file() and
                             json.loads(legacy_meta.read_text())["case_setup"]["case"]["freestream"]["mach"]
                             == request.case.flow.mach):
-                        directory = legacy
-                        request = dataclasses.replace(request, name=legacy.name)
+                        source = legacy
                 if request.name in polars:
                     raise ValueError(f"duplicate resume output directory: {request.name}")
-                if directory.exists():
-                    prefix, grid = _resume_prefix(request, directory)
+                if source.exists():
+                    prefix, grid = _resume_prefix(request, source)
+                    if source != directory:
+                        shutil.copytree(source, directory)
                 else:
                     prefix, grid = [], request.case.grid()
                 preserved[request.name] = len(prefix)

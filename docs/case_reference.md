@@ -123,6 +123,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `krylov_restarts` | integer | `2` | GMRES restarts |
 | `krylov_success` | number | `0.5` | linear residual reduction for the CFL to grow |
 | `max_relative_update` | number or null | `null` | bound on a step's relative change of density, pressure and nu~ (0.2 for SA at incidence) |
+| `nonlinear_growth_limit` | number or null | `2.0` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
 
 ### `convergence`
 

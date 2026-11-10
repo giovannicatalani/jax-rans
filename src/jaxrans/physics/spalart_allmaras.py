@@ -5,7 +5,7 @@ knows about grids. The transport equation, in the conservative compressible
 form this code integrates for the fifth variable ``rho nu~``:
 
     d(rho nu~)/dt + div(rho u nu~)
-        = rho P - rho D + (1/sigma) [ div((mu + rho nu~ f_n) grad nu~)
+        = rho P - rho D + (1/sigma) [ rho div((nu + nu~ f_n) grad nu~)
                                       + c_b2 rho |grad nu~|^2 ]
 
 with, for ``nu~ >= 0`` (standard SA without the ft2 term, "SA-noft2"),
@@ -34,10 +34,10 @@ Definitions, all from the TMR SA page:
 appears here; the far-field value is ``3 nu_inf = 3 M / Re`` and the wall
 value 0.
 
-The TMR page writes the incompressible form; the conservative form above is the
-usual compressible one, with ``rho`` on every term. At M = 0.15 the two
-differ negligibly; the conservative form is the one a finite-volume code can
-discretize without a source term in ``div u``.
+The finite-volume discretization writes the material-form diffusion as a
+conservative face divergence minus
+``(nu + nu~ f_n) grad(rho) . grad(nu~) / sigma``. This identity matters when
+density varies; its discrete gradients still require a refinement study.
 
 References
 ----------
@@ -127,7 +127,7 @@ def f_v2(chi: Array, c: SAConstants = SA) -> Array:
 
 def eddy_viscosity(rho: Array, nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """``mu_t = rho nu~ f_v1(chi)``, and zero where ``nu~ < 0`` (SA-neg)."""
-    chi = nu_tilde / nu
+    chi = jnp.where(nu_tilde > 0.0, nu_tilde / nu, 0.0)
     return jnp.where(nu_tilde > 0.0, rho * nu_tilde * f_v1(chi, c), 0.0)
 
 
@@ -139,10 +139,11 @@ def s_tilde(omega: Array, nu_tilde: Array, nu: Array, d: Array, c: SAConstants =
     """
     chi = nu_tilde / nu
     s_bar = nu_tilde * f_v2(chi, c) / (c.kappa * d) ** 2
-    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / (
-        (c.c_3 - 2.0 * c.c_2) * omega - s_bar
-    )
-    return jnp.where(s_bar >= -c.c_2 * omega, omega + s_bar, clipped)
+    ordinary = s_bar >= -c.c_2 * omega
+    denominator = (c.c_3 - 2.0 * c.c_2) * omega - s_bar
+    safe = jnp.where(ordinary, 1.0, denominator)
+    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / safe
+    return jnp.where(ordinary, omega + s_bar, clipped)
 
 
 def f_w(r: Array, c: SAConstants = SA) -> Array:
@@ -188,7 +189,7 @@ def source(
     """``(P, D)`` per unit mass from ``nu~``, ``nu = mu / rho``, the vorticity
     magnitude and the wall distance; the source of ``rho nu~`` is ``rho (P - D)``."""
     positive = nu_tilde >= 0.0
-    s_t = s_tilde(omega, nu_tilde, nu, d, c)
+    s_t = s_tilde(omega, jnp.where(positive, nu_tilde, 0.0), nu, d, c)
     wall_term = (nu_tilde / d) ** 2
     production = jnp.where(positive, c.c_b1 * s_t, c.c_b1 * omega) * nu_tilde
     destruction = jnp.where(
@@ -201,7 +202,7 @@ def f_n(nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """SA-neg diffusion factor: 1 for ``nu~ >= 0``, else
     ``(c_n1 + chi^3) / (c_n1 - chi^3)``, which keeps the diffusion
     coefficient ``nu + nu~ f_n`` positive."""
-    chi3 = (nu_tilde / nu) ** 3
+    chi3 = jnp.where(nu_tilde >= 0.0, 0.0, (nu_tilde / nu) ** 3)
     return jnp.where(nu_tilde >= 0.0, 1.0, (c.c_n1 + chi3) / (c.c_n1 - chi3))
 
 

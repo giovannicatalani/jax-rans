@@ -6,6 +6,7 @@ row's residual, scaled likewise. In finite-volume form, for cell ``c`` of
 volume ``V`` (an area in 2D),
 
     R_c = sum_f [ mdot_f nu_hat_up  -  (mu + rho nu~ f_n)_f / sigma  grad(nu_hat)_f . S_f ]
+          + V (nu + nu~ f_n) / sigma grad(rho) . grad(nu_hat)
           - V rho [ P - D + (c_b2 / sigma) |grad nu~|^2 ] / nu_inf
 
 * **Convection**, first-order upwind on the mean flow's numerical mass flux
@@ -14,6 +15,8 @@ volume ``V`` (an area in 2D),
   stays conservative because the same mass flux carries the mean flow.
 * **Diffusion**, through the face gradients the viscous flux already uses, with
   the coefficient at the face from face-averaged ``rho``, ``nu~`` and ``T``.
+  The cell correction converts its conservative divergence to rho times the
+  material-form diffusion, including when rho varies.
 * **Source**, at the cell: ``P``, ``D`` from physics/spalart_allmaras.py with
   the vorticity and ``grad nu~`` from Green-Gauss over face-averaged values.
 
@@ -109,6 +112,14 @@ def vorticity(p1: Array, grid: Grid) -> Array:
     return vorticity_magnitude(green_gauss(face_averages(velocity, grid.dim), grid))
 
 
+def density_gradient_correction(rho: Array, nu_tilde: Array, mu: Array,
+                                grad_rho: Array, grad_nu_hat: Array, volume: Array,
+                                c: sa.SAConstants = sa.SA) -> Array:
+    """Residual correction for rho times material-form SA diffusion."""
+    coefficient = sa.diffusion_coefficient(rho, nu_tilde, mu, c)
+    return coefficient / rho * dot(grad_rho, grad_nu_hat) * volume
+
+
 def sa_residual(
     p1: Array,
     mass: tuple[Array, ...],
@@ -144,11 +155,14 @@ def sa_residual(
         cell[nu_row] * nu_inf, mu / rho, vorticity(p1, grid), distance, c
     )
     grad = green_gauss(face_averages(nu_hat, dim), grid)
+    grad_rho = green_gauss(face_averages(p1[RHO], dim), grid)
+    nu_tilde = cell[nu_row] * nu_inf
+    density_correction = density_gradient_correction(rho, nu_tilde, mu, grad_rho, grad, grid.volume, c)
     # Everything divided by nu_inf, the scale of the stored variable; the
     # gradient term carries nu_inf^2 / nu_inf.
     source = rho * ((production - destruction) / nu_inf
                     + c.c_b2 / c.sigma * nu_inf * dot(grad, grad))
-    return divergence(fluxes) - source * grid.volume
+    return divergence(fluxes) + density_correction - source * grid.volume
 
 
 def turbulent_conductivity(mu_t: Array, gamma: float) -> Array:

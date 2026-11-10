@@ -260,6 +260,10 @@ def test_manifest_resolves_relative_cases_and_writes_results(contraction, tmp_pa
     assert "iterations" in summary and "residual" in summary
     meta = json.loads((tmp_path / "out" / "campaign_metadata.json").read_text())
     assert meta["profiles"]["naca"]["calculated_alphas"] == [1, 0]
+    point_meta = next((tmp_path / "out" / "naca" / "alpha_+1.00").glob("*_metadata.json"))
+    equations = json.loads(point_meta.read_text())["extra"]["equation_residuals"]
+    assert set(equations) == {"mass", "momentum_x", "momentum_y", "energy"}
+    assert all(np.isfinite(row["l2_volume"]) and np.isfinite(row["linf"]) for row in equations.values())
 
 
 def test_manifest_failure_returns_one_and_retains_failed_point(contraction, tmp_path):
@@ -308,6 +312,24 @@ def test_resume_preserves_converged_points_and_extends_polar(contraction, tmp_pa
     manifest.write_text(json.dumps({"profiles": [entry]}))
     with pytest.raises(SystemExit):
         main([str(manifest), "--out", str(out), "--resume", "--quiet"])
+
+
+def test_resume_migrates_legacy_output_into_mach_directories(contraction, tmp_path):
+    manifest = tmp_path / "campaign.json"
+    entry = {"name": "naca", "case": str(ROOT / "examples/naca0012_euler"),
+             "alphas": [0], "overrides": list(SMALL)}
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    out = tmp_path / "out"
+    assert main([str(manifest), "--out", str(out), "--quiet"]) == 0
+    legacy = (out / "naca" / "polar.dat").read_bytes()
+    entry["machs"] = [0.8, 0.7]
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    assert main([str(manifest), "--out", str(out), "--resume", "--quiet"]) == 0
+    assert (out / "naca" / "polar.dat").read_bytes() == legacy
+    for mach in (0.8, 0.7):
+        directory = out / f"naca_mach_{mach}"
+        assert (directory / "polar.dat").is_file()
+        assert json.loads((directory / "polar_metadata.json").read_text())["case_setup"]["case"]["freestream"]["mach"] == mach
 
 
 @pytest.mark.parametrize("machs", [[], [0.5, 0.5], [0], [-1], [True], ["0.5"], [float("nan")], 0.5])
