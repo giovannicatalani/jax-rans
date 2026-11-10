@@ -1,6 +1,7 @@
 """Batch compatible profiles, continuing each profile through its own alpha list.
 
     python -m jaxrans.campaign campaign.json --out results/campaign
+    python -m jaxrans.campaign campaign.json --out results/campaign --resume
 
 Topology and solver configuration are static within a batch; geometry is a
 dynamic argument of the vmapped step. Angles advance in synchronized rounds.
@@ -8,6 +9,9 @@ Failed chains stop independently; finished entries are frozen between blocks.
 Each profile may specify ``machs``: a list of freestream Mach numbers, each
 run as a separate continuation in a directory named ``<name>_mach_<value>``.
 If omitted, the Mach number from the case (or its overrides) is used.
+Resume reuses saved successful points and retries the first unsuccessful point;
+profiles without saved results start from scratch. Results are written at the
+end of the campaign, so an interrupted run cannot resume its unsaved progress.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from .numerics.residual import make_residual
 from .polar import ContinuationTiming, Polar, alpha_range, at_alpha, validate_alphas
 from .post.forces import force_coefficients, integrate_forces
 from .simulation import Result, Timing, _march, cl_spread, make_stepper
-from .solvers.driver import ExitReason, run_to_steady
+from .solvers.driver import ConvergenceHistory, ExitReason, run_to_steady
 
 SUCCESS = (ExitReason.CONVERGED, ExitReason.SETTLED)
 
@@ -45,6 +49,7 @@ class PolarRequest:
     case: Case
     alphas: Sequence[float]
     grid: Atlas | None = None
+    initial: object | None = None
 
 
 @dataclass(frozen=True)
@@ -90,11 +95,11 @@ class Campaign:
                     lines.append(f"  Maximum CL/CD: {r_best.forces.cl / r_best.forces.cd:.3f} at {a_best:+g} deg")
         return "\n".join(lines)
 
-    def write(self, directory: str | Path) -> Path:
+    def write(self, directory: str | Path, *, preserve_prefix: dict[str, int] | None = None) -> Path:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         for name, polar in self.polars.items():
-            polar.write(directory / name)
+            polar.write(directory / name, preserve_prefix=(preserve_prefix or {}).get(name, 0))
         (directory / "summary.txt").write_text(self.summary() + "\n")
         (directory / "campaign_metadata.json").write_text(json.dumps({
             "mode": "continuation", "seconds": self.seconds, "batches": self.batches,
@@ -223,6 +228,13 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         states = initialize(q, geometry)   # CFL and residual control are reset at every angle.
         if previous is not None:
             states = states._replace(U=jnp.where(template.interior, previous, states.U))
+        elif any(request.initial is not None for request in requests):
+            if any(request.initial is None for request in requests):
+                raise ValueError("cannot batch resumed and fresh profiles together")
+            starts = jnp.stack([jnp.asarray(requests[k].initial) for k in indices])
+            if starts.shape != states.U.shape:
+                raise ValueError("resume field shape does not match the grid")
+            states = states._replace(U=jnp.where(template.interior, starts, states.U))
         elif case.sequencing:
             starts = []
             for k, request in enumerate(requests):
@@ -321,6 +333,62 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
 
 
+def _resume_prefix(request: PolarRequest, directory: Path) -> tuple[list[Result], Atlas]:
+    """Read the consecutive successful points and validate the saved configuration and mesh."""
+    meta = json.loads((directory / "polar_metadata.json").read_text())
+    old_setup = json.loads(json.dumps(meta["case_setup"]))
+    new_setup = json.loads(json.dumps(request.case.raw))
+    # Iteration limits and convergence tolerances may be changed for the retry.
+    old_setup["numerical"].pop("convergence", None)
+    new_setup["numerical"].pop("convergence", None)
+    if old_setup != new_setup:
+        raise ValueError(f"{directory}: saved case configuration differs from the requested case")
+    points = meta["points"]
+    old_alphas = meta["alphas"]
+    if len(points) != len(old_alphas) or old_alphas != list(request.alphas[:len(old_alphas)]):
+        raise ValueError(f"{directory}: saved angles do not match the requested sequence")
+    grid = request.case.grid()
+    results = []
+    names = [f"alpha_{a:+.2f}" for a in old_alphas]
+    unique = len(set(names)) == len(names)
+    for k, (alpha, point) in enumerate(zip(old_alphas, points)):
+        if point["exit_reason"] not in SUCCESS:
+            break
+        folder = directory / (names[k] if unique else f"point_{k:04d}_alpha_{alpha:+.8g}")
+        def one(suffix):
+            matches = list(folder.glob(f"*{suffix}"))
+            if len(matches) != 1:
+                raise ValueError(f"{folder}: expected one {suffix} file, found {len(matches)}")
+            return matches[0]
+        saved = json.loads(one("_metadata.json").read_text())
+        with np.load(one("_fields.npz"), allow_pickle=False) as fields:
+            if int(fields["n_blocks"]) != len(grid.mesh):
+                raise ValueError(f"{folder}: saved mesh has a different number of blocks")
+            blocks = []
+            for i, mesh in enumerate(grid.mesh):
+                for axis, nodes in zip("xyz", mesh.nodes):
+                    if not np.array_equal(fields[f"{axis}_node_{i}"], np.asarray(nodes)):
+                        raise ValueError(f"{folder}: saved mesh differs from the requested mesh")
+                blocks.append(jnp.asarray(fields[f"U_{i}"]))
+            U = grid.pack(blocks)
+        if not np.all(np.isfinite(np.asarray(U))):
+            raise ValueError(f"{folder}: saved field contains non-finite values")
+        residual = np.loadtxt(one("_residual.dat"), ndmin=2)[:, 1]
+        lift = np.loadtxt(one("_lift.dat"), ndmin=2)[:, 1]
+        extra = saved["extra"]
+        timing_data = extra["timing"]
+        timing = Timing(timing_data["total_s"], timing_data["compile_s"] +
+                        request.case.block_iters * timing_data["per_iteration_s"],
+                        point["iterations"], request.case.block_iters, grid.cells,
+                        cases=timing_data["cases"], devices=timing_data["devices"])
+        history = ConvergenceHistory(residual, point["exit_reason"], point["iterations"], timing.total,
+                                     timing.first_block)
+        case = at_alpha(request.case, alpha)
+        results.append(Result(case, grid, U, integrate_forces(U, grid, case.flow,
+                              case.grid_spec.force_reference()), history, lift, timing))
+    return results, grid
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("manifest", type=Path)
@@ -328,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int)
     parser.add_argument("--devices", type=int)
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="resume from saved successful points in --out")
     args = parser.parse_args(argv)
     try:
         doc = json.loads(args.manifest.read_text())
@@ -354,10 +423,51 @@ def main(argv: list[str] | None = None) -> int:
         def progress(name, alpha, iteration, cl, residual):
             print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} CL {cl:+.6f}", flush=True)
 
-        campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
-                                devices=args.devices if args.devices is not None else doc.get("devices"),
-                                progress_with_residual=None if args.quiet else progress)
-        out = campaign.write(args.out)
+        devices = args.devices if args.devices is not None else doc.get("devices")
+        preserved = {}
+        if args.resume:
+            begun = time.perf_counter()
+            polars, batches = {}, []
+            for request in requests:
+                directory = args.out / request.name
+                # Campaigns written before the machs option used the unsuffixed name.
+                if not directory.is_dir() and "_mach_" in request.name:
+                    legacy = args.out / request.name.rsplit("_mach_", 1)[0]
+                    legacy_meta = legacy / "polar_metadata.json"
+                    if (legacy_meta.is_file() and
+                            json.loads(legacy_meta.read_text())["case_setup"]["case"]["freestream"]["mach"]
+                            == request.case.flow.mach):
+                        directory = legacy
+                        request = dataclasses.replace(request, name=legacy.name)
+                if request.name in polars:
+                    raise ValueError(f"duplicate resume output directory: {request.name}")
+                if directory.exists():
+                    prefix, grid = _resume_prefix(request, directory)
+                else:
+                    prefix, grid = [], request.case.grid()
+                preserved[request.name] = len(prefix)
+                remaining = tuple(request.alphas[len(prefix):])
+                if remaining:
+                    retry = dataclasses.replace(request, alphas=remaining, grid=grid,
+                                                initial=prefix[-1].U if prefix else None)
+                    new = run_campaign([retry], devices=devices,
+                                       progress_with_residual=None if args.quiet else progress)
+                    tail = new.polars[request.name]
+                    batches.extend(new.batches)
+                    rows = prefix + tail.results
+                    elapsed = sum(r.seconds for r in prefix) + tail.timing.total
+                else:
+                    rows = prefix
+                    elapsed = sum(r.seconds for r in prefix)
+                timing = ContinuationTiming(elapsed, sum(r.history.n_iters for r in rows),
+                                            devices=devices or 1)
+                polars[request.name] = Polar(request.case, np.asarray(request.alphas[:len(rows)]), rows,
+                                             timing, mode="continuation", requested_alphas=tuple(request.alphas))
+            campaign = Campaign(polars, tuple(batches), time.perf_counter() - begun)
+        else:
+            campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
+                                    devices=devices, progress_with_residual=None if args.quiet else progress)
+        out = campaign.write(args.out, preserve_prefix=preserved)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")
     print(campaign.summary())

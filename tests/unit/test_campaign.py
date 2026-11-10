@@ -276,6 +276,50 @@ def test_manifest_failure_returns_one_and_retains_failed_point(contraction, tmp_
     assert "max_iters" in summary and "maximum CL" not in summary
 
 
+def test_manifest_machs_override_case_and_create_separate_polars(contraction, tmp_path):
+    manifest = tmp_path / "campaign.json"
+    manifest.write_text(json.dumps({"profiles": [{
+        "name": "naca", "case": str(ROOT / "examples/naca0012_euler"), "alphas": [0, 1],
+        "machs": [0.5, 0.7], "overrides": list(SMALL) + ["case.freestream.mach=0.6"]}]}))
+    assert main([str(manifest), "--out", str(tmp_path / "out"), "--quiet"]) == 0
+    for mach in (0.5, 0.7):
+        meta = json.loads((tmp_path / "out" / f"naca_mach_{mach}" / "polar_metadata.json").read_text())
+        assert meta["case_setup"]["case"]["freestream"]["mach"] == mach
+        assert meta["alphas"] == [0, 1]
+
+
+def test_resume_preserves_converged_points_and_extends_polar(contraction, tmp_path):
+    manifest = tmp_path / "campaign.json"
+    entry = {"name": "naca", "case": str(ROOT / "examples/naca0012_euler"),
+             "alphas": [0], "overrides": list(SMALL)}
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    out = tmp_path / "out"
+    assert main([str(manifest), "--out", str(out), "--quiet"]) == 0
+    point = out / "naca" / "alpha_+0.00"
+    original = {p.name: p.read_bytes() for p in point.iterdir()}
+    entry["alphas"] = [0, 1]
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    assert main([str(manifest), "--out", str(out), "--resume", "--quiet"]) == 0
+    assert original == {p.name: p.read_bytes() for p in point.iterdir()}
+    meta = json.loads((out / "naca" / "polar_metadata.json").read_text())
+    assert meta["alphas"] == [0, 1]
+    assert meta["points"][1]["initial_alpha"] == 0
+    entry["overrides"] = list(SMALL) + ["case.freestream.mach=0.6"]
+    manifest.write_text(json.dumps({"profiles": [entry]}))
+    with pytest.raises(SystemExit):
+        main([str(manifest), "--out", str(out), "--resume", "--quiet"])
+
+
+@pytest.mark.parametrize("machs", [[], [0.5, 0.5], [0], [-1], [True], ["0.5"], [float("nan")], 0.5])
+def test_manifest_rejects_invalid_machs(tmp_path, machs):
+    manifest = tmp_path / "campaign.json"
+    manifest.write_text(json.dumps({"profiles": [{"name": "naca", "case": "unused", "alphas": [0],
+                                                    "machs": machs}]}))
+    with pytest.raises(SystemExit) as error:
+        main([str(manifest), "--out", str(tmp_path / "out")])
+    assert error.value.code == 2
+
+
 def test_manifest_does_not_ignore_invalid_cli_batch_size(tmp_path):
     manifest = tmp_path / "campaign.json"
     manifest.write_text(json.dumps({"batch_size": 2, "profiles": [
