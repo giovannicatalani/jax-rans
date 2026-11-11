@@ -217,7 +217,7 @@ def _equation_norms(case: Case, template: Atlas, U, q, g):
 
 
 def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
-               progress_with_coefficients=None) -> list[Polar]:
+               progress_with_coefficients=None, progress_with_equation_residuals=None) -> list[Polar]:
     case, template = requests[0].case, grids[0]
     diagnostics = case.numerics.diagnostics and case.numerics.solver == "implicit"
     step_options = {"diagnostics": True} if diagnostics else {}
@@ -302,7 +302,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
             values = np.asarray(monitor(carry[0].U, carry[1], carry[2]))
             samples.append(values)
-            if progress is not None or progress_with_residual is not None or progress_with_coefficients is not None:
+            if (progress is not None or progress_with_residual is not None or progress_with_coefficients is not None
+                    or progress_with_equation_residuals is not None):
                 for k, request in enumerate(requests):
                     if active[k]:
                         args = (request.name, float(angles[k]), (b + 1) * case.block_iters, float(values[k, 0]))
@@ -313,6 +314,11 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
                         if progress_with_coefficients is not None:
                             progress_with_coefficients(*args, float(residuals[-1, k]),
                                                        float(values[k, 1]), float(values[k, 2]))
+                        if progress_with_equation_residuals is not None:
+                            progress_with_equation_residuals(
+                                *args, float(values[k, 1]), float(values[k, 2]),
+                                tuple(zip(equation_labels(len(equation_values[k]), template.components),
+                                           np.asarray(equation_values[k], dtype=float))))
             histories = np.asarray(samples)
             records = [convergence_record(equation_values[k], equation_peak[k], histories[:, k], case.numerics,
                                              names=equation_labels(equation_values.shape[-1], template.components))
@@ -362,7 +368,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
 
 
 def _run_adaptive(request, grid, geometry, devices, progress, progress_with_residual,
-                  on_point, on_attempt, saved=(), progress_with_coefficients=None):
+                  on_point, on_attempt, saved=(), progress_with_coefficients=None,
+                  progress_with_equation_residuals=None):
     """Replay a deterministic attempt log, then continue from its validated frontier."""
     policy = request.continuation
     attempts, rows = [], []
@@ -388,7 +395,8 @@ def _run_adaptive(request, grid, geometry, devices, progress, progress_with_resi
                                           initial=source.U if source is not None else (request.initial if index == 0 else None),
                                           continuation=ContinuationPolicy())
                 result = _run_group([one], [grid], [geometry], devices, progress, progress_with_residual,
-                                    progress_with_coefficients=progress_with_coefficients)[0].results[0]
+                                    progress_with_coefficients=progress_with_coefficients,
+                                    progress_with_equation_residuals=progress_with_equation_residuals)[0].results[0]
                 result = dataclasses.replace(result, provenance=provenance)
                 if on_attempt is not None:
                     on_attempt(request.name, candidate, result)
@@ -428,6 +436,7 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                  progress: Callable[[str, float, int, float], None] | None = None,
                  progress_with_residual: Callable[[str, float, int, float, float], None] | None = None,
                  on_point=None, on_group=None, on_attempt=None, progress_with_coefficients=None,
+                 progress_with_equation_residuals=None,
                  continuation: ContinuationPolicy | None = None,
                  resume_attempts: dict[str, Sequence[Result]] | None = None) -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
@@ -439,6 +448,8 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
     Progress_with_residual receives the same arguments followed by the last
     residual norm in the block. ``progress_with_coefficients`` receives those
     arguments followed by drag CD (Cx in wind axes) and pitching moment CM.
+    ``progress_with_equation_residuals`` receives those coefficient arguments
+    followed by normalized equation residuals.
     """
     requests = list(requests)
     if continuation is not None:
@@ -475,10 +486,10 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                 computed = [_run_adaptive(reqs[0], grids[0], geometries[0], devices, progress,
                                           progress_with_residual, on_point, on_attempt,
                                           (resume_attempts or {}).get(reqs[0].name, ()),
-                                          progress_with_coefficients)]
+                                          progress_with_coefficients, progress_with_equation_residuals)]
             else:
                 computed = _run_group(reqs, grids, geometries, devices, progress, progress_with_residual, on_point,
-                                      progress_with_coefficients)
+                                      progress_with_coefficients, progress_with_equation_residuals)
             for request, polar in zip(reqs, computed):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
@@ -686,8 +697,11 @@ def main(argv: list[str] | None = None) -> int:
                 case = load_case(path, overrides + (f"case.freestream.mach={float(mach)!r}",))
                 requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles, continuation=policy))
 
-        def progress(name, alpha, iteration, cl, residual, cd, cm):
-            print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} "
+        def progress(name, alpha, iteration, cl, cd, cm, equation_residuals):
+            residuals = " ".join(f"R{label} {value:.3e}"
+                                  for label, value in equation_residuals
+                                  if label != "sa")
+            print(f"{name} alpha {alpha:+g}: {iteration:8d} {residuals} "
                   f"CL {cl:+.6f} Cx(CD) {cd:+.6f} Cm {cm:+.6f}", flush=True)
 
         def announce(requests):
@@ -824,7 +838,7 @@ def main(argv: list[str] | None = None) -> int:
                 if request.continuation.adaptive:
                     request, saved = _adaptive_resume(request, directory, True)
                     new = run_campaign([request], devices=devices,
-                                       progress_with_coefficients=None if args.quiet else progress,
+                                       progress_with_equation_residuals=None if args.quiet else progress,
                                        on_attempt=save_attempt,
                                        resume_attempts={request.name: saved},
                                        on_group=None if args.quiet else announce)
@@ -866,7 +880,7 @@ def main(argv: list[str] | None = None) -> int:
                     retry = dataclasses.replace(request, alphas=remaining, grid=grid,
                                                 initial=prefix[-1].U if prefix else None)
                     new = run_campaign([retry], devices=devices,
-                                       progress_with_coefficients=None if args.quiet else progress, on_point=save_point,
+                                       progress_with_equation_residuals=None if args.quiet else progress, on_point=save_point,
                                        on_group=None if args.quiet else announce)
                     tail = new.polars[request.name]
                     batches.extend(new.batches)
@@ -887,7 +901,7 @@ def main(argv: list[str] | None = None) -> int:
                 elif (args.out / request.name / "continuation.json").exists():
                     raise ValueError("adaptive output requires its continuation policy")
             campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
-                                    devices=devices, progress_with_coefficients=None if args.quiet else progress,
+                                    devices=devices, progress_with_equation_residuals=None if args.quiet else progress,
                                     on_point=save_point, on_group=None if args.quiet else announce,
                                     on_attempt=save_attempt)
         refresh_attempts()

@@ -8,7 +8,8 @@
       "machs": [0.1],
       "overrides": [
         "numerical.convergence.diagnostics=true",
-        "numerical.convergence.forces_tol=0.0001",
+        "numerical.convergence.forces_tol=0.000001",
+        "numerical.convergence.equation_abs_tols={\"mass\":1e-7,\"momentum_x\":1e-7,\"momentum_y\":3e-7,\"energy\":1e-7}",
         "case.freestream.sweep_deg=0.0",
         "case.general.precision=fp64"
       ],
