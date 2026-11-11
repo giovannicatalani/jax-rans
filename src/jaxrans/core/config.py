@@ -208,12 +208,15 @@ class ImplicitConfig:
     krylov_subspace: int = 10
     krylov_restarts: int = 2
     krylov_success: float = 0.5
+    krylov_min_progress: float = 1.0e-6
     max_relative_update: float | None = None
     nonlinear_growth_limit: float | None = None
     nonlinear_merit: str = "mass"
     backtracking_steps: int = 0
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.krylov_min_progress) or not 0 <= self.krylov_min_progress < 1:
+            raise ValueError("krylov_min_progress must be finite and in [0, 1)")
         if self.nonlinear_merit not in ("mass", "equations"):
             raise ValueError("nonlinear_merit must be 'mass' or 'equations'")
         if type(self.backtracking_steps) is not int or not 0 <= self.backtracking_steps <= 16:

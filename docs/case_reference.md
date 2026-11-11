@@ -22,6 +22,10 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `grid` | string | required | all | where the grid comes from: generated round one airfoil (`o_grid`, `c_grid`) or round a slat, main element and flap (`multi_element`), or read from a file; one of `c_grid`, `file`, `multi_element`, `o_grid` |
 | `airfoil` | string | required | `o_grid`, `c_grid` | `naca` + 4 digits (closed trailing edge; `naca0012_blunt` for the standard open one), or a coordinate file (Selig, Lednicer, two columns or a one-element `.hug`), scaled to unit chord |
 | `cells_airfoil` | integer | required | `o_grid`, `c_grid` | cells round the airfoil |
+| `airfoil_smoothing` | number | `0.0` | `o_grid`, `c_grid` | optional contour regularization: maximum continuous displacement in chords; 0 preserves the original interpolation. Fixes LE/TE endpoints and constrains derivatives; inspect geometry changes before CFD (docs/airfoil-regularization.md) |
+| `airfoil_smoothing_method` | string | `parametric` | `o_grid`, `c_grid` | contour regularizer: parametric fairing, C4 B-spline, or global geometric curvature fitting with bounded displacement; one of `parametric`, `bspline`, `curvature` |
+| `airfoil_smoothing_points` | integer | `96` | `o_grid`, `c_grid` | number of quintic B-spline control points for curvature fitting (>=12); incompatible fidelity/complexity bounds raise an error |
+| `airfoil_smoothing_radius_tol` | number | `0.1` | `o_grid`, `c_grid` | maximum relative change of nose radius for curvature fitting, in [0,1); 0 fixes it; 0.1 permits +/-10% |
 | `cells_wake` | integer | required | `c_grid` | cells along each side of the wake cut |
 | `cells_normal` | integer | required | `o_grid`, `c_grid` | cells from the wall to the far field |
 | `wall_spacing` | number | required | `o_grid`, `c_grid`, `multi_element` | first-cell height, chords; for y+ ~ 1 see docs/own-airfoil.md |
@@ -123,6 +127,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `krylov_subspace` | integer | `10` | GMRES vectors before a restart |
 | `krylov_restarts` | integer | `2` | GMRES restarts |
 | `krylov_success` | number | `0.5` | linear residual reduction for the CFL to grow |
+| `krylov_min_progress` | number | `1e-06` | minimum useful relative linear-residual decrease, scaled by damping; below this reject the correction and reduce CFL, including after FP64 fallback; 0 restores strict decrease only; does not change convergence tolerances |
 | `max_relative_update` | number or null | `null` | bound on a step's relative change of density, pressure and nu~ (0.2 for SA at incidence) |
 | `nonlinear_growth_limit` | number or null | `null` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
 | `nonlinear_merit` | string | `mass` | nonlinear acceptance merit: mass residual or maximum normalized equation residual; one of `mass`, `equations` |

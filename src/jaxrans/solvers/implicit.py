@@ -56,6 +56,7 @@ class NewtonDiagnostics(NamedTuple):
     nonlinear_ratio: Array
     backtracks: Array
     linear_fp64_fallback: Array
+    linear_stagnated: Array
 
 
 def initial_state(
@@ -167,7 +168,8 @@ def make_newton_step(
             # The margin rejects FP32 stagnation without demanding a large gain.
             linear_fp64_fallback = (
                 ~jnp.all(jnp.isfinite(dU)) | ~jnp.isfinite(solved_size)
-                | ((initial_size > 0) & (solved_size >= (1. - 1e-8) * initial_size))
+                | ((initial_size > 0) &
+                   (solved_size >= (1. - max(1e-8, config.krylov_min_progress)) * initial_size))
             )
             # A per-case cond becomes an eager select under vmap, executing
             # both solves even for a one-case campaign. A bounded while skips
@@ -211,7 +213,12 @@ def make_newton_step(
             candidate = U + factor * dU
             physical = jnp.all(is_physical(candidate, gamma, operator.components)) & correction_finite
             reduction = linear_ratio(factor)
-            accept = physical & (reduction < 1.)
+            # Scale the required gain with damping: a useful direction may
+            # legitimately need a tiny physical step. Undamped near-null
+            # solves (including failed FP64 retries) must instead cut CFL.
+            required_gain = (jnp.asarray(config.krylov_min_progress, jnp.float64)
+                             * omega.astype(jnp.float64) * factor)
+            accept = physical & (reduction < 1. - required_gain)
             ratio = jnp.asarray(jnp.nan, jnp.float64)
             if growth_limit is not None:
                 nonlinear = jax.lax.cond(
@@ -259,7 +266,9 @@ def make_newton_step(
                 accept & jnp.any(candidate != U),
                 jnp.min(jnp.where(mask, rho, jnp.inf)),
                 jnp.min(jnp.where(mask, pressure, jnp.inf)), nonlinear_ratio, backtracks,
-                linear_fp64_fallback)
+                linear_fp64_fallback,
+                jnp.isfinite(linear_reduction) &
+                (linear_reduction >= 1. - config.krylov_min_progress * omega.astype(jnp.float64)))
         return updated, norm
 
     return step

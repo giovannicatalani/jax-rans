@@ -113,6 +113,18 @@ Results go to `<case>/results/<case_name>/`, or to `--out`:
 Mach and Cp fields, wall Cp and Cf, convergence. It only reads these files,
 so you can plot results copied back from a cluster without a GPU.
 
+For a campaign containing several Mach/profile directories, pass the campaign
+directory itself:
+
+```bash
+python -m jaxrans.plot results/rae2822_mixed_optim_diag
+```
+
+This writes `polar.png` and `cp_family.png` into each saved profile's
+`figures/` directory. Use `--out DIR` to collect them under `DIR/<profile>/`.
+To draw field maps and convergence for a particular angle, pass its
+`alpha_...` directory instead.
+
 `U` is conservative, `(rho, rho u, rho v, E)`, plus `rho nu~ / nu_inf` with
 SA. Everything is nondimensional, based on freestream density, freestream
 speed of sound and the chord, so the freestream is `rho = 1`,

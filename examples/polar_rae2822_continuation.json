@@ -4,14 +4,18 @@
     {
       "name": "rae2822_transonic_sa",
       "case": "rae2822_sensitivity",
-      "machs": [0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.65, 0.675, 0.7, 0.71,  0.72, 0.725, 0.73, 0.735, 0.745, 0.75, 0.76, 0.77, 0.78],
-      "machs__": [0.1],
+      "machs__": [0.1, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.65, 0.675, 0.7, 0.71,  0.72, 0.725, 0.73, 0.735, 0.745, 0.75, 0.76, 0.77, 0.78],
+      "machs": [0.7],
       "overrides": [
         "numerical.convergence.diagnostics=true",
         "numerical.convergence.forces_tol=0.00001",
         "numerical.convergence.equation_abs_tols={\"mass\":2e-6,\"momentum_x\":2e-6,\"momentum_y\":2e-6,\"momentum_z\":2e-6,\"energy\":2e-6,\"sa\":2e-6}",
         "case.freestream.sweep_deg=0.0",
-        "case.general.precision=mixed"
+        "case.general.precision=mixed",
+        "case.domain.airfoil_smoothing_method=curvature",
+        "case.domain.airfoil_smoothing=0.0001",
+        "case.domain.airfoil_smoothing_points=96",
+        "case.domain.airfoil_smoothing_radius_tol=0.1"
       ],
       "alpha": [-3, 6, 0.5]
     }

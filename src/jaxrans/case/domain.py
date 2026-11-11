@@ -34,6 +34,10 @@ class GridSpec:
 
     grid: str = "c_grid"
     airfoil: str | None = None
+    airfoil_smoothing: float = 0.0
+    airfoil_smoothing_method: str = "parametric"
+    airfoil_smoothing_points: int = 96
+    airfoil_smoothing_radius_tol: float = 0.1
     cells_airfoil: int | None = None
     cells_wake: int | None = None
     cells_normal: int | None = None
@@ -57,6 +61,17 @@ class GridSpec:
     moment_centre: tuple[float, ...] = (0.25, 0.0, 0.0)
     section: str = "streamwise"
     base_blocks: bool = False
+
+    def __post_init__(self):
+        if not np.isfinite(self.airfoil_smoothing) or self.airfoil_smoothing < 0:
+            raise ValueError("airfoil_smoothing must be finite and nonnegative")
+        if self.airfoil_smoothing_method not in ("parametric", "bspline", "curvature"):
+            raise ValueError("unknown airfoil smoothing method")
+        if (isinstance(self.airfoil_smoothing_points, bool)
+                or not isinstance(self.airfoil_smoothing_points, int) or self.airfoil_smoothing_points < 12):
+            raise ValueError("airfoil_smoothing_points must be an integer >= 12")
+        if not np.isfinite(self.airfoil_smoothing_radius_tol) or not 0 <= self.airfoil_smoothing_radius_tol < 1:
+            raise ValueError("airfoil_smoothing_radius_tol must lie in [0, 1)")
 
     def force_reference(self) -> ForceReference:
         return ForceReference(self.reference_length, self.reference_area, tuple(self.moment_centre))
@@ -92,6 +107,23 @@ class GridSpec:
         if self.trailing_edge == "close" and not airfoil.sharp:
             notes.append(f"trailing-edge gap {airfoil.trailing_edge_gap:.3g} closed")
             airfoil = airfoil.closed()
+        if self.airfoil_smoothing:
+            from ..geometry.regularize import regularize_airfoil
+
+            airfoil, report = regularize_airfoil(airfoil, self.airfoil_smoothing,
+                                                method=self.airfoil_smoothing_method,
+                                                control_points=self.airfoil_smoothing_points,
+                                                radius_tolerance=self.airfoil_smoothing_radius_tol)
+            notes.append(f"airfoil regularization ({self.airfoil_smoothing_method}): "
+                         f"budget {self.airfoil_smoothing:g} c, "
+                         f"continuous displacement bound {report['deviation_bound']:.6g} c, "
+                         f"LE radius {report['before']['leading_edge_radius']:.6g} -> "
+                         f"{report['after']['leading_edge_radius']:.6g} c")
+            if self.airfoil_smoothing_method == "curvature":
+                notes.append(f"curvature fit: {self.airfoil_smoothing_points} control points, "
+                             f"nose-radius relative bound {self.airfoil_smoothing_radius_tol:g}, "
+                             f"RMS displacement {report['rms_deviation']:.6g} c, "
+                             "trailing-edge tangents preserved")
         if self.grid == "c_grid" and not airfoil.sharp:
             notes.append("blunt trailing edge: base and wake blocks")
         return airfoil, notes

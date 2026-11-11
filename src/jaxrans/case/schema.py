@@ -85,6 +85,20 @@ CASE: dict[str, tuple[Key, ...]] = {
             "standard open one), or a coordinate file (Selig, Lednicer, two columns or a one-element `.hug`), scaled to unit chord",
             grids=GENERATED, required_for=GENERATED),
         Key("cells_airfoil", "integer", None, "cells round the airfoil", grids=GENERATED, required_for=GENERATED),
+        Key("airfoil_smoothing", "number", 0.0,
+            "optional contour regularization: maximum continuous displacement in chords; "
+            "0 preserves the original interpolation. Fixes LE/TE endpoints and constrains derivatives; "
+            "inspect geometry changes before CFD (docs/airfoil-regularization.md)", grids=GENERATED),
+        Key("airfoil_smoothing_method", "string", "parametric",
+            "contour regularizer: parametric fairing, C4 B-spline, or global geometric "
+            "curvature fitting with bounded displacement",
+            choices=("parametric", "bspline", "curvature"), grids=GENERATED),
+        Key("airfoil_smoothing_points", "integer", 96,
+            "number of quintic B-spline control points for curvature fitting (>=12); "
+            "incompatible fidelity/complexity bounds raise an error", grids=GENERATED),
+        Key("airfoil_smoothing_radius_tol", "number", 0.1,
+            "maximum relative change of nose radius for curvature fitting, in [0,1); "
+            "0 fixes it; 0.1 permits +/-10%", grids=GENERATED),
         Key("cells_wake", "integer", None, "cells along each side of the wake cut",
             grids=("c_grid",), required_for=("c_grid",)),
         Key("cells_normal", "integer", None, "cells from the wall to the far field",
@@ -195,6 +209,10 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
         Key("krylov_subspace", "integer", _I.krylov_subspace, "GMRES vectors before a restart"),
         Key("krylov_restarts", "integer", _I.krylov_restarts, "GMRES restarts"),
         Key("krylov_success", "number", _I.krylov_success, "linear residual reduction for the CFL to grow"),
+        Key("krylov_min_progress", "number", _I.krylov_min_progress,
+            "minimum useful relative linear-residual decrease, scaled by damping; "
+            "below this reject the correction and reduce CFL, including after FP64 fallback; "
+            "0 restores strict decrease only; does not change convergence tolerances"),
         Key("max_relative_update", "number|null", _I.max_relative_update, "bound on a step's relative change "
             "of density, pressure and nu~ (0.2 for SA at incidence)"),
         Key("nonlinear_growth_limit", "number|null", _I.nonlinear_growth_limit,
