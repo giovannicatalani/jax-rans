@@ -404,7 +404,7 @@ def adaptive_solver(cases, grids, contraction, monkeypatch):
     settings = {"jump": 1.1, "cold_fail": set()}
 
     def group(requests, grids, geometries, devices, progress, detailed, on_point=None,
-              progress_with_coefficients=None):
+              progress_with_coefficients=None, progress_with_equation_residuals=None, _kernels=None):
         request = requests[0]
         alpha = float(request.alphas[0])
         initial = None if request.initial is None else np.asarray(request.initial)

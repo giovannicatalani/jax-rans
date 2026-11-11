@@ -152,16 +152,16 @@ def make_newton_step(
             return gmres_right(
                 matvec, -residual, prepare(state_u, speeds, step_cfl),
                 restart=config.krylov_subspace, maxiter=config.krylov_restarts,
-                tol=config.krylov_tol, basis_dtype=basis_dtype,
+                tol=config.krylov_tol, basis_dtype=basis_dtype, return_action=True,
             )
 
         linear_fp64_fallback = jnp.asarray(False)
         if mixed_precision:
-            dU = solve(prepare_low, U.astype(jnp.float32),
+            dU, solved_action = solve(prepare_low, U.astype(jnp.float32),
                        tuple(lam.astype(jnp.float32) for lam in lambdas),
                        cfl.astype(jnp.float32), basis_dtype=jnp.float32)
             initial_size = l2_norm(residual, dtype=jnp.float64)
-            solved_size = l2_norm(matvec(dU) + residual, dtype=jnp.float64)
+            solved_size = l2_norm(solved_action + residual, dtype=jnp.float64)
             # Require only a measurable decrease, not the requested Krylov
             # tolerance: a useful inexact Newton direction need not meet it.
             # The margin rejects FP32 stagnation without demanding a large gain.
@@ -173,13 +173,13 @@ def make_newton_step(
             # both solves even for a one-case campaign. A bounded while skips
             # FP64 factorization when no case needs it; vmap masks inactive
             # cases if another case does require the fallback.
-            _, dU = jax.lax.while_loop(
+            _, (dU, solved_action) = jax.lax.while_loop(
                 lambda carry: linear_fp64_fallback & (carry[0] < 1),
                 lambda carry: (carry[0] + 1, solve(prepare_preconditioner, U, lambdas, cfl)),
-                (jnp.asarray(0, jnp.int32), dU),
+                (jnp.asarray(0, jnp.int32), (dU, solved_action)),
             )
         else:
-            dU = solve(prepare_preconditioner, U, lambdas, cfl)
+            dU, solved_action = solve(prepare_preconditioner, U, lambdas, cfl)
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
         dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
@@ -189,7 +189,9 @@ def make_newton_step(
         # update that leaves the residual unchanged, which looks like success.
         # Keep the scalar decision in double: casting both norms to FP32
         # first can turn a real decrease into exactly 1 and reject the step.
-        action = matvec(dU)
+        # An amortized correction requires a fresh action to preserve rounding
+        # and acceptance decisions; the unmodified direction can reuse GMRES.
+        action = matvec(dU) if config.max_relative_update is not None else solved_action
         residual_size = jnp.maximum(l2_norm(residual, dtype=jnp.float64), floor_like(residual))
 
         def linear_ratio(factor):

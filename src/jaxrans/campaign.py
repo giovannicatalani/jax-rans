@@ -216,15 +216,10 @@ def _equation_norms(case: Case, template: Atlas, U, q, g):
                          distance=g["distance"]).equation_norms(U)
 
 
-def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
-               progress_with_coefficients=None, progress_with_equation_residuals=None) -> list[Polar]:
-    case, template = requests[0].case, grids[0]
+def _campaign_kernels(case, template):
+    """Build once per compatible group, including all adaptive attempts."""
     diagnostics = case.numerics.diagnostics and case.numerics.solver == "implicit"
     step_options = {"diagnostics": True} if diagnostics else {}
-    use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
-    n = len(requests)
-    indices = list(range(n)) + [n - 1] * (-n % len(use))
-    geometry = jax.tree_util.tree_map(lambda *a: jnp.stack(a), *(geometries[k] for k in indices))
 
     def initial(q, g):
         return make_stepper(case, _with_geometry(template, g), freestream=q, distance=g["distance"])[1]
@@ -247,8 +242,6 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         c = force_coefficients(U, _with_geometry(template, g), case.flow, reference, freestream=q)
         return jnp.stack([c["cl"], c["cd"], c["cm"]])
 
-    monitor = jax.jit(jax.vmap(coefficients))
-
     equation_monitor = jax.jit(jax.vmap(lambda U, q, g: _equation_norms(case, template, U, q, g)))
 
     def detailed_norms(U, q, g):
@@ -256,7 +249,26 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         operator = make_residual(atlas, case.flow, case.numerics, freestream=q, distance=g["distance"])
         return operator.equation_diagnostics(U)
 
-    detailed_monitor = jax.jit(jax.vmap(detailed_norms)) if case.numerics.diagnostics else None
+    def monitored(U, q, g):
+        details = detailed_norms(U, q, g) if case.numerics.diagnostics else None
+        equations = details["l2_volume"] if details is not None else _equation_norms(case, template, U, q, g)
+        return equations, coefficients(U, q, g), details
+
+    monitor = jax.jit(jax.vmap(monitored))
+    return initialize, step, equation_monitor, monitor
+
+
+def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
+               progress_with_coefficients=None, progress_with_equation_residuals=None, _kernels=None) -> list[Polar]:
+    case, template = requests[0].case, grids[0]
+    diagnostics = case.numerics.diagnostics and case.numerics.solver == "implicit"
+    use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
+    n = len(requests)
+    indices = list(range(n)) + [n - 1] * (-n % len(use))
+    geometry = jax.tree_util.tree_map(lambda *a: jnp.stack(a), *(geometries[k] for k in indices))
+
+    initialize, step, equation_monitor, monitor = (
+        _campaign_kernels(case, template) if _kernels is None else _kernels)
     results = [[] for _ in requests]
     alive = np.ones(n, dtype=bool)
     previous = None
@@ -295,12 +307,9 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
 
         def on_block(b, carry, residuals):
             nonlocal equation_peak
-            detailed_values = (jax.tree_util.tree_map(np.asarray, detailed_monitor(carry[0].U, carry[1], carry[2]))
-                               if detailed_monitor is not None else None)
-            equation_values = (detailed_values["l2_volume"] if detailed_values is not None
-                               else np.asarray(equation_monitor(carry[0].U, carry[1], carry[2])))
+            equation_values, values, detailed_values = jax.tree_util.tree_map(
+                np.asarray, monitor(carry[0].U, carry[1], carry[2]))
             equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
-            values = np.asarray(monitor(carry[0].U, carry[1], carry[2]))
             samples.append(values)
             if (progress is not None or progress_with_residual is not None or progress_with_coefficients is not None
                     or progress_with_equation_residuals is not None):
@@ -374,6 +383,7 @@ def _run_adaptive(request, grid, geometry, devices, progress, progress_with_resi
     policy = request.continuation
     attempts, rows = [], []
     validated = None
+    kernels = None
     for index, target in enumerate(request.alphas):
         candidate = float(target)
         target_result = None
@@ -394,9 +404,12 @@ def _run_adaptive(request, grid, geometry, devices, progress, progress_with_resi
                 one = dataclasses.replace(request, alphas=(candidate,),
                                           initial=source.U if source is not None else (request.initial if index == 0 else None),
                                           continuation=ContinuationPolicy())
+                if kernels is None:
+                    kernels = _campaign_kernels(request.case, grid)
                 result = _run_group([one], [grid], [geometry], devices, progress, progress_with_residual,
                                     progress_with_coefficients=progress_with_coefficients,
-                                    progress_with_equation_residuals=progress_with_equation_residuals)[0].results[0]
+                                    progress_with_equation_residuals=progress_with_equation_residuals,
+                                    _kernels=kernels)[0].results[0]
                 result = dataclasses.replace(result, provenance=provenance)
                 if on_attempt is not None:
                     on_attempt(request.name, candidate, result)
@@ -698,9 +711,9 @@ def main(argv: list[str] | None = None) -> int:
                 requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles, continuation=policy))
 
         def progress(name, alpha, iteration, cl, cd, cm, equation_residuals):
-            residuals = " ".join(f"R{label} {value:.3e}"
-                                  for label, value in equation_residuals
-                                  if label != "sa")
+            residuals = " ".join(
+                f"R{label} {value:.3e}" for label, value in equation_residuals
+            )
             print(f"{name} alpha {alpha:+g}: {iteration:8d} {residuals} "
                   f"CL {cl:+.6f} Cx(CD) {cd:+.6f} Cm {cm:+.6f}", flush=True)
 
