@@ -12,11 +12,13 @@ from jaxrans.mesh.atlas import build_atlas
 from jaxrans.mesh.block import Grid
 from jaxrans.mesh.block3d import SIDES_3D, box_sides
 from jaxrans.mesh.mesh import assign_conditions
+from jaxrans.numerics import boundary as bc
 from jaxrans.numerics.gradients import face_gradients
 from jaxrans.numerics.residual import make_residual
 from jaxrans.numerics.riemann import FLUXES
 from jaxrans.simulation import make_stepper
 from jaxrans.solvers.krylov import gmres_right
+from jaxrans.solvers import preconditioners as pre
 
 
 def case(precision="fp64", solver="implicit", model="sa_noft2", swept=True):
@@ -112,6 +114,96 @@ def test_fp32_gmres_reduces_the_true_residual_with_fp32_vectors():
     np.testing.assert_array_equal(solve(jnp.zeros_like(b)), 0.)
 
 
+@pytest.mark.parametrize("precision", ["fp32", "fp64"])
+def test_point_vortex_preserves_field_dtype_and_double_geometry_differences(precision):
+    """A translated double-precision mesh gives the same lifting reference.
+
+    Rounding either coordinate before subtracting loses local offsets at a
+    large origin. Keeping offsets in double during the field algebra instead
+    promotes the reference and subsequently the residual's Krylov vectors.
+    """
+    from dataclasses import replace
+
+    c = case(precision, model="none", swept=False)
+    atlas = c.grid()
+    op = make_residual(atlas, c.flow, c.numerics)
+    q_inf = op.q_inf
+    q = jnp.broadcast_to(q_inf[:, None, None], (4, *atlas.shape))
+    q = q.at[3].add(-.05 * jnp.sin(atlas.grid.centres[1]))
+    vectors = bc.wall_vectors(atlas)
+    assert vectors.dtype == q.dtype
+    np.testing.assert_array_equal(vectors, np.asarray(atlas.walls.into_fluid)
+                                  * np.asarray(atlas.wall_values(atlas.grid.faces)))
+
+    def reference(q, centre, midpoint):
+        geometry = replace(atlas, quarter_chord=centre)
+        return bc.point_vortex_far_field(q, geometry, q_inf, op.gamma)(midpoint)
+
+    reference = jax.jit(reference)
+    centre = jnp.asarray([.25, .125], jnp.float64)
+    midpoint = centre[:, None] + jnp.asarray([[10., 20., 0.], [20., -10., 15.]], jnp.float64)
+    shift = jnp.asarray([1e8, -1e8], jnp.float64)
+    near = reference(q, centre, midpoint)
+    translated = reference(q, centre + shift, midpoint + shift[:, None])
+    assert near.dtype == translated.dtype == q.dtype
+    assert np.isfinite(translated).all()
+    assert np.max(np.abs(np.asarray(near) - np.asarray(q_inf)[:, None])) > 1e-5
+    tolerance = 5e-7 if precision == "fp32" else 5e-14
+    np.testing.assert_allclose(translated, near, rtol=tolerance, atol=tolerance)
+
+
+@pytest.mark.parametrize("precision", ["fp32", "fp64"])
+@pytest.mark.parametrize("swept", [False, True])
+def test_line_preconditioner_uses_field_precision_with_double_geometry(precision, swept):
+    """FP64 source metrics and wall distances must not promote Krylov vectors.
+
+    Check the actual chain equations as well as dtype: casting only the final
+    preconditioned vector would leave the expensive factors in double.
+    """
+    c = case(precision, swept=swept)
+    atlas = case("fp64", swept=swept).grid()
+    op = make_residual(atlas, c.flow, c.numerics)
+    U = op.initial_state()
+    U = U * jnp.asarray(1. + .05 * np.sin(np.arange(U.shape[-2]))[:, None], U.dtype)
+    rhs = jnp.asarray(np.random.default_rng(27).normal(size=U.shape), U.dtype)
+    distance = op.distance.astype(jnp.float64)
+    layout = pre.chain_layout(atlas)
+    n_flow = atlas.components + 2
+
+    def apply(u, r):
+        lambdas = op.wave_speeds(u)
+        cfl = jnp.asarray(.1, u.dtype)
+        flow = pre.flow_chain_blocks(u[:n_flow], lambdas, cfl, atlas, op.gamma, layout)
+        scalar = pre.sa_chain_blocks(u, lambdas, cfl, atlas, op.gamma, op.viscosity,
+                                     op.model, distance, layout)
+        solve = pre.line_implicit_j(atlas, op.gamma, op.viscosity, op.model, distance)
+        return flow, scalar, solve(u, lambdas, cfl)(r)
+
+    # Trace before compilation so a promoted factor fails with a clear dtype assertion.
+    abstract = jax.eval_shape(apply, U, rhs)
+    assert all(a.dtype == U.dtype for a in jax.tree_util.tree_leaves(abstract))
+    flow, scalar, z = jax.jit(apply)(U, rhs)
+    assert np.isfinite(z).all()
+    for blocks, rows in ((flow, slice(None, n_flow)), (scalar, slice(n_flow, None))):
+        lower, diag, upper = (np.asarray(a, dtype=np.float64) for a in blocks)
+        x = np.asarray(layout.gather(z[rows]), dtype=np.float64).transpose(2, 1, 0)
+        b = np.asarray(layout.gather(rhs[rows]), dtype=np.float64).transpose(2, 1, 0)
+        x = np.where(np.asarray(layout.valid).T[..., None], x, 0.)
+        b = np.where(np.asarray(layout.valid).T[..., None], b, 0.)
+        previous = np.concatenate([np.zeros_like(x[:1]), x[:-1]])
+        following = np.concatenate([x[1:], np.zeros_like(x[:1])])
+        applied = (np.einsum("...ij,...j->...i", lower, previous)
+                   + np.einsum("...ij,...j->...i", diag, x)
+                   + np.einsum("...ij,...j->...i", upper, following))
+        tolerance = 2e-6 if precision == "fp32" else 1e-12
+        np.testing.assert_allclose(applied, b, rtol=tolerance, atol=tolerance)
+    # Ghosts and gaps do not belong to any chain and keep their RHS.
+    outside = np.asarray(layout.inverse).reshape(atlas.shape) < 0
+    np.testing.assert_array_equal(np.asarray(z)[:, outside], np.asarray(rhs)[:, outside])
+    assert atlas.grid.volume.dtype == distance.dtype == np.float64
+    assert atlas.centres.dtype == np.float64
+
+
 def test_newton_acceptance_retains_sub_ulp_global_norm_decreases(monkeypatch):
     """Fields can move while the rounded FP32 norm ratio is exactly one."""
     from types import SimpleNamespace
@@ -125,7 +217,8 @@ def test_newton_acceptance_retains_sub_ulp_global_norm_decreases(monkeypatch):
     assert float(l2_norm(residual + du, dtype=jnp.float64) /
                  l2_norm(residual, dtype=jnp.float64)) < 1.
     operator = SimpleNamespace(
-        gamma=1.4, components=2, atlas=None, viscosity=None, model=None, distance=None,
+        gamma=1.4, components=2, atlas=SimpleNamespace(interior=jnp.ones((1, 1), bool)),
+        viscosity=None, model=None, distance=None,
         residual=lambda u: residual, norm=lambda r: jnp.asarray(1., jnp.float32),
         wave_speeds=lambda u: (jnp.full((2, 1), .25, jnp.float32),
                                 jnp.full((1, 2), .25, jnp.float32)))

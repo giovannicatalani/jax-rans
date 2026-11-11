@@ -39,10 +39,34 @@ from .mesh.coarsen import prolong
 from .numerics.residual import make_residual
 from .polar import ContinuationTiming, Polar, alpha_range, at_alpha, validate_alphas
 from .post.forces import force_coefficients, integrate_forces
-from .simulation import Result, Timing, _march, cl_spread, equations_settled, make_stepper
+from .simulation import Result, Timing, _march, make_stepper
+from .convergence import convergence_record, equation_labels, diagnostics_report
 from .solvers.driver import ConvergenceHistory, ExitReason, run_to_steady
 
 SUCCESS = (ExitReason.CONVERGED, ExitReason.SETTLED)
+
+
+@dataclass(frozen=True)
+class ContinuationPolicy:
+    """Opt-in bounded subdivision; the attempt budget applies to each target."""
+
+    adaptive: bool = False
+    min_step: float = 0.125
+    max_attempts: int = 32
+    on_failure: str = "stop"
+
+    def __post_init__(self):
+        if not isinstance(self.adaptive, bool):
+            raise ValueError("continuation.adaptive must be a boolean")
+        if (isinstance(self.min_step, bool) or not isinstance(self.min_step, (int, float))
+                or not np.isfinite(self.min_step) or self.min_step <= 0):
+            raise ValueError("continuation.min_step must be finite and positive")
+        if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int) or self.max_attempts < 1:
+            raise ValueError("continuation.max_attempts must be a positive integer")
+        if self.on_failure not in ("stop", "independent"):
+            raise ValueError("continuation.on_failure must be 'stop' or 'independent'")
+        if not self.adaptive and self.on_failure != "stop":
+            raise ValueError("independent failure handling requires adaptive continuation")
 
 
 @dataclass(frozen=True)
@@ -52,6 +76,7 @@ class PolarRequest:
     alphas: Sequence[float]
     grid: Atlas | None = None
     initial: object | None = None
+    continuation: ContinuationPolicy = ContinuationPolicy()
 
 
 @dataclass(frozen=True)
@@ -191,8 +216,11 @@ def _equation_norms(case: Case, template: Atlas, U, q, g):
                          distance=g["distance"]).equation_norms(U)
 
 
-def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None) -> list[Polar]:
+def _run_group(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
+               progress_with_coefficients=None) -> list[Polar]:
     case, template = requests[0].case, grids[0]
+    diagnostics = case.numerics.diagnostics and case.numerics.solver == "implicit"
+    step_options = {"diagnostics": True} if diagnostics else {}
     use = jax.devices()[:min(devices or len(jax.devices()), len(requests))]
     n = len(requests)
     indices = list(range(n)) + [n - 1] * (-n % len(use))
@@ -208,10 +236,10 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
 
         def one(s, f, geom):
             atlas = _with_geometry(template, geom)
-            return make_stepper(case, atlas, freestream=f, distance=geom["distance"])[0](s)
+            return make_stepper(case, atlas, freestream=f, distance=geom["distance"], **step_options)[0](s)
 
-        states, residual = jax.vmap(one)(states, q, g)
-        return (states, q, g), residual
+        advanced = jax.vmap(one)(states, q, g)
+        return ((advanced[0], q, g), *advanced[1:])
 
     reference = case.grid_spec.force_reference()
 
@@ -222,6 +250,13 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
     monitor = jax.jit(jax.vmap(coefficients))
 
     equation_monitor = jax.jit(jax.vmap(lambda U, q, g: _equation_norms(case, template, U, q, g)))
+
+    def detailed_norms(U, q, g):
+        atlas = _with_geometry(template, g)
+        operator = make_residual(atlas, case.flow, case.numerics, freestream=q, distance=g["distance"])
+        return operator.equation_diagnostics(U)
+
+    detailed_monitor = jax.jit(jax.vmap(detailed_norms)) if case.numerics.diagnostics else None
     results = [[] for _ in requests]
     alive = np.ones(n, dtype=bool)
     previous = None
@@ -241,7 +276,7 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         elif any(request.initial is not None for request in requests):
             if any(request.initial is None for request in requests):
                 raise ValueError("cannot batch resumed and fresh profiles together")
-            starts = jnp.stack([jnp.asarray(requests[k].initial) for k in indices])
+            starts = jnp.stack([jnp.asarray(requests[k].initial, dtype=case.numerics.dtype) for k in indices])
             if starts.shape != states.U.shape:
                 raise ValueError("resume field shape does not match the grid")
             states = states._replace(U=jnp.where(template.interior, starts, states.U))
@@ -255,15 +290,19 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             states = states._replace(U=jnp.stack([starts[k] for k in indices]))
         active_padded = np.r_[active, np.zeros(len(indices) - n, dtype=bool)]
         samples = []
-        equation_peak = None
+        equation_peak = np.asarray(equation_monitor(states.U, q, geometry))
+        convergence_samples = []
 
         def on_block(b, carry, residuals):
             nonlocal equation_peak
-            equation_values = np.asarray(equation_monitor(carry[0].U, carry[1], carry[2]))
+            detailed_values = (jax.tree_util.tree_map(np.asarray, detailed_monitor(carry[0].U, carry[1], carry[2]))
+                               if detailed_monitor is not None else None)
+            equation_values = (detailed_values["l2_volume"] if detailed_values is not None
+                               else np.asarray(equation_monitor(carry[0].U, carry[1], carry[2])))
             equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
             values = np.asarray(monitor(carry[0].U, carry[1], carry[2]))
             samples.append(values)
-            if progress is not None or progress_with_residual is not None:
+            if progress is not None or progress_with_residual is not None or progress_with_coefficients is not None:
                 for k, request in enumerate(requests):
                     if active[k]:
                         args = (request.name, float(angles[k]), (b + 1) * case.block_iters, float(values[k, 0]))
@@ -271,18 +310,31 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
                             progress(*args)
                         if progress_with_residual is not None:
                             progress_with_residual(*args, float(residuals[-1, k]))
+                        if progress_with_coefficients is not None:
+                            progress_with_coefficients(*args, float(residuals[-1, k]),
+                                                       float(values[k, 1]), float(values[k, 2]))
             histories = np.asarray(samples)
-            return np.array([
-                (case.numerics.forces_tol is None or
-                 all(cl_spread(histories[:, k, j]) < case.numerics.forces_tol for j in range(3)))
-                and equations_settled(equation_values[k], equation_peak[k], case.numerics)
-                for k in range(len(indices))])
+            records = [convergence_record(equation_values[k], equation_peak[k], histories[:, k], case.numerics,
+                                             names=equation_labels(equation_values.shape[-1], template.components))
+                       for k in range(len(indices))]
+            if case.numerics.diagnostics:
+                for k, row in enumerate(records):
+                    if k < n and active[k]:
+                        operator = make_residual(grids[k], requests[k].case.flow, case.numerics,
+                                                 freestream=carry[1][k], distance=geometries[k]["distance"])
+                        row["equation_diagnostics"] = diagnostics_report(
+                            operator, {key: value[k] for key, value in detailed_values.items()})
+            convergence_samples.append([dict(row, iteration=(b + 1) * case.block_iters) for row in records])
+            return np.array([row["settled"] for row in records])
 
         carry, history = run_to_steady(
             step, (states, q, geometry), max_iters=case.numerics.max_iters, tol=0.0,
             block_iters=case.block_iters, devices=use, active_mask=active_padded, on_block=on_block,
             finite_check=lambda c: jnp.all(jnp.isfinite(c[0].U), axis=tuple(range(1, c[0].U.ndim))),
-            allow_exact_zero=False)
+            allow_exact_zero=False, diagnostics=diagnostics,
+            control_changed=(lambda a, b: (a[0].cfl != b[0].cfl) |
+                             jnp.any(a[0].U != b[0].U, axis=tuple(range(1, a[0].U.ndim))))
+                            if case.numerics.solver == "implicit" else None)
         previous = carry[0].U
         for k, request in enumerate(requests):
             if not active[k]:
@@ -294,7 +346,9 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             result = Result(sub, grids[k], U, integrate_forces(U, grids[k], sub.flow,
                             sub.grid_spec.force_reference()), h, np.asarray(samples)[:n_blocks, k, 0],
                             Timing.of(h, case.block_iters, grids[k].cells, devices=used_devices),
-                            levels[k] if point == 0 else ())
+                            levels[k] if point == 0 else (),
+                            coefficients_history=np.asarray(samples)[:n_blocks, k, :],
+                            convergence_history=tuple(rows[k] for rows in convergence_samples[:n_blocks]))
             results[k].append(result)
             if on_point is not None:
                 on_point(request.name, float(angles[k]), result)
@@ -307,11 +361,75 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             for k, (r, rows) in enumerate(zip(requests, results))]
 
 
+def _run_adaptive(request, grid, geometry, devices, progress, progress_with_residual,
+                  on_point, on_attempt, saved=(), progress_with_coefficients=None):
+    """Replay a deterministic attempt log, then continue from its validated frontier."""
+    policy = request.continuation
+    attempts, rows = [], []
+    validated = None
+    for index, target in enumerate(request.alphas):
+        candidate = float(target)
+        target_result = None
+        succeeded = False
+        for retry in range(policy.max_attempts):
+            source = attempts[validated] if validated is not None else None
+            provenance = {
+                "attempt": len(attempts), "requested_index": index, "requested_alpha": float(target),
+                "alpha": candidate, "kind": "requested" if candidate == target else "intermediate",
+                "initial_alpha": source.case.flow.alpha_deg if source is not None else None,
+                "source_attempt": validated, "retry": retry,
+            }
+            if len(attempts) < len(saved):
+                result = saved[len(attempts)]
+                if result.provenance != provenance:
+                    raise ValueError("saved adaptive attempt does not match the continuation schedule")
+            else:
+                one = dataclasses.replace(request, alphas=(candidate,),
+                                          initial=source.U if source is not None else (request.initial if index == 0 else None),
+                                          continuation=ContinuationPolicy())
+                result = _run_group([one], [grid], [geometry], devices, progress, progress_with_residual,
+                                    progress_with_coefficients=progress_with_coefficients)[0].results[0]
+                result = dataclasses.replace(result, provenance=provenance)
+                if on_attempt is not None:
+                    on_attempt(request.name, candidate, result)
+            attempts.append(result)
+            if candidate == target:
+                target_result = result
+            if result.history.reason in SUCCESS:
+                validated = len(attempts) - 1
+                if candidate == target:
+                    succeeded = True
+                    break
+                candidate = float(target)
+            else:
+                if source is None:
+                    break
+                midpoint = (float(source.case.flow.alpha_deg) + candidate) / 2
+                if abs(midpoint - source.case.flow.alpha_deg) < policy.min_step or midpoint in (candidate, source.case.flow.alpha_deg):
+                    break
+                candidate = midpoint
+        rows.append(target_result)
+        if on_point is not None and len(attempts) > len(saved):
+            on_point(request.name, float(target), target_result)
+        if not succeeded:
+            if policy.on_failure == "stop":
+                break
+            validated = None  # Later requested points start independently after exhaustion.
+    if len(saved) > len(attempts):
+        raise ValueError("saved adaptive attempt log extends beyond the requested schedule")
+    return Polar(request.case, np.asarray(request.alphas[:len(rows)]), rows,
+                 ContinuationTiming(sum(r.seconds for r in attempts), sum(r.history.n_iters for r in attempts),
+                                    devices=1), mode="continuation", requested_alphas=tuple(request.alphas),
+                 attempts=tuple(attempts), continuation=dataclasses.asdict(policy))
+
+
 def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = None,
                  devices: int | None = None,
                  progress: Callable[[str, float, int, float], None] | None = None,
                  progress_with_residual: Callable[[str, float, int, float, float], None] | None = None,
-                 on_point=None, on_group=None) -> Campaign:
+                 on_point=None, on_group=None, on_attempt=None, progress_with_coefficients=None,
+                 continuation: ContinuationPolicy | None = None,
+                 resume_attempts: dict[str, Sequence[Result]] | None = None) -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
 
     Different topology or physics forms a separate batch. Within a batch the
@@ -319,9 +437,12 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
     ``batch_size`` limits profiles per batch; devices split the profile axis.
     Progress receives ``(profile_name, alpha, iteration, CL)``.
     Progress_with_residual receives the same arguments followed by the last
-    residual norm in the block.
+    residual norm in the block. ``progress_with_coefficients`` receives those
+    arguments followed by drag CD (Cx in wind axes) and pitching moment CM.
     """
     requests = list(requests)
+    if continuation is not None:
+        requests = [dataclasses.replace(r, continuation=continuation) for r in requests]
     if not requests:
         raise ValueError("a campaign needs at least one profile")
     names = [r.name for r in requests]
@@ -338,7 +459,8 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
         grid = request.case.grid() if request.grid is None else request.grid
         distance = make_residual(grid, request.case.flow, request.case.numerics).distance
         geometry = _geometry(grid, distance)
-        key = (_signature(request.case, grid, geometry), request.case.sequencing)
+        key = (_signature(request.case, grid, geometry), request.case.sequencing,
+               request.name if request.continuation.adaptive else None)
         groups.setdefault(key, []).append((request, grid, geometry))
     polars, batches = {}, []
     for group in groups.values():
@@ -349,7 +471,15 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
             if on_group is not None:
                 on_group(reqs)
             batches.append(tuple(r.name for r in reqs))
-            for request, polar in zip(reqs, _run_group(reqs, grids, geometries, devices, progress, progress_with_residual, on_point)):
+            if reqs[0].continuation.adaptive:
+                computed = [_run_adaptive(reqs[0], grids[0], geometries[0], devices, progress,
+                                          progress_with_residual, on_point, on_attempt,
+                                          (resume_attempts or {}).get(reqs[0].name, ()),
+                                          progress_with_coefficients)]
+            else:
+                computed = _run_group(reqs, grids, geometries, devices, progress, progress_with_residual, on_point,
+                                      progress_with_coefficients)
+            for request, polar in zip(reqs, computed):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
 
@@ -376,45 +506,152 @@ def _resume_prefix(request: PolarRequest, directory: Path) -> tuple[list[Result]
         if point["exit_reason"] not in SUCCESS:
             break
         folder = directory / (names[k] if unique else f"point_{k:04d}_alpha_{alpha:+.8g}")
-        def one(suffix):
-            matches = list(folder.glob(f"*{suffix}"))
-            if len(matches) != 1:
-                raise ValueError(f"{folder}: expected one {suffix} file, found {len(matches)}")
-            return matches[0]
-        saved = json.loads(one("_metadata.json").read_text())
-        old_numerics = saved.get("config", {}).get("numerics", {})
-        if ("equation_tol" not in old_numerics or "equation_abs_tol" not in old_numerics or
-                old_numerics["equation_tol"] > request.case.numerics.equation_tol or
-                old_numerics["equation_abs_tol"] > request.case.numerics.equation_abs_tol or
-                (request.case.numerics.forces_tol is None and old_numerics.get("tol", 1.0) > request.case.numerics.tol)):
-            raise ValueError(f"{folder}: saved point was not certified by the current equation tolerances; "
-                             "start a fresh campaign in a new output directory")
-        with np.load(one("_fields.npz"), allow_pickle=False) as fields:
-            if int(fields["n_blocks"]) != len(grid.mesh):
-                raise ValueError(f"{folder}: saved mesh has a different number of blocks")
-            blocks = []
-            for i, mesh in enumerate(grid.mesh):
-                for axis, nodes in zip("xyz", mesh.nodes):
-                    if not np.array_equal(fields[f"{axis}_node_{i}"], np.asarray(nodes)):
-                        raise ValueError(f"{folder}: saved mesh differs from the requested mesh")
-                blocks.append(jnp.asarray(fields[f"U_{i}"]))
-            U = grid.pack(blocks)
-        if not np.all(np.isfinite(np.asarray(U))):
-            raise ValueError(f"{folder}: saved field contains non-finite values")
-        residual = np.loadtxt(one("_residual.dat"), ndmin=2)[:, 1]
-        lift = np.loadtxt(one("_lift.dat"), ndmin=2)[:, 1]
-        extra = saved["extra"]
-        timing_data = extra["timing"]
-        timing = Timing(timing_data["total_s"], timing_data["compile_s"] +
-                        request.case.block_iters * timing_data["per_iteration_s"],
-                        point["iterations"], request.case.block_iters, grid.cells,
-                        cases=timing_data["cases"], devices=timing_data["devices"])
-        history = ConvergenceHistory(residual, point["exit_reason"], point["iterations"], timing.total,
-                                     timing.first_block)
-        case = at_alpha(request.case, alpha)
-        results.append(Result(case, grid, U, integrate_forces(U, grid, case.flow,
-                              case.grid_spec.force_reference()), history, lift, timing))
+        results.append(_load_point(request, grid, folder, alpha, point))
     return results, grid
+
+
+def _load_point(request, grid, folder, alpha, point):
+    def one(suffix):
+        matches = list(folder.glob(f"*{suffix}"))
+        if len(matches) != 1:
+            raise ValueError(f"{folder}: expected one {suffix} file, found {len(matches)}")
+        return matches[0]
+    saved = json.loads(one("_metadata.json").read_text())
+    old_numerics = saved.get("config", {}).get("numerics", {})
+    with np.load(one("_fields.npz"), allow_pickle=False) as fields:
+        if int(fields["n_blocks"]) != len(grid.mesh):
+            raise ValueError(f"{folder}: saved mesh has a different number of blocks")
+        blocks = []
+        for i, mesh in enumerate(grid.mesh):
+            for axis, nodes in zip("xyz", mesh.nodes):
+                if not np.array_equal(fields[f"{axis}_node_{i}"], np.asarray(nodes)):
+                    raise ValueError(f"{folder}: saved mesh differs from the requested mesh")
+            blocks.append(jnp.asarray(fields[f"U_{i}"], dtype=request.case.numerics.dtype))
+        U = grid.pack(blocks)
+    if point["exit_reason"] in SUCCESS and not np.all(np.isfinite(np.asarray(U))):
+        raise ValueError(f"{folder}: saved field contains non-finite values")
+    residual = np.loadtxt(one("_residual.dat"), ndmin=2)[:, 1]
+    lift = np.loadtxt(one("_lift.dat"), ndmin=2)[:, 1]
+    extra = saved["extra"]
+    timing_data = extra["timing"]
+    timing = Timing(timing_data["total_s"], timing_data["compile_s"] +
+                    request.case.block_iters * timing_data["per_iteration_s"],
+                    point["iterations"], request.case.block_iters, grid.cells,
+                    cases=timing_data["cases"], devices=timing_data["devices"])
+    history = ConvergenceHistory(residual, point["exit_reason"], point["iterations"], timing.total,
+                                 timing.first_block)
+    case = at_alpha(request.case, alpha)
+    coefficients_paths = list(folder.glob("*_forces.dat"))
+    coefficients = np.loadtxt(coefficients_paths[0], ndmin=2)[:, 1:] if coefficients_paths else np.empty((0, 3))
+    solver_paths = list(folder.glob("*_solver_history.json"))
+    solver = json.loads(solver_paths[0].read_text()) if solver_paths else {}
+    history.block_diagnostics = tuple(solver.get("newton_blocks", ()))
+    if point["exit_reason"] in SUCCESS:
+        numerics = request.case.numerics
+        names = equation_labels(U.shape[0], grid.components)
+        records = solver.get("convergence", ())
+        if records and coefficients.size:
+            certified = convergence_record(records[-1]["current"], records[-1]["peak"],
+                                           coefficients, numerics, names=names)["settled"]
+        else:
+            # Legacy files have no complete stopping evidence. Only reuse when
+            # every old criterion was at least as strict as its replacement.
+            old_force = old_numerics.get("forces_tol")
+            old_relative = old_numerics.get("tol") if old_force is None else old_numerics.get("equation_tol")
+            new_relative = numerics.tol if numerics.forces_tol is None else numerics.equation_tol
+            old_overrides = dict(old_numerics.get("equation_abs_tols", ()))
+            new_overrides = dict(numerics.equation_abs_tols)
+            old_floor = old_numerics.get("equation_abs_tol")
+            certified = ("equation_tol" in old_numerics and old_floor is not None
+                         and old_relative is not None and old_relative <= new_relative
+                         and all((0.0 if old_force is None else old_overrides.get(name, old_floor)) <=
+                                 (0.0 if numerics.forces_tol is None else
+                                  new_overrides.get(name, numerics.equation_abs_tol)) for name in names)
+                         and (numerics.forces_tol is None or
+                              old_force is not None and old_force <= numerics.forces_tol))
+        if not certified or "equation_tol" not in old_numerics or "equation_abs_tol" not in old_numerics:
+            raise ValueError(f"{folder}: saved point was not certified by the current equation tolerances "
+                             "and force criteria; start a fresh campaign in a new output directory")
+    return Result(case, grid, U, integrate_forces(U, grid, case.flow,
+                  case.grid_spec.force_reference()), history, lift, timing,
+                  coefficients_history=coefficients,
+                  convergence_history=tuple(solver.get("convergence", ())),
+                  provenance=extra.get("provenance", {}))
+
+
+def _atomic_json(path, record):
+    temporary = path.with_name("." + path.name + ".tmp")
+    temporary.write_text(json.dumps(record, indent=2, default=lambda x: np.asarray(x).tolist()))
+    temporary.replace(path)
+
+
+def _checkpoint_attempt(directory, result):
+    """A renamed directory is the commit; partial staging directories are ignored."""
+    attempts = directory / "attempts"
+    attempts.mkdir(parents=True, exist_ok=True)
+    name = f"attempt_{result.provenance['attempt']:06d}"
+    destination = attempts / name
+    if destination.exists():
+        saved = json.loads((destination / "attempt.json").read_text())
+        metadata = list(destination.glob("*_metadata.json"))
+        config = {"flow": dataclasses.asdict(result.case.flow),
+                  "numerics": dataclasses.asdict(result.case.numerics),
+                  "implicit": dataclasses.asdict(result.case.implicit)}
+        config = json.loads(json.dumps(config))
+        if (saved["provenance"] != result.provenance or saved["exit_reason"] != result.history.reason or
+                saved["iterations"] != result.history.n_iters or len(metadata) != 1 or
+                json.loads(metadata[0].read_text())["config"] != config):
+            raise ValueError(f"{destination}: conflicting adaptive attempt")
+        fields = list(destination.glob("*_fields.npz"))
+        if len(fields) != 1:
+            raise ValueError(f"{destination}: conflicting adaptive fields")
+        with np.load(fields[0], allow_pickle=False) as archive:
+            for k, (block, mesh) in enumerate(zip(result.grid.unpack(result.U), result.grid.mesh)):
+                if not np.array_equal(archive[f"U_{k}"], np.asarray(block), equal_nan=True):
+                    raise ValueError(f"{destination}: conflicting adaptive fields")
+                for axis, nodes in zip("xyz", mesh.nodes):
+                    if not np.array_equal(archive[f"{axis}_node_{k}"], np.asarray(nodes)):
+                        raise ValueError(f"{destination}: conflicting adaptive mesh")
+        return
+    staging = attempts / ("." + name + ".tmp")
+    if staging.exists():
+        shutil.rmtree(staging)
+    result.write(staging, extra={"polar_mode": "continuation", **result.provenance})
+    _atomic_json(staging / "attempt.json", {
+        "alpha": result.case.flow.alpha_deg, "iterations": result.history.n_iters,
+        "exit_reason": result.history.reason, "provenance": result.provenance,
+    })
+    staging.rename(destination)
+
+
+def _adaptive_resume(request, directory, resume):
+    path = directory / "continuation.json"
+    setup = {"version": 1, "case_setup": request.case.raw,
+             "continuation": dataclasses.asdict(request.continuation),
+             "requested_alphas": list(request.alphas)}
+    if path.exists():
+        if not resume:
+            raise ValueError(f"{directory}: adaptive checkpoints exist; use --resume or a new output directory")
+        old = json.loads(path.read_text())
+        if (old.get("version") != 1 or old["case_setup"] != setup["case_setup"] or
+                old["continuation"] != setup["continuation"] or
+                old["requested_alphas"] != setup["requested_alphas"][:len(old["requested_alphas"])]):
+            raise ValueError(f"{directory}: adaptive checkpoint configuration, policy or requested angles differ")
+    elif resume and (directory / "polar_metadata.json").exists():
+        raise ValueError(f"{directory}: legacy output cannot be resumed with adaptive continuation")
+    directory.mkdir(parents=True, exist_ok=True)
+    grid = request.grid if request.grid is not None else request.case.grid()
+    saved = []
+    for index, folder in enumerate(sorted((directory / "attempts").glob("attempt_*"))):
+        record = json.loads((folder / "attempt.json").read_text())
+        if record["provenance"]["attempt"] != index:
+            raise ValueError(f"{folder}: adaptive checkpoint log has a gap")
+        result = _load_point(request, grid, folder, record["alpha"], record)
+        if result.provenance != record["provenance"]:
+            raise ValueError(f"{folder}: attempt provenance differs from result metadata")
+        saved.append(result)
+    _atomic_json(path, setup)
+    return dataclasses.replace(request, grid=grid), saved
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -433,8 +670,9 @@ def main(argv: list[str] | None = None) -> int:
             path = args.manifest.resolve().parent / entry["case"]
             angles = entry["alphas"] if "alphas" in entry else alpha_range(*entry["alpha"])
             overrides = tuple(entry.get("overrides", ()))
+            policy = ContinuationPolicy(**entry.get("continuation", doc.get("continuation", {})))
             if "machs" not in entry:
-                requests.append(PolarRequest(entry["name"], load_case(path, overrides), angles))
+                requests.append(PolarRequest(entry["name"], load_case(path, overrides), angles, continuation=policy))
                 continue
             machs = entry["machs"]
             if (not isinstance(machs, list) or not machs or
@@ -446,22 +684,29 @@ def main(argv: list[str] | None = None) -> int:
             for mach in machs:
                 label = repr(float(mach)).replace("+", "p").replace("-", "m")
                 case = load_case(path, overrides + (f"case.freestream.mach={float(mach)!r}",))
-                requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles))
+                requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles, continuation=policy))
 
-        def progress(name, alpha, iteration, cl, residual):
-            print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} CL {cl:+.6f}", flush=True)
+        def progress(name, alpha, iteration, cl, residual, cd, cm):
+            print(f"{name} alpha {alpha:+g}: {iteration:8d} residual {residual:.6e} "
+                  f"CL {cl:+.6f} Cx(CD) {cd:+.6f} Cm {cm:+.6f}", flush=True)
 
         def announce(requests):
             for request in requests:
                 print(f"{request.name}: Mach {request.case.flow.mach:g}, "
                       f"alpha {request.alphas[0]:+g} (preparation/compilation)", flush=True)
 
+        names = [request.name for request in requests]
+        if len(set(names)) != len(names) or any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name) for name in names):
+            raise ValueError("profile names must be unique safe directory names")
         args.out.mkdir(parents=True, exist_ok=True)
         csv_path = args.out / "points.csv"
         columns = ["profile", "case", "mach", "alpha_deg", "reynolds", "gamma", "turbulence",
                    "cl", "cd", "cd_friction", "cm", "iterations", "status", "residual_mass_history",
                    "residual_mass", "residual_momentum_x", "residual_momentum_y", "residual_momentum_z",
                    "residual_energy", "residual_sa"]
+        adaptive_names = {r.name for r in requests if r.continuation.adaptive}
+        if adaptive_names:
+            columns += ["attempt", "requested_index", "requested_alpha", "kind", "initial_alpha", "source_attempt", "retry"]
         if not args.resume or not csv_path.exists():
             with csv_path.open("w", newline="") as stream:
                 csv.DictWriter(stream, fieldnames=columns).writeheader()
@@ -470,6 +715,8 @@ def main(argv: list[str] | None = None) -> int:
         checkpoint_points = {request.name: [] for request in requests}
 
         def save_point(name, alpha, result):
+            if request_by_name[name].continuation.adaptive:
+                return
             flow = result.case.flow
             norms = np.asarray(make_residual(result.grid, flow, result.case.numerics).equation_norms(result.U))
             labels = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:result.grid.components]], "energy"]
@@ -536,6 +783,37 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"{name} alpha {alpha:+g}: {result.history.reason} after "
                       f"{result.history.n_iters} iterations (checkpoint saved)", flush=True)
 
+        def save_attempt(name, alpha, result):
+            _checkpoint_attempt(args.out / name, result)
+            refresh_attempts()
+
+        def refresh_attempts():
+            if not adaptive_names:
+                return
+            with csv_path.open(newline="") as stream:
+                rows = [row for row in csv.DictReader(stream) if row["profile"] not in adaptive_names]
+            for name in sorted(adaptive_names):
+                for folder in sorted((args.out / name / "attempts").glob("attempt_*")):
+                    record = json.loads((folder / "attempt.json").read_text())
+                    metadata = json.loads(next(folder.glob("*_metadata.json")).read_text())
+                    extra, config = metadata["extra"], metadata["config"]["flow"]
+                    residuals = np.loadtxt(next(folder.glob("*_residual.dat")), ndmin=2)
+                    row = {"profile": name, "case": request_by_name[name].case.name,
+                           "alpha_deg": record["alpha"], "iterations": record["iterations"],
+                           "status": record["exit_reason"], "residual_mass_history": residuals[-1, 1],
+                           **{k: config[k] for k in ("mach", "reynolds", "gamma", "turbulence")},
+                           **{k: extra[k] for k in ("cl", "cd", "cm", "cd_friction")},
+                           **{k: v for k, v in record["provenance"].items() if k in columns}}
+                    row.update({f"residual_{key}": value["l2_volume"]
+                                for key, value in extra["equation_residuals"].items()})
+                    rows.append(row)
+            temporary = csv_path.with_name(".points.csv.tmp")
+            with temporary.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=columns)
+                writer.writeheader()
+                writer.writerows(rows)
+            temporary.replace(csv_path)
+
         devices = args.devices if args.devices is not None else doc.get("devices")
         preserved = {}
         if args.resume:
@@ -543,6 +821,18 @@ def main(argv: list[str] | None = None) -> int:
             polars, batches = {}, []
             for request in requests:
                 directory = args.out / request.name
+                if request.continuation.adaptive:
+                    request, saved = _adaptive_resume(request, directory, True)
+                    new = run_campaign([request], devices=devices,
+                                       progress_with_coefficients=None if args.quiet else progress,
+                                       on_attempt=save_attempt,
+                                       resume_attempts={request.name: saved},
+                                       on_group=None if args.quiet else announce)
+                    polars.update(new.polars)
+                    batches.extend(new.batches)
+                    continue
+                if (directory / "continuation.json").exists():
+                    raise ValueError(f"{directory}: adaptive output requires its continuation policy")
                 source = directory
                 # Campaigns written before the machs option used the unsuffixed name.
                 if not directory.is_dir() and "_mach_" in request.name:
@@ -576,7 +866,7 @@ def main(argv: list[str] | None = None) -> int:
                     retry = dataclasses.replace(request, alphas=remaining, grid=grid,
                                                 initial=prefix[-1].U if prefix else None)
                     new = run_campaign([retry], devices=devices,
-                                       progress_with_residual=None if args.quiet else progress, on_point=save_point,
+                                       progress_with_coefficients=None if args.quiet else progress, on_point=save_point,
                                        on_group=None if args.quiet else announce)
                     tail = new.polars[request.name]
                     batches.extend(new.batches)
@@ -591,9 +881,16 @@ def main(argv: list[str] | None = None) -> int:
                                              timing, mode="continuation", requested_alphas=tuple(request.alphas))
             campaign = Campaign(polars, tuple(batches), time.perf_counter() - begun)
         else:
+            for request in requests:
+                if request.continuation.adaptive:
+                    _adaptive_resume(request, args.out / request.name, False)
+                elif (args.out / request.name / "continuation.json").exists():
+                    raise ValueError("adaptive output requires its continuation policy")
             campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
-                                    devices=devices, progress_with_residual=None if args.quiet else progress,
-                                    on_point=save_point, on_group=None if args.quiet else announce)
+                                    devices=devices, progress_with_coefficients=None if args.quiet else progress,
+                                    on_point=save_point, on_group=None if args.quiet else announce,
+                                    on_attempt=save_attempt)
+        refresh_attempts()
         out = campaign.write(args.out, preserve_prefix=preserved)
     except (ValueError, KeyError, TypeError, OSError) as error:
         parser.exit(2, f"error: {error}\n")

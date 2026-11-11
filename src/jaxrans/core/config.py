@@ -108,7 +108,8 @@ class FlowConditions:
 SOLVERS: tuple[str, ...] = ("explicit", "implicit")
 """Pseudo-time paths: multistage Runge-Kutta, pseudo-transient Newton-Krylov."""
 
-PRECISIONS = {"fp64": "float64", "float64": "float64", "fp32": "float32", "float32": "float32"}
+PRECISIONS = {"fp64": "float64", "float64": "float64", "fp32": "float32", "float32": "float32",
+              "mixed": "float64", "mixt": "float64"}
 
 
 @dataclass(frozen=True)
@@ -132,8 +133,27 @@ class NumericsConfig:
     far_field: str = "characteristic"
     kappa: float = 0.0
     precision: str = "fp64"
+    equation_abs_tols: tuple[tuple[str, float], ...] = ()
+    diagnostics: bool = False
 
     def __post_init__(self) -> None:
+        if self.precision == "mixt":
+            object.__setattr__(self, "precision", "mixed")
+        overrides = self.equation_abs_tols
+        pairs = tuple(overrides.items()) if isinstance(overrides, dict) else tuple(overrides)
+        allowed = {"mass", "momentum_x", "momentum_y", "momentum_z", "energy", "sa"}
+        if any(not isinstance(pair, (tuple, list)) or len(pair) != 2 for pair in pairs):
+            raise ValueError("equation_abs_tols must contain equation/value pairs")
+        if len({name for name, _ in pairs}) != len(pairs):
+            raise ValueError("equation_abs_tols contains duplicate equations")
+        for name, value in pairs:
+            if name not in allowed:
+                raise ValueError(f"unknown equation_abs_tols equation {name!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or value < 0:
+                raise ValueError(f"equation_abs_tols[{name!r}] must be finite and nonnegative")
+        object.__setattr__(self, "equation_abs_tols", tuple(sorted((name, float(value)) for name, value in pairs)))
+        if not isinstance(self.diagnostics, bool):
+            raise ValueError("diagnostics must be a boolean")
         if self.precision not in PRECISIONS:
             raise ValueError(f"precision must be one of {tuple(PRECISIONS)}, got {self.precision!r}")
         if not self.cfl > 0.0:
@@ -144,7 +164,7 @@ class NumericsConfig:
             raise ValueError(f"tol must lie in (0, 1), got {self.tol}")
         if self.forces_tol is not None and not self.forces_tol > 0.0:
             raise ValueError(f"forces_tol must be positive or null, got {self.forces_tol}")
-        if not 0.0 < self.equation_tol < 1.0 or self.equation_abs_tol <= 0.0:
+        if not 0.0 < self.equation_tol < 1.0 or not np.isfinite(self.equation_abs_tol) or self.equation_abs_tol <= 0.0:
             raise ValueError("equation tolerances must be positive, with equation_tol below 1")
         if self.n_ghost < 2:
             raise ValueError(
@@ -157,6 +177,14 @@ class NumericsConfig:
                              f"(limiter 'none'), got limiter {self.limiter!r}")
         if self.solver not in SOLVERS:
             raise ValueError(f"solver must be one of {SOLVERS}, got {self.solver!r}")
+
+        if self.mixed_precision and self.solver != "implicit":
+            raise ValueError("mixed precision requires the implicit solver")
+
+    @property
+    def mixed_precision(self) -> bool:
+        """FP64 outer iteration with FP32 preconditioner and Krylov storage."""
+        return self.precision == "mixed"
 
     @property
     def dtype(self) -> np.dtype:
@@ -182,8 +210,14 @@ class ImplicitConfig:
     krylov_success: float = 0.5
     max_relative_update: float | None = None
     nonlinear_growth_limit: float | None = None
+    nonlinear_merit: str = "mass"
+    backtracking_steps: int = 0
 
     def __post_init__(self) -> None:
+        if self.nonlinear_merit not in ("mass", "equations"):
+            raise ValueError("nonlinear_merit must be 'mass' or 'equations'")
+        if type(self.backtracking_steps) is not int or not 0 <= self.backtracking_steps <= 16:
+            raise ValueError("backtracking_steps must be an integer in [0, 16]")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.cfl_max < self.cfl:

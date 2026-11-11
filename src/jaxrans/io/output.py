@@ -121,6 +121,18 @@ class ResultWriter:
                    header=" ".join(names.get(k, k) for k in surface), fmt="%.12e")
         return path
 
+    def write_solver_history(self, coefficients, convergence, diagnostics, block_iters: int) -> None:
+        """Persist the three force coefficients and the actual stopping decisions."""
+        coefficients = np.asarray(coefficients)
+        if coefficients.size:
+            np.savetxt(self.directory / f"{self.case_name}_forces.dat",
+                       np.column_stack([block_iters * np.arange(1, len(coefficients) + 1), coefficients]),
+                       header="iteration cl cd cm", fmt=["%d", "%.12e", "%.12e", "%.12e"])
+        if convergence or diagnostics:
+            path = self.directory / f"{self.case_name}_solver_history.json"
+            path.write_text(json.dumps(_jsonable({"convergence": convergence,
+                                                  "newton_blocks": diagnostics}), indent=2))
+
     def write_fields(self, U_blocks: list[np.ndarray], nodes: list[np.ndarray]) -> Path:
         """The solution: per block ``k``, ``U_k`` ``(nvar, *cells)`` and its
         nodes ``x_node_k``, ``y_node_k`` [, ``z_node_k``]; and ``n_blocks``."""

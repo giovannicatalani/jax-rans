@@ -54,12 +54,16 @@ class ConvergenceHistory:
     first_block_seconds: float = float("nan")
     case_reasons: tuple[str, ...] = ()
     case_iterations: tuple[int, ...] = ()
+    block_diagnostics: tuple[dict, ...] = ()
 
     def case(self, k: int) -> "ConvergenceHistory":
         """Case ``k`` of a batch, as a single run's history."""
         n = self.case_iterations[k] if self.case_iterations else self.n_iters
         return ConvergenceHistory(self.residual[:n, k], self.case_reasons[k], n,
-                                  self.seconds, self.first_block_seconds)
+                                  self.seconds, self.first_block_seconds,
+                                  block_diagnostics=tuple({key: value if key == "iteration" else np.asarray(value)[k]
+                                                          for key, value in row.items()}
+                                      for row in self.block_diagnostics if row["iteration"] <= n))
 
     @property
     def converged(self) -> bool:
@@ -90,13 +94,28 @@ class ConvergenceHistory:
 
 
 def make_block(step: StepFunction, block_iters: int, devices: Sequence | None = None,
-               shardings: Any = None) -> Callable[[Any], tuple[Any, Array]]:
+               shardings: Any = None, diagnostics: bool = False) -> Callable[[Any], tuple[Any, Array]]:
     """``block_iters`` steps as one jitted call, ``state -> (state, residuals)``;
     with two or more ``devices`` a batch is split over them (``shard_map``);
     with ``shardings`` (``slab_shardings``) one state is kept split so."""
 
     def run_block(state: Any) -> tuple[Any, Array]:
-        return lax.scan(lambda carry, _: step(carry), state, xs=None, length=block_iters)
+        def one(carry, _):
+            result = step(carry)
+            return result[0], (result[1], result[2]) if diagnostics else result[1]
+        state, output = lax.scan(one, state, xs=None, length=block_iters)
+        if not diagnostics:
+            return state, output
+        residual, report = output
+        summary = {}
+        for key, value in report._asdict().items():
+            if value.dtype == jnp.bool_:
+                summary[key + "_count"] = jnp.sum(value, axis=0)
+            else:
+                summary[key + "_min"] = jnp.min(value, axis=0)
+                summary[key + "_max"] = jnp.max(value, axis=0)
+                summary[key + "_last"] = value[-1]
+        return state, (residual, summary)
 
     if shardings is not None:
         return jax.jit(run_block, in_shardings=(shardings,), out_shardings=(shardings, None))
@@ -105,8 +124,9 @@ def make_block(step: StepFunction, block_iters: int, devices: Sequence | None = 
     from jax.experimental.shard_map import shard_map
     from jax.sharding import PartitionSpec as P
 
+    output_spec = (P(None, BATCH_AXIS), P(BATCH_AXIS)) if diagnostics else P(None, BATCH_AXIS)
     return jax.jit(shard_map(run_block, mesh=_mesh(devices), in_specs=(P(BATCH_AXIS),),
-                             out_specs=(P(BATCH_AXIS), P(None, BATCH_AXIS)), check_rep=False))
+                             out_specs=(P(BATCH_AXIS), output_spec), check_rep=False))
 
 
 def slab_shardings(state: Any, devices: Sequence) -> Any:
@@ -126,18 +146,26 @@ def _mesh(devices: Sequence, axis: str = BATCH_AXIS):
 
 
 @lru_cache(maxsize=16)
-def _masked_block(step, block_iters, devices):
+def _masked_block(step, block_iters, devices, diagnostics=False):
     """Reuse one executable across continuation rounds (freestream is dynamic)."""
     def masked_step(carry):
         current, active, last = carry
-        candidate, residual = step(current)
+        output = step(current)
+        candidate, residual = output[:2]
         kept = jax.tree_util.tree_map(
             lambda new, old: jnp.where(active.reshape(active.shape + (1,) * (old.ndim - 1)),
                                       new, old), candidate, current)
         residual = jnp.where(active, residual, last)
-        return (kept, active, residual), residual
+        result = ((kept, active, residual), residual)
+        if diagnostics:
+            report = output[2]._replace(**{
+                key: jnp.where(active, value, jnp.full_like(value, jnp.nan)
+                               if jnp.issubdtype(value.dtype, jnp.floating) else jnp.zeros_like(value))
+                for key, value in output[2]._asdict().items()})
+            return *result, report
+        return result
 
-    return make_block(masked_step, block_iters, devices)
+    return make_block(masked_step, block_iters, devices, diagnostics=diagnostics)
 
 
 def run_to_steady(
@@ -153,6 +181,8 @@ def run_to_steady(
     slabs: Sequence | None = None,
     active_mask: np.ndarray | None = None,
     allow_exact_zero: bool = True,
+    diagnostics: bool = False,
+    control_changed: Callable[[Any, Any], Array] | None = None,
 ) -> tuple[Any, ConvergenceHistory]:
     """Iterate until the residual is ``tol`` times its running **peak**, per case.
 
@@ -169,6 +199,10 @@ def run_to_steady(
     cases are frozen between blocks, inactive entries are skipped, and
     ``case(k)`` trims their history to their actual stopping iteration.
     ``on_block`` and ``finite_check`` may return one boolean per case.
+    ``diagnostics`` accepts a step's third NamedTuple result, reducing its
+    scalar facts on device before transferring one summary per block.
+    ``control_changed(old, new)`` prevents a constant residual being declared
+    stalled while solver control (for example a CFL cutback) is progressing.
     """
     masked = active_mask is not None
     if masked:
@@ -184,8 +218,8 @@ def run_to_steady(
     shardings = slab_shardings(state, slabs) if slabs else None
     if shardings is not None:
         state = jax.device_put(state, shardings)
-    block = (_masked_block(step, block_iters, tuple(devices) if devices else None) if masked
-             else make_block(step, block_iters, devices, shardings))
+    block = (_masked_block(step, block_iters, tuple(devices) if devices else None, diagnostics) if masked
+             else make_block(step, block_iters, devices, shardings, diagnostics))
     if devices is not None and len(devices) > 1:
         from jax.sharding import NamedSharding, PartitionSpec as P
 
@@ -196,8 +230,13 @@ def run_to_steady(
     peak = reasons = finished_iters = None
     started = time.perf_counter()
     first_block = float("nan")
+    reports = []
     for b in range(n_blocks):
+        before = state[0] if masked else state
         state, block_residual = block(state)
+        if diagnostics:
+            block_residual, report = block_residual
+            reports.append({key: np.asarray(value) for key, value in report.items()})
         block_residual = np.asarray(block_residual)
         if b == 0:
             first_block = time.perf_counter() - started
@@ -225,6 +264,10 @@ def run_to_steady(
         # A whole block with bitwise the same residual: no step was accepted
         # (the state is frozen), which would also look settled.
         frozen = (len(columns) > 1) & np.all(columns == columns[0], axis=0)
+        if diagnostics and "changed_count" in reports[-1]:
+            frozen &= ~(reports[-1]["changed_count"] > 0).reshape(-1)
+        if control_changed is not None:
+            frozen &= ~np.asarray(control_changed(before, current), dtype=bool).reshape(-1)
         reasons[(reasons == ExitReason.MAX_ITERS) & frozen] = ExitReason.STALLED
         reasons[(reasons == ExitReason.MAX_ITERS) & np.asarray(stop, dtype=bool)] = ExitReason.SETTLED
         finished_iters[running & (reasons != ExitReason.MAX_ITERS)] = (b + 1) * block_iters
@@ -245,4 +288,5 @@ def run_to_steady(
         first_block_seconds=first_block,
         case_reasons=tuple(reasons) if residual.ndim > 1 else (),
         case_iterations=tuple(int(n) for n in finished_iters) if masked else (),
+        block_diagnostics=tuple(dict(row, iteration=(i + 1) * block_iters) for i, row in enumerate(reports)),
     )

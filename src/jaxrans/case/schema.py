@@ -51,7 +51,9 @@ class Key:
         ok = {"number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
               "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
               "string": lambda v: isinstance(v, str),
-              "list": lambda v: isinstance(v, list)}[base](value)
+              "list": lambda v: isinstance(v, list),
+              "boolean": lambda v: isinstance(v, bool),
+              "object": lambda v: isinstance(v, dict)}[base](value)
         if not ok:
             raise TypeError(f"'{path}' must be {'an' if base[0] in 'aeiou' else 'a'} {base}, got {value!r}")
         if self.choices is not None and value not in self.choices:
@@ -69,8 +71,10 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("case_name", "string", REQUIRED, "names the output directory"),
         Key("description", "string", None, "one line, printed in the log", default_text="`case_name`"),
         Key("save_path", "string", "results", "output root, relative to the case directory"),
-        Key("precision", "string", _N.precision, "field and preconditioner precision; geometry is built in "
-            "FP64; FP32 keeps the small GMRES least-squares solve in FP64 and does not change convergence tolerances",
+        Key("precision", "string", _N.precision, "`fp32` or `fp64` fields; geometry is built in FP64. "
+            "`mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, "
+            "preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. "
+            "The small GMRES least-squares solve is FP64; convergence tolerances are unchanged",
             choices=tuple(PRECISIONS)),
     ),
     "domain": (
@@ -195,6 +199,11 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
             "of density, pressure and nu~ (0.2 for SA at incidence)"),
         Key("nonlinear_growth_limit", "number|null", _I.nonlinear_growth_limit,
             "reject a step when its nonlinear residual exceeds this multiple of the current residual"),
+        Key("nonlinear_merit", "string", _I.nonlinear_merit,
+            "nonlinear acceptance merit: mass residual or maximum normalized equation residual",
+            choices=("mass", "equations")),
+        Key("backtracking_steps", "integer", _I.backtracking_steps,
+            "maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking"),
     ),
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),
@@ -203,6 +212,11 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
             "required relative drop of every normalized equation residual"),
         Key("equation_abs_tol", "number", _N.equation_abs_tol,
             "absolute floor for each normalized equation residual"),
+        Key("equation_abs_tols", "object", {},
+            "per-equation absolute floor overrides: mass, momentum_x/y/z, energy, sa; "
+            "unspecified equations use equation_abs_tol; ignored when forces_tol is null"),
+        Key("diagnostics", "boolean", _N.diagnostics,
+            "record detailed equation and nonlinear convergence diagnostics"),
         Key("forces_tol", "number|null", _N.forces_tol, "also require CL, CD and CM to vary by less than "
             "this over the last quarter of the iterations (at least four blocks there); null: "
             "use `tol` on every equation"),

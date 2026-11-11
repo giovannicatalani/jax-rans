@@ -72,17 +72,31 @@ class Polar:
     timing: Timing | ContinuationTiming
     mode: str = "batch"
     requested_alphas: tuple[float, ...] = ()
+    attempts: tuple[Result, ...] = ()
+    continuation: dict | None = None
 
     def table(self) -> np.ndarray:
         """Rows ``alpha, CL, CD, CD friction, CM, orders, iterations, CL spread, settled``."""
         return np.array([[a, r.forces.cl, r.forces.cd, r.forces.cd_friction, r.forces.cm,
                           r.history.orders_dropped, r.history.n_iters, r.cl_spread,
-                          float(r.cl_spread <= SETTLED_CL_SPREAD)]
+                          float(r.history.reason in ("converged", "settled") if self.mode == "continuation"
+                                else r.cl_spread <= SETTLED_CL_SPREAD)]
                          for a, r in zip(self.alphas, self.results)]).reshape(-1, 9)
 
     def write(self, directory: str | Path, *, preserve_prefix: int = 0) -> Path:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
+        if self.continuation is not None and (directory / "continuation.json").exists():
+            previous = json.loads((directory / "continuation.json").read_text())
+            if (previous.get("case_setup") != self.case.raw or
+                    previous.get("continuation") != self.continuation or
+                    previous.get("requested_alphas") !=
+                    list(self.requested_alphas)[:len(previous.get("requested_alphas", []))]):
+                raise ValueError(f"{directory}: adaptive output configuration differs; use a new directory")
+        if self.continuation is not None:
+            from .campaign import _atomic_json, _checkpoint_attempt
+            for result in self.attempts:
+                _checkpoint_attempt(directory, result)
         np.savetxt(directory / "polar.dat", self.table(),
                    header="alpha_deg cl cd cd_friction cm orders_dropped iterations cl_spread settled",
                    fmt=["%.4f", "%.8f", "%.8f", "%.8f", "%.8f", "%.3f", "%d", "%.3e", "%d"])
@@ -96,6 +110,22 @@ class Polar:
                        for k, (a, r) in enumerate(zip(self.alphas, self.results))],
             "git": git_revision(), "environment": environment_record(),
         }, indent=2, default=float))
+        if self.continuation is not None:
+            _atomic_json(directory / "continuation.json", {
+                "version": 1, "case_setup": self.case.raw,
+                "continuation": self.continuation, "requested_alphas": list(self.requested_alphas),
+            })
+            meta_path = directory / "polar_metadata.json"
+            meta = json.loads(meta_path.read_text())
+            meta["continuation"] = self.continuation
+            meta["attempts"] = [{**r.provenance, "exit_reason": r.history.reason,
+                                 "directory": f"attempts/attempt_{r.provenance['attempt']:06d}"}
+                                for r in self.attempts]
+            for point, result in zip(meta["points"], self.results):
+                point.update(result.provenance)
+                point["directory"] = f"attempts/attempt_{result.provenance['attempt']:06d}"
+            _atomic_json(meta_path, meta)
+            return directory
         names = [f"alpha_{a:+.2f}" for a in self.alphas]
         unique_names = len(set(names)) == len(names)
         for k, (alpha, result) in enumerate(zip(self.alphas, self.results)):

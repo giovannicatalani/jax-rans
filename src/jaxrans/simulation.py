@@ -13,14 +13,18 @@ or validation, which live in ``validation/``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Sequence
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
+from .convergence import convergence_record, diagnostics_report
+from .convergence import cl_spread as cl_spread
+from .convergence import equations_settled as _equations_settled
 from .core.state import conservative_to_primitive
 from .mesh.atlas import Atlas
 from .mesh.coarsen import prolong
@@ -42,19 +46,9 @@ SETTLED_CL_SPREAD = 1e-4
 most RANS runs stall at round-off (9.8-10.8 orders) before ``tol``."""
 
 
-def cl_spread(cl_history: np.ndarray) -> float:
-    """CL (or any per-block history's) range over the last quarter of the
-    blocks; NaN with fewer than four samples there, so a short run is never
-    settled."""
-    tail = np.asarray(cl_history)[3 * len(cl_history) // 4:]
-    return float(tail.max() - tail.min()) if tail.size >= 4 else float("nan")
-
-
-def equations_settled(current: np.ndarray, peak: np.ndarray, numerics) -> bool:
-    """Every equation must meet a relative drop or a normalized absolute floor."""
-    relative = numerics.tol if numerics.forces_tol is None else numerics.equation_tol
-    floor = 0.0 if numerics.forces_tol is None else numerics.equation_abs_tol
-    return bool(np.all(np.isfinite(current) & (current <= np.maximum(floor, relative * peak))))
+def equations_settled(current, peak, numerics, *, names=None) -> bool:
+    """Backward-compatible host decision using the common convergence policy."""
+    return bool(_equations_settled(current, peak, numerics, names=names))
 
 
 @dataclass(frozen=True)
@@ -122,6 +116,9 @@ class Result:
     cl_history: np.ndarray
     timing: Timing
     levels: tuple[dict, ...] = ()
+    coefficients_history: np.ndarray = field(default_factory=lambda: np.empty((0, 3)))
+    convergence_history: tuple[dict, ...] = ()
+    provenance: dict = field(default_factory=dict)
 
     @property
     def seconds(self) -> float:
@@ -146,20 +143,7 @@ class Result:
         directory = Path(directory) if directory is not None else self.case.output / self.case.name
         writer = ResultWriter(directory, case_name=self.case.name)
         operator = make_residual(self.grid, self.case.flow, self.case.numerics)
-        residual = np.asarray(operator.residual(self.U))
-        volume = np.asarray(self.grid.grid.volume)
-        mask = np.asarray(self.grid.interior)
-        names = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:self.grid.components]], "energy"]
-        if residual.shape[0] > len(names):
-            names.append("sa")
-        reference = np.abs(np.asarray(operator.initial_state())[:, mask]).mean(axis=1)
-        reference[1:1 + self.grid.components] = max(reference[1:1 + self.grid.components].max(), 1e-12)
-        scales = np.maximum(reference, 1e-12)
-        rates = residual[:, mask] / volume[mask] / scales[:, None]
-        weights = volume[mask] / volume[mask].sum()
-        equation_residuals = {name: {"l2_volume": float(np.sqrt(np.sum(weights * row**2))),
-                                      "linf": float(np.max(np.abs(row)))}
-                              for name, row in zip(names, rates)}
+        equation_residuals = diagnostics_report(operator, operator.equation_diagnostics(self.U))
         writer.write_metadata(
             {"flow": self.case.flow, "numerics": self.case.numerics, "implicit": self.case.implicit},
             extra={
@@ -167,6 +151,9 @@ class Result:
                 "grid": self.case.grid_spec.describe(self.case.directory),
                 "cells": self.cells,
                 "field_dtype": str(self.U.dtype),
+                "precision_policy": {"state": str(self.U.dtype), "residual": str(self.U.dtype),
+                                     "krylov_basis": "float32" if self.case.numerics.mixed_precision else str(self.U.dtype),
+                                     "preconditioner": "float32" if self.case.numerics.mixed_precision else str(self.U.dtype)},
                 "grid_quality": quality(self.grid.mesh).record(),
                 "equation_residuals": equation_residuals,
                 "bodies": [dict(zip(("cl", "cd", "cm"), b)) for b in self.forces.bodies],
@@ -178,12 +165,16 @@ class Result:
                 "seconds": self.seconds,
                 "cl_spread": self.cl_spread,
                 "timing": self.timing.record(),
+                "convergence": self.convergence_history[-1] if self.convergence_history else {},
+                "provenance": self.provenance,
                 **({"grid_sequencing": list(self.levels)} if self.levels else {}),
                 **(extra or {}),
             },
         )
         writer.write_residual_history(self.history.residual)
         writer.write_lift_history(self.cl_history, self.case.block_iters)
+        writer.write_solver_history(self.coefficients_history, self.convergence_history,
+                                    self.history.block_diagnostics, self.case.block_iters)
         writer.write_surface(self.surface())
         blocks = [np.asarray(u) for u in self.grid.unpack(self.U)]
         writer.write_fields(blocks, [np.asarray(b.nodes) for b in self.grid.mesh])
@@ -201,7 +192,8 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
-                 distance: Array | None = None, initial: Array | None = None) -> tuple[Callable, object]:
+                 distance: Array | None = None, initial: Array | None = None,
+                 *, diagnostics: bool = False) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
     (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
     flow, numerics = case.flow, case.numerics
@@ -209,7 +201,8 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
             grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
-        step = implicit.make_newton_step(operator, case.implicit, jacobian)
+        step = implicit.make_newton_step(operator, case.implicit, jacobian, diagnostics=diagnostics,
+                                        mixed_precision=numerics.mixed_precision)
         state = implicit.initial_state(operator, case.implicit, dtype=numerics.dtype)
     else:
         step = explicit.make_rk_step(operator, scheme=case.rk_scheme)
@@ -261,19 +254,28 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     length = case.grid_spec.force_reference()
     if devices:
         grid = SlabAtlas.of(grid, devices)
-    step, state = make_stepper(case, grid, initial=initial)
+    diagnostics = numerics.diagnostics and numerics.solver == "implicit"
+    step, state = make_stepper(case, grid, initial=initial, diagnostics=diagnostics)
     if start is not None:
         state = state._replace(U=prolong(*start, grid, state.U))
 
     cl_history: list[float] = []
     coefficients: list[tuple[float, float, float]] = []
     peak = [0.0]
-    equation_peak = None
     equation_operator = make_residual(grid, flow, numerics)
+    names = ["mass", *[f"momentum_{a}" for a in "xyz"[:grid.components]], "energy"]
+    if state.U.shape[0] > len(names):
+        names.append("sa")
+    equation_monitor = jax.jit(equation_operator.equation_diagnostics if numerics.diagnostics
+                               else equation_operator.equation_norms)
+    initial_equations = equation_monitor(state.U)
+    equation_peak = np.asarray(initial_equations["l2_volume"] if numerics.diagnostics else initial_equations)
+    convergence_history = []
 
     def on_block(index: int, current, residuals: np.ndarray) -> bool:
         nonlocal equation_peak
-        equation_norms = np.asarray(equation_operator.equation_norms(current.U))
+        measured = equation_monitor(current.U)
+        equation_norms = np.asarray(measured["l2_volume"] if numerics.diagnostics else measured)
         equation_peak = equation_norms if equation_peak is None else np.maximum(equation_peak, equation_norms)
         finite = residuals[np.isfinite(residuals)]
         if finite.size:
@@ -286,19 +288,26 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
             orders = float(np.log10(peak[0] / last)) if peak[0] > 0.0 and last > 0.0 else 0.0
             progress((index + 1) * case.block_iters, last, orders, forces)
         # NaN (too few blocks) compares false: a short run never stops here.
-        forces_settled = numerics.forces_tol is None or all(
-            cl_spread(h) < numerics.forces_tol for h in np.transpose(coefficients))
-        return forces_settled and equations_settled(equation_norms, equation_peak, numerics)
+        record = convergence_record(equation_norms, equation_peak, np.asarray(coefficients), numerics, names=names)
+        if numerics.diagnostics:
+            record["equations"] = diagnostics_report(equation_operator, measured)
+        convergence_history.append(dict(record, iteration=(index + 1) * case.block_iters))
+        return record["settled"]
 
     state, history = run_to_steady(
         step, state,
         max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
         on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)), slabs=devices,
         allow_exact_zero=False,
+        diagnostics=diagnostics,
+        control_changed=(lambda old, new: (old.cfl != new.cfl) | jnp.any(old.U != new.U))
+                        if numerics.solver == "implicit" else None,
     )
     return Result(
         case=case, grid=grid, U=state.U,
         forces=integrate_forces(state.U, grid, flow, length),
         history=history, cl_history=np.asarray(cl_history),
         timing=Timing.of(history, case.block_iters, grid.cells, devices=len(devices) if devices else 1),
+        coefficients_history=np.asarray(coefficients),
+        convergence_history=tuple(convergence_history),
     )

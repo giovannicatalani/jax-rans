@@ -40,24 +40,39 @@ def gmres_right(
     restart: int,
     maxiter: int,
     tol: float,
+    *,
+    basis_dtype=None,
 ) -> Array:
     """Restarted GMRES(``restart``), right-preconditioned (``precondition: r -> M^-1 r``),
     for ``matvec`` on any array shape; stops at ``|b - A x| <= tol |b|`` between
-    cycles, at most ``maxiter`` cycles. Zero for ``b = 0``."""
+    cycles, at most ``maxiter`` cycles. Zero for ``b = 0``.
+
+    ``basis_dtype`` optionally stores/orthogonalizes Krylov vectors and applies
+    the preconditioner in that dtype. Operator inputs, accumulated corrections
+    and restart residuals retain ``b.dtype``; the small Hessenberg stays FP64.
+    Leaving it unset preserves the ordinary field-precision path.
+    """
     b_norm = l2_norm(b)
-    tiny = jnp.finfo(b.dtype).tiny
+    vector_dtype = b.dtype if basis_dtype is None else jnp.dtype(basis_dtype)
+    tiny = jnp.finfo(vector_dtype).tiny
+
+    def apply_operator(v):
+        # JVP tangents must have precisely the primal (state) dtype.
+        return matvec(v.astype(b.dtype)).astype(vector_dtype)
 
     def cycle(x: Array) -> Array:
         r = b - matvec(x)
         beta = l2_norm(r)
-        V = jnp.zeros((restart + 1,) + b.shape, b.dtype).at[0].set(r / jnp.maximum(beta, tiny))
+        V = jnp.zeros((restart + 1,) + b.shape, vector_dtype).at[0].set(
+            (r / jnp.maximum(beta, tiny)).astype(vector_dtype))
         # Only this tiny least-squares problem uses FP64 in an FP32 solve.
         H = jnp.zeros((restart + 1, restart), jnp.float64)
 
         def arnoldi(j, carry):
             V, H = carry
-            w = matvec(precondition(V[j]))
-            active = (jnp.arange(restart + 1) <= j).astype(b.dtype)
+            w = (matvec(precondition(V[j])) if basis_dtype is None
+                 else apply_operator(precondition(V[j])))
+            active = (jnp.arange(restart + 1) <= j).astype(vector_dtype)
             h = _dot(V, w) * active
             w = w - jnp.tensordot(h, V, axes=1, precision=lax.Precision.HIGHEST)
             h2 = _dot(V, w) * active                  # the second pass of CGS2
@@ -73,9 +88,10 @@ def gmres_right(
         # H was measured with field-precision vectors: do not interpret FP32
         # round-off as extra independent Krylov directions just because the
         # small factorization itself is done in double.
-        rcond = jnp.finfo(b.dtype).eps * max(H.shape)
-        y = jnp.linalg.lstsq(H, e1, rcond=rcond)[0].astype(b.dtype)
-        return x + precondition(jnp.tensordot(y, V[:restart], axes=1, precision=lax.Precision.HIGHEST))
+        rcond = jnp.finfo(vector_dtype).eps * max(H.shape)
+        y = jnp.linalg.lstsq(H, e1, rcond=rcond)[0].astype(vector_dtype)
+        correction = precondition(jnp.tensordot(y, V[:restart], axes=1, precision=lax.Precision.HIGHEST))
+        return x + (correction if basis_dtype is None else correction.astype(b.dtype))
 
     def unconverged(carry):
         k, x, residual = carry
