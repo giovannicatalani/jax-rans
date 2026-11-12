@@ -7,7 +7,7 @@
     "domain": {
         "grid": "c_grid",
         "airfoil": "../../validation/references/rae2822/rae2822.dat",
-        "cells_airfoil": 192,
+        "cells_airfoil": 288,
         "cells_wake": 48,
         "cells_normal": 80,
         "wall_spacing": 2e-06,
