@@ -5,7 +5,7 @@ knows about grids. The transport equation, in the conservative compressible
 form this code integrates for the fifth variable ``rho nu~``:
 
     d(rho nu~)/dt + div(rho u nu~)
-        = rho P - rho D + (1/sigma) [ div((mu + rho nu~ f_n) grad nu~)
+        = rho P - rho D + (1/sigma) [ rho div((nu + nu~ f_n) grad nu~)
                                       + c_b2 rho |grad nu~|^2 ]
 
 with, for ``nu~ >= 0`` (standard SA without the ft2 term, "SA-noft2"),
@@ -34,10 +34,10 @@ Definitions, all from the TMR SA page:
 appears here; the far-field value is ``3 nu_inf = 3 M / Re`` and the wall
 value 0.
 
-The TMR page writes the incompressible form; the conservative form above is the
-usual compressible one, with ``rho`` on every term. At M = 0.15 the two
-differ negligibly; the conservative form is the one a finite-volume code can
-discretize without a source term in ``div u``.
+The finite-volume discretization writes the material-form diffusion as a
+conservative face divergence minus
+``(nu + nu~ f_n) grad(rho) . grad(nu~) / sigma``. This identity matters when
+density varies; its discrete gradients still require a refinement study.
 
 References
 ----------
@@ -59,7 +59,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import jax.numpy as jnp
-from jax import Array
+from jax import Array, lax
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,7 @@ def f_v2(chi: Array, c: SAConstants = SA) -> Array:
 
 def eddy_viscosity(rho: Array, nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """``mu_t = rho nu~ f_v1(chi)``, and zero where ``nu~ < 0`` (SA-neg)."""
-    chi = nu_tilde / nu
+    chi = jnp.where(nu_tilde > 0.0, nu_tilde / nu, 0.0)
     return jnp.where(nu_tilde > 0.0, rho * nu_tilde * f_v1(chi, c), 0.0)
 
 
@@ -139,16 +139,29 @@ def s_tilde(omega: Array, nu_tilde: Array, nu: Array, d: Array, c: SAConstants =
     """
     chi = nu_tilde / nu
     s_bar = nu_tilde * f_v2(chi, c) / (c.kappa * d) ** 2
-    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / (
-        (c.c_3 - 2.0 * c.c_2) * omega - s_bar
-    )
-    return jnp.where(s_bar >= -c.c_2 * omega, omega + s_bar, clipped)
+    ordinary = s_bar >= -c.c_2 * omega
+    denominator = (c.c_3 - 2.0 * c.c_2) * omega - s_bar
+    safe = jnp.where(ordinary, 1.0, denominator)
+    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / safe
+    return jnp.where(ordinary, omega + s_bar, clipped)
 
 
 def f_w(r: Array, c: SAConstants = SA) -> Array:
     """Near-wall destruction function. ``f_w(1) = 1``: the log layer."""
     g = r + c.c_w2 * (r**6 - r)
     cw3_6 = c.c_w3**6
+    if r.dtype == jnp.float32:
+        # g reaches 3e5 at r=10. Although g**6 fits in FP32, its
+        # directional derivative need not: inf * 0 in the quotient's JVP
+        # poisons Newton-Krylov even when f_w itself is finite. Normalize
+        # before the sixth powers; this is the same function, with bounded
+        # intermediate powers and no FP64 field arithmetic.
+        large = jnp.abs(g) > 1.0
+        small_g = jnp.where(large, 0.0, g)
+        inverse_g = 1.0 / jnp.where(large, g, 1.0)
+        small = small_g * ((1.0 + cw3_6) / (small_g**6 + cw3_6)) ** (1.0 / 6.0)
+        big = jnp.sign(g) * ((1.0 + cw3_6) / (1.0 + (c.c_w3 * inverse_g)**6)) ** (1.0 / 6.0)
+        return jnp.where(large, big, small)
     return g * ((1.0 + cw3_6) / (g**6 + cw3_6)) ** (1.0 / 6.0)
 
 
@@ -156,6 +169,16 @@ def r_of(nu_tilde: Array, s_t: Array, d: Array, c: SAConstants = SA) -> Array:
     """``min(nu~ / (S~ kappa^2 d^2), r_max)``; ``r_max`` where ``S~ <= 0``,
     which the clipping prevents but a zero vorticity does not."""
     denominator = s_t * (c.kappa * d) ** 2
+    if denominator.dtype == jnp.float32:
+        # Guard the capped branch BEFORE division. For tiny positive S~ the
+        # value nu~/den is capped at 10, but AD of that unused quotient can
+        # overflow through 1/den**2 and turn the clipped derivative into NaN.
+        # Keep the equality in the active branch so minimum's derivative at
+        # the cap retains its existing convention.
+        active = (denominator > 0.0) & (nu_tilde <= c.r_max * denominator)
+        safe_nu = jnp.where(active, nu_tilde, c.r_max)
+        safe_den = jnp.where(active, denominator, 1.0)
+        return jnp.minimum(safe_nu / safe_den, c.r_max)
     safe = jnp.where(denominator > 0.0, denominator, 1.0)
     return jnp.where(denominator > 0.0, jnp.minimum(nu_tilde / safe, c.r_max), c.r_max)
 
@@ -166,7 +189,7 @@ def source(
     """``(P, D)`` per unit mass from ``nu~``, ``nu = mu / rho``, the vorticity
     magnitude and the wall distance; the source of ``rho nu~`` is ``rho (P - D)``."""
     positive = nu_tilde >= 0.0
-    s_t = s_tilde(omega, nu_tilde, nu, d, c)
+    s_t = s_tilde(omega, jnp.where(positive, nu_tilde, 0.0), nu, d, c)
     wall_term = (nu_tilde / d) ** 2
     production = jnp.where(positive, c.c_b1 * s_t, c.c_b1 * omega) * nu_tilde
     destruction = jnp.where(
@@ -179,7 +202,7 @@ def f_n(nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """SA-neg diffusion factor: 1 for ``nu~ >= 0``, else
     ``(c_n1 + chi^3) / (c_n1 - chi^3)``, which keeps the diffusion
     coefficient ``nu + nu~ f_n`` positive."""
-    chi3 = (nu_tilde / nu) ** 3
+    chi3 = jnp.where(nu_tilde >= 0.0, 0.0, (nu_tilde / nu) ** 3)
     return jnp.where(nu_tilde >= 0.0, 1.0, (c.c_n1 + chi3) / (c.c_n1 - chi3))
 
 
@@ -208,7 +231,7 @@ def qcr_stress(grad_v: Array, mu_t: Array, c_cr1: float) -> Array:
     norm = jnp.where(positive, jnp.sqrt(jnp.where(positive, square, 1.0)), 1.0)
     rotation = (grad_v - jnp.swapaxes(grad_v, 0, 1)) / norm
     divergence = sum(grad_v[a, a] for a in range(dim))
-    identity = jnp.eye(dim).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
+    identity = jnp.eye(dim, dtype=grad_v.dtype).reshape((dim, dim) + (1,) * (grad_v.ndim - 2))
     tau = mu_t * (grad_v + jnp.swapaxes(grad_v, 0, 1) - (2.0 / 3.0) * divergence * identity)
-    product = jnp.einsum("ik...,jk...->ij...", rotation, tau)
+    product = jnp.einsum("ik...,jk...->ij...", rotation, tau, precision=lax.Precision.HIGHEST)
     return -c_cr1 * (product + jnp.swapaxes(product, 0, 1))

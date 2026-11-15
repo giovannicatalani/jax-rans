@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..core.config import ImplicitConfig
+from ..core.precision import floor_like, l2_norm
 from ..core.state import RHO, Rows, conservative_to_primitive, dot, is_physical
 from ..numerics.residual import ResidualOperator, cell_wave_speed_sum
 from . import explicit
@@ -40,10 +41,29 @@ class ImplicitState(NamedTuple):
     residual_norm: Array
 
 
+class NewtonDiagnostics(NamedTuple):
+    """Per-step facts, before rejected updates are masked out of the state."""
+
+    accepted: Array
+    correction_finite: Array
+    physical: Array
+    linear_reduction: Array
+    damping: Array
+    cfl: Array
+    changed: Array
+    density_min: Array
+    pressure_min: Array
+    nonlinear_ratio: Array
+    backtracks: Array
+    linear_fp64_fallback: Array
+    linear_stagnated: Array
+
+
 def initial_state(
-    operator: ResidualOperator, config: ImplicitConfig, dtype=jnp.float64
+    operator: ResidualOperator, config: ImplicitConfig, dtype=None
 ) -> ImplicitState:
     """The explicit path's freestream start, at the starting CFL."""
+    dtype = operator.q_inf.dtype if dtype is None else dtype
     return ImplicitState(
         U=explicit.initial_state(operator, dtype=dtype).U,
         cfl=jnp.asarray(config.cfl, dtype=dtype),
@@ -77,7 +97,7 @@ def relax(dU: Array, U: Array, gamma: float, fraction: float | None, dim: int = 
         d_nu_hat = (dU[rows.nu] - nu_hat * d_rho) / rho
         ratios.append(jnp.abs(d_nu_hat) / jnp.maximum(jnp.abs(nu_hat), 1.0))
     worst = jnp.max(jnp.stack([jnp.max(r) for r in ratios]))
-    omega = jnp.minimum(one, fraction / jnp.maximum(worst, 1e-300))
+    omega = jnp.minimum(one, fraction / jnp.maximum(worst, floor_like(worst)))
     return omega * dU, omega
 
 
@@ -85,19 +105,31 @@ def make_newton_step(
     operator: ResidualOperator,
     config: ImplicitConfig = ImplicitConfig(),
     jacobian_operator: ResidualOperator | None = None,
-) -> Callable[[ImplicitState], tuple[ImplicitState, Array]]:
+    *, diagnostics: bool = False, mixed_precision: bool = False,
+) -> Callable[[ImplicitState], tuple[ImplicitState, Array] | tuple[ImplicitState, Array, NewtonDiagnostics]]:
     """``step(state) -> (state, |R(U)| before the update)``; ``jacobian_operator``
     (a first-order residual: defect correction) supplies the linear operator,
-    ``None`` linearizes ``operator`` itself."""
+    ``None`` linearizes ``operator`` itself. ``diagnostics=True`` appends a
+    ``NewtonDiagnostics`` result, preserving facts about rejected corrections.
+    ``mixed_precision`` keeps the state/operator in FP64, with FP32 line factors
+    and Krylov vectors, retrying a failed linear solve entirely in FP64.
+    """
     gamma = operator.gamma
     prepare_preconditioner = get_preconditioner(config.preconditioner)(
         operator.atlas, gamma, operator.viscosity, operator.model, operator.distance
     )
+    if mixed_precision:
+        prepare_low = get_preconditioner(config.preconditioner)(
+            operator.atlas.with_dtype(jnp.float32), gamma, operator.viscosity,
+            operator.model, None if operator.distance is None else operator.distance.astype(jnp.float32)
+        )
     exact_jacobian = jacobian_operator is None
     jacobian_source = operator if exact_jacobian else jacobian_operator
 
     def step(state: ImplicitState) -> tuple[ImplicitState, Array]:
         U, cfl = state.U, state.cfl
+        if mixed_precision:
+            U, cfl = U.astype(jnp.float64), cfl.astype(jnp.float64)
 
         # One linearization serves the whole Krylov solve; the branch is
         # resolved at trace time, not in the loop.
@@ -117,14 +149,39 @@ def make_newton_step(
 
         # Right preconditioning, so GMRES minimizes the true linear residual
         # that the ramp below is judged on (solvers/krylov.py).
-        dU = gmres_right(
-            matvec,
-            -residual,
-            prepare_preconditioner(U, lambdas, cfl),
-            restart=config.krylov_subspace,
-            maxiter=config.krylov_restarts,
-            tol=config.krylov_tol,
-        )
+        def solve(prepare, state_u, speeds, step_cfl, *, basis_dtype=None):
+            return gmres_right(
+                matvec, -residual, prepare(state_u, speeds, step_cfl),
+                restart=config.krylov_subspace, maxiter=config.krylov_restarts,
+                tol=config.krylov_tol, basis_dtype=basis_dtype, return_action=True,
+            )
+
+        linear_fp64_fallback = jnp.asarray(False)
+        if mixed_precision:
+            dU, solved_action = solve(prepare_low, U.astype(jnp.float32),
+                       tuple(lam.astype(jnp.float32) for lam in lambdas),
+                       cfl.astype(jnp.float32), basis_dtype=jnp.float32)
+            initial_size = l2_norm(residual, dtype=jnp.float64)
+            solved_size = l2_norm(solved_action + residual, dtype=jnp.float64)
+            # Require only a measurable decrease, not the requested Krylov
+            # tolerance: a useful inexact Newton direction need not meet it.
+            # The margin rejects FP32 stagnation without demanding a large gain.
+            linear_fp64_fallback = (
+                ~jnp.all(jnp.isfinite(dU)) | ~jnp.isfinite(solved_size)
+                | ((initial_size > 0) &
+                   (solved_size >= (1. - max(1e-8, config.krylov_min_progress)) * initial_size))
+            )
+            # A per-case cond becomes an eager select under vmap, executing
+            # both solves even for a one-case campaign. A bounded while skips
+            # FP64 factorization when no case needs it; vmap masks inactive
+            # cases if another case does require the fallback.
+            _, (dU, solved_action) = jax.lax.while_loop(
+                lambda carry: linear_fp64_fallback & (carry[0] < 1),
+                lambda carry: (carry[0] + 1, solve(prepare_preconditioner, U, lambdas, cfl)),
+                (jnp.asarray(0, jnp.int32), (dU, solved_action)),
+            )
+        else:
+            dU, solved_action = solve(prepare_preconditioner, U, lambdas, cfl)
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
         dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
@@ -132,33 +189,86 @@ def make_newton_step(
         # The ramp keys off how well the linear system was solved (one more
         # matvec), not the residual history: a stagnated GMRES returns a null
         # update that leaves the residual unchanged, which looks like success.
-        linear_reduction = jnp.linalg.norm(matvec(dU) + residual) / jnp.maximum(
-            jnp.linalg.norm(residual), 1e-300
-        )
+        # Keep the scalar decision in double: casting both norms to FP32
+        # first can turn a real decrease into exactly 1 and reject the step.
+        # An amortized correction requires a fresh action to preserve rounding
+        # and acceptance decisions; the unmodified direction can reuse GMRES.
+        action = matvec(dU) if config.max_relative_update is not None else solved_action
+        residual_size = jnp.maximum(l2_norm(residual, dtype=jnp.float64), floor_like(residual))
 
-        # Reject a step that leaves the physical domain or that GMRES failed to
-        # solve, and resume at a lower CFL: one wasted step, not a lost run.
-        candidate = U + dU
-        physical = jnp.all(is_physical(candidate, gamma, operator.components)) & jnp.all(jnp.isfinite(dU))
-        accept = physical & (linear_reduction < 1.0)
+        def linear_ratio(factor):
+            return l2_norm(factor * action + residual, dtype=jnp.float64) / residual_size
+
+        correction_finite = jnp.all(jnp.isfinite(dU))
+        growth_limit = config.nonlinear_growth_limit
+
+        def merit(value):
+            if config.nonlinear_merit == "equations":
+                return jnp.max(operator.equation_norms_from_residual(value)).astype(jnp.float64)
+            return operator.norm(value).astype(jnp.float64)
+
+        baseline = merit(residual) if growth_limit is not None else jnp.asarray(1., jnp.float64)
+
+        def evaluate(factor):
+            candidate = U + factor * dU
+            physical = jnp.all(is_physical(candidate, gamma, operator.components)) & correction_finite
+            reduction = linear_ratio(factor)
+            # Scale the required gain with damping: a useful direction may
+            # legitimately need a tiny physical step. Undamped near-null
+            # solves (including failed FP64 retries) must instead cut CFL.
+            required_gain = (jnp.asarray(config.krylov_min_progress, jnp.float64)
+                             * omega.astype(jnp.float64) * factor)
+            accept = physical & (reduction < 1. - required_gain)
+            ratio = jnp.asarray(jnp.nan, jnp.float64)
+            if growth_limit is not None:
+                nonlinear = jax.lax.cond(
+                    physical, lambda _: merit(operator.residual(candidate)),
+                    lambda _: jnp.asarray(jnp.inf, jnp.float64), None)
+                ratio = nonlinear / jnp.maximum(baseline, floor_like(residual))
+                accept = accept & jnp.isfinite(nonlinear) & (ratio <= growth_limit)
+            return accept, physical, reduction, ratio
+
+        factor = jnp.ones((), U.dtype)
+        accept, physical, linear_reduction, nonlinear_ratio = evaluate(factor)
+        backtracks = jnp.asarray(0, jnp.int32)
+        if config.backtracking_steps:
+            def retry(carry):
+                k, factor, *_ = carry
+                factor = factor * jnp.asarray(.5, U.dtype)
+                return (k + 1, factor, *evaluate(factor))
+
+            backtracks, factor, accept, physical, linear_reduction, nonlinear_ratio = jax.lax.while_loop(
+                lambda c: (c[0] < config.backtracking_steps) & ~c[2], retry,
+                (backtracks, factor, accept, physical, linear_reduction, nonlinear_ratio))
+        candidate = U + factor * dU
+        omega = omega * factor
 
         # Switched evolution relaxation: grow the CFL by the residual reduction
         # achieved, capped, and only when the Krylov solve earned it. Mulder and
         # van Leer, J. Comput. Phys. 59 (1985).
-        reduction = state.residual_norm / jnp.maximum(norm, 1e-300)
+        reduction = state.residual_norm / jnp.maximum(norm, floor_like(norm))
         cfl_next = jnp.where(
             accept & (linear_reduction < config.krylov_success) & (omega >= 1.0),
             cfl * jnp.clip(reduction, 1.0, config.cfl_growth),
             jnp.where(accept, cfl, cfl / config.cfl_cutback),
         )
 
-        return (
-            ImplicitState(
-                U=jnp.where(accept, candidate, U),
-                cfl=jnp.clip(cfl_next, config.cfl_min, config.cfl_max),
-                residual_norm=jnp.where(accept, norm, state.residual_norm),
-            ),
-            norm,
+        updated = ImplicitState(
+            U=jnp.where(accept, candidate, U),
+            cfl=jnp.clip(cfl_next, config.cfl_min, config.cfl_max),
+            residual_norm=jnp.where(accept, norm, state.residual_norm),
         )
+        if diagnostics:
+            mask = operator.atlas.interior
+            rho, _, pressure = conservative_to_primitive(candidate, gamma, operator.components)
+            return updated, norm, NewtonDiagnostics(
+                accept, correction_finite, physical, linear_reduction, omega, updated.cfl,
+                accept & jnp.any(candidate != U),
+                jnp.min(jnp.where(mask, rho, jnp.inf)),
+                jnp.min(jnp.where(mask, pressure, jnp.inf)), nonlinear_ratio, backtracks,
+                linear_fp64_fallback,
+                jnp.isfinite(linear_reduction) &
+                (linear_reduction >= 1. - config.krylov_min_progress * omega.astype(jnp.float64)))
+        return updated, norm
 
     return step

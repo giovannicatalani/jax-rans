@@ -45,11 +45,23 @@ each choice, grouped by module.
 
 ## core/config.py
 
-- **float64 only.** A float32 path existed and was removed. The 5.9x
-  double-precision penalty on a 4 GB laptop card is real,
-  but every verification gate must run in double: a suite that cannot tell a
-  bug from round-off is no use, and no result was ever quoted from
-  the single-precision path.
+- **FP64 by default; FP32 is opt-in.** `case.general.precision` selects field
+  arithmetic without changing JAX's process-wide x64 support. Verification
+  references remain in FP64. Source mesh metrics and gradient geometry are
+  constructed in FP64 before rounding; FP32 fields, Krylov vectors and line
+  factors stay single precision. Norm sums and the tiny GMRES least-squares
+  solve use FP64; CGS2 and full FP32 matrix-product precision are retained.
+  Guards must be representable in the field dtype. Tolerances are never
+  silently relaxed: FP32 has a higher rounding floor, particularly on stretched
+  meshes, and aerodynamic coefficients must be checked against an FP64 run.
+  SA's `f_w` must also have a finite directional derivative: its original
+  sixth-power quotient can overflow in FP32 AD while the value remains finite.
+  The FP32 branch uses reciprocal powers for large `g`, an algebraically
+  equivalent form that avoids this overflow.
+  The cap in `r_of` must guard its inactive quotient before division: clipping
+  an overflowing JVP afterwards multiplies infinity by zero and produces NaN.
+  Scalar Newton acceptance compares FP64 norm results without an intervening
+  FP32 cast; otherwise a real small decrease can round to exactly one.
 - **HLLC by default**: it resolves a stationary contact exactly and needs no
   entropy fix, so the scheme carries no tunable dissipation.
 - **Krylov sizes.** The Arnoldi loop (solvers/krylov.py) runs to full length

@@ -27,6 +27,7 @@ from jax import Array
 
 from ..core import constants
 from ..core.config import FlowConditions, NumericsConfig
+from ..core.precision import floor_like, weighted_rms
 from ..core.state import (
     RHO, Rows, conservative_to_primitive, dot, freestream_primitive, magnitude,
     primitive_to_conservative, split, stack_primitive,
@@ -166,7 +167,7 @@ def local_time_step(U: Array, grid: Grid, gamma: float, cfl: float,
             mu = mu + model.eddy_viscosity(q[RHO], q[Rows(nv).nu], mu)
         factor = gamma / constants.PRANDTL_LAMINAR * mu / q[RHO]
         total = total + 4.0 * factor * squares / grid.volume
-    return cfl * grid.volume / jnp.maximum(total, 1e-300)
+    return cfl * grid.volume / jnp.maximum(total, floor_like(total))
 
 
 def face_wave_speeds(U: Array, atlas: Atlas, gamma: float,
@@ -240,14 +241,89 @@ class ResidualOperator:
     def norm(self, residual: Array, variable: int = RHO) -> Array:
         """Volume-weighted L2 norm of one component over the block cells."""
         weight = jnp.where(self.atlas.interior, self.grid.volume, 0.0)
-        return jnp.sqrt(jnp.sum(weight * residual[variable] ** 2) / jnp.sum(weight))
+        return weighted_rms(residual[variable], weight)
+
+    def equation_scales(self) -> Array:
+        """Freestream conservative magnitudes, with a common momentum scale.
+
+        Freestream is uniform, so its volume-weighted mean equals its value
+        at any cell. The 1e-12 guard also covers zero transverse momentum.
+        This definition is shared by monitoring, metadata and nonlinear merit.
+        """
+        reference = jnp.abs(self.initial_state()[(slice(None),) + (0,) * self.dim])
+        momentum = jnp.max(reference[1:1 + self.components])
+        reference = reference.at[1:1 + self.components].set(momentum)
+        return jnp.maximum(reference, 1e-12)
+
+    def _equation_rates(self, R: Array):
+        # Mask before dividing: canvas ghosts may contain arbitrary values,
+        # including NaN, and their geometry need not have positive volume.
+        # Promote before division/squaring, not after overflowing in FP32.
+        interior = self.atlas.interior
+        volume = jnp.where(interior, self.grid.volume, 1.0).astype(jnp.float64)
+        weight = jnp.where(interior, self.grid.volume, 0.0).astype(jnp.float64)
+        scales = self.equation_scales().astype(jnp.float64)
+        shape = (R.shape[0],) + (1,) * self.dim
+        residual = jnp.where(interior, R, 0.0).astype(jnp.float64)
+        rates = residual / volume / scales.reshape(shape)
+        return rates, weight, scales, residual
+
+    @staticmethod
+    def _equation_l2(rates: Array, weight: Array) -> Array:
+        axes = tuple(range(1, rates.ndim))
+        scale = jnp.max(jnp.abs(rates), axis=axes, keepdims=True)
+        safe = jnp.where(scale > 0, scale, 1.0)
+        mean_square = jnp.sum((weight / jnp.sum(weight)) * (rates / safe) ** 2, axis=axes)
+        return scale.reshape((rates.shape[0],)) * jnp.sqrt(mean_square)
+
+    def equation_norms_from_residual(self, R: Array) -> Array:
+        """Normalized volume-weighted L2 from an already evaluated residual.
+
+        Reductions accumulate in FP64 even when fields are FP32. Returns one
+        value per equation and does not evaluate the residual again.
+        """
+        rates, weight, _, _ = self._equation_rates(R)
+        return self._equation_l2(rates, weight)
+
+    def equation_norms(self, U: Array) -> Array:
+        """Volume-weighted L2 of R/V, scaled by freestream conserved variables."""
+        return self.equation_norms_from_residual(self.residual(U))
+
+    def equation_diagnostics(self, U: Array) -> dict[str, Array]:
+        """JAX pytree of per-equation norms, maximum locations and balances.
+
+        ``max_index`` is ``(nvar, dim)`` in canvas coordinates;
+        ``max_coordinates`` is ``(nvar, coordinate_components)``. Ties pick
+        the first interior cell in flattened order. ``balance = sum(R)``
+        includes SA sources; ``normalized_balance = balance / sum(V) / scale``.
+        All reductions ignore ghost cells and accumulate in FP64.
+        """
+        rates, weight, scales, residual = self._equation_rates(self.residual(U))
+        axes = tuple(range(1, rates.ndim))
+        magnitude = jnp.where(self.atlas.interior, jnp.abs(rates), -jnp.inf)
+        flat_index = jnp.argmax(magnitude.reshape((rates.shape[0], -1)), axis=1)
+        indices = jnp.stack(jnp.unravel_index(flat_index, self.grid.shape), axis=1)
+        # Atlas gradient positions retain construction precision even when
+        # solver metrics are rounded to FP32; thin cells stay distinguishable.
+        centres = self.atlas.centres[(slice(None),) + (slice(1, -1),) * self.dim]
+        coordinates = centres.reshape((centres.shape[0], -1))[:, flat_index].T
+        balance = jnp.sum(residual, axis=axes)
+        return {
+            "scales": scales,
+            "l2_volume": self._equation_l2(rates, weight),
+            "linf": jnp.max(magnitude, axis=axes),
+            "max_index": indices,
+            "max_coordinates": coordinates,
+            "balance": balance,
+            "normalized_balance": balance / jnp.sum(weight) / scales,
+        }
 
     def wave_speeds(self, U: Array):
         return face_wave_speeds(U, self.atlas, self.gamma, self.viscosity, self.model)
 
-    def initial_state(self, dtype=jnp.float64) -> Array:
+    def initial_state(self, dtype=None) -> Array:
         """The freestream on every canvas cell."""
-        return uniform_canvas(self.q_inf, self.grid, self.gamma, dtype)
+        return uniform_canvas(self.q_inf, self.grid, self.gamma, self.q_inf.dtype if dtype is None else dtype)
 
 
 def uniform_canvas(q: Array, grid: Grid, gamma: float, dtype=jnp.float64) -> Array:
@@ -300,8 +376,10 @@ def make_residual(
     if isinstance(atlas, SectionalAtlas) and atlas.geometry is not None:
         if numerics.far_field != "characteristic":
             raise ValueError("finite taper requires the uniform characteristic far field")
+    atlas = atlas.with_dtype(numerics.dtype)
     if atlas.g != numerics.n_ghost:
         raise ValueError(f"the atlas has {atlas.g} ghost layers, the scheme needs {numerics.n_ghost}")
+    mu_inf = None if mu_inf is None else jnp.asarray(mu_inf, dtype=numerics.dtype)
     viscosity = Viscosity.of(flow, mu_inf)
     model = SAModel.of(flow, mu_inf)
     dtype, gamma, g, dim, nv = numerics.dtype, flow.gamma, numerics.n_ghost, atlas.grid.dim, atlas.components
@@ -324,6 +402,8 @@ def make_residual(
                         [jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.reference.mesh)], 1.0))
             else:
                 distance = atlas.pack([jnp.asarray(d, dtype=dtype) for d in wall_distance(atlas.mesh)], 1.0)
+        else:
+            distance = jnp.asarray(distance, dtype=dtype)
     else:
         distance = None
     canvas = atlas.grid
@@ -346,7 +426,9 @@ def make_residual(
     def residual(U: Array) -> Array:
         q = primitive_from_conservative(U, gamma, nv)
         if isinstance(atlas, SectionalAtlas):
-            reference = far_field(atlas.section_values(q), atlas.reference, q_inf, gamma)
+            section_reference = far_field(atlas.section_values(q), atlas.reference, q_inf, gamma)
+            # The reference is a 2D section model; slab boundary points are 3D.
+            reference = lambda midpoint: section_reference(midpoint[:2])
         else:
             reference = far_field(q, atlas, q_inf, gamma)
         conditions = bc.Conditions(q_inf, gamma, reference)

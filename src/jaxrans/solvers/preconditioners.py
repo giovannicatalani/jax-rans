@@ -209,7 +209,9 @@ def chain_solver(lower: Array, diag: Array, upper: Array, layout: Layout):
 def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atlas,
                       gamma: float, layout: Layout):
     """``(lower, diag, upper)`` of the mean-flow chains, ``(L, n_lines, d+2, d+2)``."""
-    grid = atlas.grid
+    # Source geometry may be FP64 even when the Krylov fields are FP32.
+    # Round metrics before forming blocks so factors and matvecs stay in U.dtype.
+    grid = atlas.with_dtype(U.dtype).grid
     nv = grid.components
     m = Rows(nv).n_flow
     q = primitive_from_conservative(U, gamma, nv)
@@ -242,7 +244,8 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
     derivative ``2 c_w1 f_w nu_inf nu_hat / d_wall^2`` (``f_w`` frozen, no
     production) and the mean flow's ``V/dt`` complete the diagonal.
     """
-    grid = atlas.grid
+    grid = atlas.with_dtype(U.dtype).grid
+    distance = jnp.asarray(distance, dtype=U.dtype)
     dim, nv = grid.dim, grid.components
     rows = Rows(nv)
     c, nu_inf = model.constants, model.nu_inf

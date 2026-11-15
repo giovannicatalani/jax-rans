@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core import constants
-from ..core.config import TURBULENCE_MODELS, ImplicitConfig, NumericsConfig
+from ..core.config import PRECISIONS, TURBULENCE_MODELS, ImplicitConfig, NumericsConfig
 from ..core.sectional import SectionalSpec
 from ..mesh.assemble import FORMATS
 from ..mesh.block import CONDITION_KINDS
@@ -53,6 +53,7 @@ class Key:
               "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
               "string": lambda v: isinstance(v, str),
               "list": lambda v: isinstance(v, list),
+              "boolean": lambda v: isinstance(v, bool),
               "object": lambda v: isinstance(v, dict)}[base](value)
         if not ok:
             raise TypeError(f"'{path}' must be {'an' if base[0] in 'aeiou' else 'a'} {base}, got {value!r}")
@@ -71,6 +72,11 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("case_name", "string", REQUIRED, "names the output directory"),
         Key("description", "string", None, "one line, printed in the log", default_text="`case_name`"),
         Key("save_path", "string", "results", "output root, relative to the case directory"),
+        Key("precision", "string", _N.precision, "`fp32` or `fp64` fields; geometry is built in FP64. "
+            "`mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, "
+            "preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. "
+            "The small GMRES least-squares solve is FP64; convergence tolerances are unchanged",
+            choices=tuple(PRECISIONS)),
     ),
     "domain": (
         Key("grid", "string", REQUIRED, "where the grid comes from: generated round one airfoil "
@@ -80,6 +86,20 @@ CASE: dict[str, tuple[Key, ...]] = {
             "standard open one), or a coordinate file (Selig, Lednicer, two columns or a one-element `.hug`), scaled to unit chord",
             grids=GENERATED, required_for=GENERATED),
         Key("cells_airfoil", "integer", None, "cells round the airfoil", grids=GENERATED, required_for=GENERATED),
+        Key("airfoil_smoothing", "number", 0.0,
+            "optional contour regularization: maximum continuous displacement in chords; "
+            "0 preserves the original interpolation. Fixes LE/TE endpoints and constrains derivatives; "
+            "inspect geometry changes before CFD (docs/airfoil-regularization.md)", grids=GENERATED),
+        Key("airfoil_smoothing_method", "string", "parametric",
+            "contour regularizer: parametric fairing, C4 B-spline, or global geometric "
+            "curvature fitting with bounded displacement",
+            choices=("parametric", "bspline", "curvature"), grids=GENERATED),
+        Key("airfoil_smoothing_points", "integer", 96,
+            "number of quintic B-spline control points for curvature fitting (>=12); "
+            "incompatible fidelity/complexity bounds raise an error", grids=GENERATED),
+        Key("airfoil_smoothing_radius_tol", "number", 0.1,
+            "maximum relative change of nose radius for curvature fitting, in [0,1); "
+            "0 fixes it; 0.1 permits +/-10%", grids=GENERATED),
         Key("cells_wake", "integer", None, "cells along each side of the wake cut",
             grids=("c_grid",), required_for=("c_grid",)),
         Key("cells_normal", "integer", None, "cells from the wall to the far field",
@@ -144,7 +164,9 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("reynolds", "number|null", None, "per unit length of the grid (per chord for a grid of unit "
             "chord); `null` is inviscid"),
         Key("temperature", "number", None, "absolute, in the unit of `sutherland_temperature`; "
-            "Sutherland's law needs it"),
+            "static freestream temperature; Sutherland's law needs it unless `total_temperature` is given"),
+        Key("total_temperature", "number", None, "absolute total freestream temperature, in the unit of "
+            "`sutherland_temperature`; converted to static temperature at the current Mach"),
     ),
     "material_properties": (
         Key("specific_heat_ratio", "number", constants.GAMMA_AIR, ""),
@@ -198,15 +220,35 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
         Key("krylov_subspace", "integer", _I.krylov_subspace, "GMRES vectors before a restart"),
         Key("krylov_restarts", "integer", _I.krylov_restarts, "GMRES restarts"),
         Key("krylov_success", "number", _I.krylov_success, "linear residual reduction for the CFL to grow"),
+        Key("krylov_min_progress", "number", _I.krylov_min_progress,
+            "minimum useful relative linear-residual decrease, scaled by damping; "
+            "below this reject the correction and reduce CFL, including after FP64 fallback; "
+            "0 restores strict decrease only; does not change convergence tolerances"),
         Key("max_relative_update", "number|null", _I.max_relative_update, "bound on a step's relative change "
             "of density, pressure and nu~ (0.2 for SA at incidence)"),
+        Key("nonlinear_growth_limit", "number|null", _I.nonlinear_growth_limit,
+            "reject a step when its nonlinear residual exceeds this multiple of the current residual"),
+        Key("nonlinear_merit", "string", _I.nonlinear_merit,
+            "nonlinear acceptance merit: mass residual or maximum normalized equation residual",
+            choices=("mass", "equations")),
+        Key("backtracking_steps", "integer", _I.backtracking_steps,
+            "maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking"),
     ),
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),
-        Key("tol", "number", _N.tol, "residual drop from its running peak"),
-        Key("forces_tol", "number|null", _N.forces_tol, "stop once CL, CD and CM each vary by less than "
-            "this over the last quarter of the iterations (at least four blocks there); null: run to `tol` "
-            "or `max_iters`"),
+        Key("tol", "number", _N.tol, "required relative drop per equation when forces_tol is null"),
+        Key("equation_tol", "number", _N.equation_tol,
+            "required relative drop of every normalized equation residual"),
+        Key("equation_abs_tol", "number", _N.equation_abs_tol,
+            "absolute floor for each normalized equation residual"),
+        Key("equation_abs_tols", "object", {},
+            "per-equation absolute floor overrides: mass, momentum_x/y/z, energy, sa; "
+            "unspecified equations use equation_abs_tol; ignored when forces_tol is null"),
+        Key("diagnostics", "boolean", _N.diagnostics,
+            "record detailed equation and nonlinear convergence diagnostics"),
+        Key("forces_tol", "number|null", _N.forces_tol, "also require CL, CD and CM to vary by less than "
+            "this over the last quarter of the iterations (at least four blocks there); null: "
+            "use `tol` on every equation"),
         Key("grid_sequencing", "integer", 0, "solve first on this many coarser grids, each the next with "
             "every other node (cell counts, patch and interface limits must stay even), each to settled "
             "forces or `max_iters`, and start the next from it; 0: the grid only"),

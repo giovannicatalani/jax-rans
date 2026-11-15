@@ -14,7 +14,7 @@ from jaxrans.geometry.elements import read_element, read_elements
 from jaxrans.mesh.coarsen import coarsen
 from jaxrans.mesh.generate import blunt_c_grid
 from jaxrans.mesh.mesh import assign_conditions, interface_node_mismatch, patches, wall_faces
-from jaxrans.mesh.quality import quality
+from jaxrans.mesh.quality import interface_growth, quality
 
 CRV = Path(__file__).resolve().parents[2] / "validation/references/jaxa_30p30n/2010_30p30n_thik_te.crv"
 ROLES = ("slat", "main", "flap")
@@ -77,6 +77,9 @@ def test_blunt_c_grid_keeps_the_base_and_is_conforming_and_smooth(tmp_path, airf
     np.testing.assert_allclose((faces.b - faces.a).sum(axis=0), 0.0, atol=1e-12)
     report = quality(wall)
     assert faces.bodies == 1 and not report.folded
+    assert report.interface_growth_max == pytest.approx(interface_growth(wall).max())
+    assert report.interface_growth_location.startswith("block ")
+    assert report.interface_growth_max < 12.0
     assert report.wall_spacing == pytest.approx((1e-5, 1e-5), rel=0.15)
     assert all(g.ni >= 2 and g.nj >= 2 for g in coarsen(coarsen(wall)))
 
@@ -87,6 +90,16 @@ def test_blunt_c_grid_keeps_the_surface_resolution_of_a_sharp_one() -> None:
     wall = x[:, 0] < 1.0 - 1e-12
     upper = wall & (y[:, 0] > 0.0)
     assert np.count_nonzero((x[upper, 0] > 0.4) & (x[upper, 0] < 0.8)) >= 30
+
+
+def test_blunt_wake_interface_jump_is_reduced_on_the_reference_grid(tmp_path) -> None:
+    spec = GridSpec(grid="c_grid", airfoil="naca0012_blunt", cells_airfoil=256,
+                    cells_wake=64, cells_normal=96, wall_spacing=5e-6, far_field=100)
+    mesh = _blunt_wall(spec.build(tmp_path))
+    report = quality(mesh)
+    assert report.interface_growth_max < 10.0
+    assert report.min_area > 0.0
+    assert all(b.nj % 4 == 0 for b in mesh)
 
 
 def test_a_closed_blunt_section_gets_the_one_block_c_grid(tmp_path) -> None:

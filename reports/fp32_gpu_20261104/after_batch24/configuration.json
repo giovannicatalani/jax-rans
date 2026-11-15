@@ -1,0 +1,271 @@
+{
+  "campaign": {
+    "general": {
+      "case_name": "wing_sections",
+      "description": "10 NACA sections, 18 to 10 percent, trapezoidal half-wing and winglet",
+      "save_path": "../../results",
+      "precision": "fp32"
+    },
+    "domain": {
+      "grid": "c_grid",
+      "cells_airfoil": 256,
+      "cells_wake": 96,
+      "cells_normal": 128,
+      "wall_spacing": 5e-06,
+      "far_field": 100.0
+    },
+    "sections": {
+      "file": "wing.icms",
+      "count": 10,
+      "units": "m",
+      "header_lines": null
+    },
+    "freestream": {
+      "reynolds": 6000000.0,
+      "temperature": 288.15
+    },
+    "material_properties": {
+      "dynamic_viscosity": "sutherland",
+      "sutherland_temperature": 110.4
+    },
+    "turbulence": {
+      "model": "sa_noft2"
+    },
+    "campaign": {
+      "mach": {
+        "start": 0.3,
+        "stop": 0.5,
+        "step": 0.1
+      },
+      "alpha_deg": {
+        "start": -2.0,
+        "stop": 2.0,
+        "step": 2.0
+      },
+      "batch_size": 12
+    }
+  },
+  "numerical": {
+    "convective_fluxes": {
+      "limiter": "none"
+    },
+    "time_integration": {
+      "solver": "implicit"
+    },
+    "implicit": {
+      "max_relative_update": 0.2
+    },
+    "convergence": {
+      "max_iters": 100,
+      "forces_tol": null
+    }
+  },
+  "jobs": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      2,
+      0,
+      0
+    ],
+    [
+      3,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0
+    ],
+    [
+      5,
+      0,
+      0
+    ],
+    [
+      6,
+      0,
+      0
+    ],
+    [
+      7,
+      0,
+      0
+    ],
+    [
+      8,
+      0,
+      0
+    ],
+    [
+      9,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      1
+    ],
+    [
+      1,
+      0,
+      1
+    ],
+    [
+      2,
+      0,
+      1
+    ],
+    [
+      3,
+      0,
+      1
+    ],
+    [
+      4,
+      0,
+      1
+    ],
+    [
+      5,
+      0,
+      1
+    ],
+    [
+      6,
+      0,
+      1
+    ],
+    [
+      7,
+      0,
+      1
+    ],
+    [
+      8,
+      0,
+      1
+    ],
+    [
+      9,
+      0,
+      1
+    ],
+    [
+      0,
+      0,
+      2
+    ],
+    [
+      1,
+      0,
+      2
+    ],
+    [
+      2,
+      0,
+      2
+    ],
+    [
+      3,
+      0,
+      2
+    ]
+  ],
+  "precision": "fp32",
+  "device": "cuda:0",
+  "environment": {
+    "python": "3.11.14",
+    "platform": "Linux-6.18.54.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "numpy": "2.4.6",
+    "timestamp": "2026-11-04T23:26:42+0100",
+    "jax": "0.10.2",
+    "jax_backend": "gpu",
+    "jax_devices": [
+      "cuda:0"
+    ],
+    "jax_device_kind": "NVIDIA GeForce RTX 4070 Ti SUPER",
+    "jax_enable_x64": true
+  },
+  "git": {
+    "commit": "ab25add1bf314d89643db64fb779af3069cea47d",
+    "dirty": true
+  },
+  "validation_scope": "bounded stepping only; no full-convergence claim",
+  "source_sha256": {
+    "src/jaxrans/__init__.py": "9361b3af1766c3aaf1ae9449e587abede9d045d3cd60f75335f2215bf9ac1a7f",
+    "src/jaxrans/__main__.py": "41e9d90c294d25615890fa1aed388fb947371fca9c9f10a051b289ff834f5d1b",
+    "src/jaxrans/campaign.py": "8066073bf9fbbc8e0ae1a635934a08829b60c8684bc8839b5bc16528a1118561",
+    "src/jaxrans/campaign_batch.py": "235f642aec0a0a64c68a07fedc1947f78e5668684f933dfebe1f5624396846b5",
+    "src/jaxrans/campaign_plots.py": "feb74046c90bdf2a60005e570d1a0e169994b1f8cf0cc4afadae8a6c3ef48e97",
+    "src/jaxrans/case/__init__.py": "05b26f5dcc6913dc9393aaa74dbf615974b84c51e6b79ba1a350ce277d9ee621",
+    "src/jaxrans/case/__main__.py": "9a1d6a3745d5da18a48bbc15719360b40439d013f9e4475460107eef384644a3",
+    "src/jaxrans/case/domain.py": "fe3e709f73d21be3927cde27d0624e11f3e9726e22dbb766cb3704238bc86551",
+    "src/jaxrans/case/loader.py": "d1d9f9a7f51663f0254433460cd05cf8d55aa65c4180bce2b9835bfe296ee6df",
+    "src/jaxrans/case/schema.py": "a594435c0680aec70ea9ac527b85f8b7983f8817ead310c3c830559c0f85fd22",
+    "src/jaxrans/core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/core/config.py": "47718b88e00aed1ad34a30f7c8fefbeae56f7ca262f1ab644908a424be418591",
+    "src/jaxrans/core/constants.py": "3a6a6e3db0eb13e1567d23e796f215051ebf8dee30a568ebba60d8ba66903d4b",
+    "src/jaxrans/core/linalg.py": "490f19e7bdbb04adea58435cf22af57c92a9184257c3d7904c5ce21e889873bf",
+    "src/jaxrans/core/precision.py": "5f57e187227fe5de17bee3e414cae880bfe7bffec58c86268e6217c32bb7426c",
+    "src/jaxrans/core/state.py": "37a4f85d276f40f7fef2bd29151d7ad87cb9e75f43711082e031651dd652011f",
+    "src/jaxrans/derivatives.py": "9c94d02d4c0f56cdaaec2d1256d4793afc83f5d24c04a7d578983bf722c9ab97",
+    "src/jaxrans/geometry/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/geometry/airfoil.py": "33add55377548f9b4f908db928c32d7695eb4d3acc77a4e492f06a46135a8fd4",
+    "src/jaxrans/geometry/elements.py": "adadc7ceea1e0ee05deaa866ee3a2f9088d76b1ccce317549e6a8d2c812f1b7a",
+    "src/jaxrans/geometry/icms.py": "9d8be8f5e0afbfc4ca01f3808300da74b5d452e050527cc286589255dc1c4893",
+    "src/jaxrans/io/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/io/output.py": "e79e9dce0e597fbda763da78de7f826fd0d19b4297204c49cb1a2a07282bf969",
+    "src/jaxrans/mesh/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/mesh/assemble.py": "b0e6420bb3025103cb313b4479c64eb006bb633a2bce19e1a56c53a4382f8c2e",
+    "src/jaxrans/mesh/assemble3d.py": "476f5c6daa4b43c5461d2b15ea203871ea48acd8ad82fe345e5e9977f166042c",
+    "src/jaxrans/mesh/atlas.py": "ef6e93ecbdd6eae3fdc43c6109e6e4de17e8c592ce5b5dfaba1238fbf7520af3",
+    "src/jaxrans/mesh/atlas3d.py": "3c1cede7222d93bd721f4f5ac352844f1816edb7d9cbd5d692172aaeb8c44ecf",
+    "src/jaxrans/mesh/block.py": "9e494bfd45531988515534d168df3ba2525bbcda5e53ebc78960db7ff8becf1b",
+    "src/jaxrans/mesh/block3d.py": "f56f0192e779d629657e9edf1a8809c8ffa40d670b1f557005b8bd8e7aaf193f",
+    "src/jaxrans/mesh/blocking.py": "6f0a53dd798a90770d6920e7c95ab602d1ff41cd829f5324e50fae04dfe190f9",
+    "src/jaxrans/mesh/cgns.py": "75d371f2a6fd563423ddf3e7de041b6574e8fa9da8f2e0ddebe4950cb0a28e71",
+    "src/jaxrans/mesh/coarsen.py": "67ae182c8fc10b7c703b1acb73d007b978224093890412103e81ab86df16914e",
+    "src/jaxrans/mesh/generate.py": "4697e3028f5c34a161584117674677d5ab7189c00f24f2c6b046e2b66f9f1b8e",
+    "src/jaxrans/mesh/highlift.py": "000cc4c56e67407b80d2ec484ed0fbcae00ae02f5769f85483897283bda5050c",
+    "src/jaxrans/mesh/mesh.py": "f6e271fef7ea2f0e3a8ee97a4e5bd70a831f35214087a81365230afb493da7cb",
+    "src/jaxrans/mesh/plot3d.py": "bb2c4a5f8a50f09b86262677ca6390575fd741f506db300bed7ee7d7829871d3",
+    "src/jaxrans/mesh/quality.py": "da86da8107a846eef9a697ded795c44edc954e0a44a505491246974a121e3a8b",
+    "src/jaxrans/mesh/wall3d.py": "09ad1ada0fb65bbdea6f5004151c43c9693cdf69dd70a2d9ab0cbe0c54853364",
+    "src/jaxrans/numerics/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/numerics/boundary.py": "d7cf87041944bd383966a3cb4c36751d93d8dd48550805d71ec0155f106f9a35",
+    "src/jaxrans/numerics/gradients.py": "c363743ea3ccc89a52fc247f94bf03f44e42ce10b0c3b768c6b8993bf46c64fa",
+    "src/jaxrans/numerics/limiters.py": "91f6169bb9c97a8870c72127faddca89c8b83160930a57f6f062756319c4638c",
+    "src/jaxrans/numerics/reconstruction.py": "6fcef526fb0cc6aeeb9a667ef0460b2264324fe348c9513cb68d03b150bce461",
+    "src/jaxrans/numerics/residual.py": "aeda739abe0156c8ce86e7214a7c1ba96a8a4d0a1b37197db89c65f8a1940e8a",
+    "src/jaxrans/numerics/riemann.py": "5cb7cc531513e9a3b5a753fa35a2018d89b755d784b76ba657c5f35698c96e06",
+    "src/jaxrans/numerics/slabs.py": "9f5723825f55c0c672c43e49286f6ec190d10fc28a06c1ed1104a6a2c860b107",
+    "src/jaxrans/numerics/turbulence.py": "6e3a6f2a7d8ea3eebf3486149e62b24527ebed5b33e9d9395ca5e7f65b846da8",
+    "src/jaxrans/physics/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/physics/euler.py": "4bce071b37c691ab0bde0479031795bc102a80671d3af82a7448a91761712a3b",
+    "src/jaxrans/physics/navier_stokes.py": "d551a78db10b36ab6a7dcada5f819e1e16f8f8df3bc13193eb603f3ff8562d9a",
+    "src/jaxrans/physics/spalart_allmaras.py": "830cb2387f63452ea8e59ddd49aa0101c355dfb426169354295ccf18e5c49d29",
+    "src/jaxrans/plot.py": "445c76e9bbc41461bb525af8fdaf092e5327f8ca48eadb603c4df58bc00f914f",
+    "src/jaxrans/polar.py": "ca302a2180f43b8f7dcc1739e10e25b8a894ee89daac9feb202217c93448fcb3",
+    "src/jaxrans/post/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/post/forces.py": "1f4edf3eb970c204442bd0ed12fe8da782d27a85bb612f25d716667d7fdc5cd8",
+    "src/jaxrans/simulation.py": "6d400f3642e209fc676d99b0e49a192a01656154ad911ee4ac0453fa7314b080",
+    "src/jaxrans/solvers/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/jaxrans/solvers/driver.py": "bd2edda0998386d3cae8e6c0df14eb62a0d1d11d733d402ced724d2dadac84ef",
+    "src/jaxrans/solvers/explicit.py": "be7c2a9829eb1f988886d654f6b7a322e2cb408b5a17055aef05ef886e701845",
+    "src/jaxrans/solvers/implicit.py": "7413659478a74789e938c1b1e1e4c3ee0c919df0c95cd22bfd8950379a768f9e",
+    "src/jaxrans/solvers/krylov.py": "ed633e02d03306e1d4064cf60af249c477b0cb746986a2bfc30b01aaf8964043",
+    "src/jaxrans/solvers/preconditioners.py": "5286fa8c6c85e7df464cddafa31f42fe557beeb93ddadebd6a3e053b97f5256f",
+    "src/jaxrans/solvers/sensitivity.py": "0c12ab5b18b9b8a3bc3e32e89b26348d5d5906198ec4ab1c853714f09f056b59"
+  }
+}
