@@ -30,3 +30,11 @@ your own mesher ([docs/multi-element.md](../docs/multi-element.md));
 `rae2822_sensitivity` for derivatives ([docs/gradients.md](../docs/gradients.md)):
 `python scripts/sensitivity_polar.py examples/rae2822_sensitivity --alpha 0.5 2.0 0.5`
 draws its polar with dCL/dalpha and dCD/dalpha.
+
+## RAE2822: 2.5D / 2.75D continuity qualification
+
+The [RAE2822 campaign](rae2822_275d_campaign/README.md) provides four standalone
+cases (`rae2822_{subsonic,transonic}_{swept,conical}_verification`) and a runner
+for taper continuity, slab depth, mesh and relaxation studies. These use a
+fixed streamwise profile and matching uniform far-field conditions. They are
+qualification scenarios, not completed CFD validation results.
