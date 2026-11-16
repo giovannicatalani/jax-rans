@@ -10,50 +10,11 @@ Example (use a separate checkout of the target branch):
 The input uses the ICMS branch's case.json and numerical.json schema. Results,
 intermediate HUG profiles and the continuation manifest stay under --out.
 
-Depuis la racine du dépôt, il te faut un checkout séparé de la branche cible, avec ses dépendances installées. Par exemple :
-
-git clone --branch feature/continuation-batch-alpha-polar-fp32 \
-  . ../jax-rans-polar
-
-Le checkout cible doit aussi contenir src/jaxrans/convergence.py : la branche l’importe, mais ce fichier manque actuellement dans sa révision suivie.
-
-Prépare ensuite une campagne ICMS dans un répertoire contenant case.json, numerical.json et ton fichier .icms. L’exemple case.json (examples/wing_sections/case.json) montre le format. Les paramètres propres à l’ICMS et à la polaire sont notamment :
-
-"sections": {
-  "file": "wing.icms",
-  "count": 10,
-  "units": "m",
-  "header_lines": null
-},
-"campaign": {
-  "mach": [0.3, 0.5],
-  "alpha_deg": [-2.0, 0.0, 2.0, 4.0],
-  "batch_size": 4
-}
-
-count est le nombre de sections, chacune devant avoir le même nombre de points. Les sections doivent être ordonnées de l’emplanture vers le saumon. Les unités possibles sont m et mm.
-
-Pour préparer les profils et contrôler les fichiers générés sans lancer de calcul :
-
-python scripts/icms_continuation.py examples/wing_sections \
-  --jaxrans-root ../jax-rans-polar \
-  --out /tmp/wing-polar \
-  --prepare-only
-
-Tu trouveras les profils normalisés dans /tmp/wing-polar/inputs/section_000/profile.hug, etc., ainsi qu’un geometry.json par section et le manifest.json de la campagne.
-
-Pour lancer ensuite les calculs dans ce même dossier :
-
-python scripts/icms_continuation.py examples/wing_sections \
-  --jaxrans-root ../jax-rans-polar \
-  --out /tmp/wing-polar \
-  --batch-size 4 \
-  --resume
-
-Pour une nouvelle campagne, tu peux omettre l’étape --prepare-only et --resume. Les résultats sont placés sous /tmp/wing-polar/results/. Pour limiter le calcul à certaines sections, ajoute par exemple --sections 0 3 9 ; il faut garder la même sélection lors de la reprise.
-
-L’interpréteur Python utilisé pour lancer le script doit avoir les dépendances de la branche cible disponibles. La préparation des profils est vérifiée ; le calcul complet reste à valider une fois le module manquant disponible.
-
+Use --sectional-275d to generate conical sectional cases. The local taper
+rate uses the solver convention -dc/ds, where s is geometric span in the YZ
+plane. Otherwise --sweep-position selects the chord fraction used for sweep.
+The target checkout must contain the campaign runner and, for 2.75D, the
+sectional solver. Prepare inputs first with --prepare-only to inspect them.
 
 """
 import argparse
@@ -78,7 +39,8 @@ def xyz(line):
         return None
 
 
-def read_sections(path, config):
+def read_sections(path, config, sweep_position=0.25):
+    """Read ICMS profiles and calculate local segment geometry in metres."""
     count, units = config['count'], config['units']
     if isinstance(count, bool) or not isinstance(count, int) or count < 2 or units not in ('m', 'mm'):
         raise ValueError('sections requires count >= 2 and units m or mm')
@@ -148,9 +110,20 @@ def read_sections(path, config):
     if np.any(np.diff(q[:, 1]) <= 0):
         raise ValueError('ICMS profiles must run root to tip with increasing quarter-chord Y')
     for i, section in enumerate(sections):
-        j = max(0, i-1)
-        dx, dy, dz = q[j+1] - q[j]
-        section['sweep'] = float(np.degrees(np.arctan2(dx, np.hypot(dy, dz))))
+        # Use the outgoing segment, except at the tip where the last segment
+        # is reused. All local quantities must use the same span increment.
+        j = min(i, len(sections) - 2)
+        inner, outer = sections[j:j+2]
+        span = float(np.linalg.norm((outer['quarter'] - inner['quarter'])[1:]))
+        if span <= 0:
+            raise ValueError(f'sections {j}-{j+1}: zero geometric span')
+        def chord_point(item, fraction):
+            return item['le'] + fraction * (item['te'] - item['le'])
+        dx = chord_point(outer, sweep_position)[0] - chord_point(inner, sweep_position)[0]
+        le_dx = outer['le'][0] - inner['le'][0]
+        section['sweep'] = float(np.degrees(np.arctan2(dx, span)))
+        section['leading_edge_sweep'] = float(np.degrees(np.arctan2(le_dx, span)))
+        section['taper_rate'] = float(-(outer['chord'] - inner['chord']) / span)
         section['sweep_segment'] = [j, j+1]
     return sections
 
@@ -180,12 +153,20 @@ def main():
     ap.add_argument('--resume', action='store_true')
     ap.add_argument('--quiet', action='store_true')
     ap.add_argument('--prepare-only', action='store_true')
+    ap.add_argument('--sectional-275d', action='store_true', help='use the conical 2.75D sectional solver')
+    ap.add_argument('--sweep-position', type=float, default=0.25, help='chord fraction for 2.5D sweep (default: 0.25)')
     args = ap.parse_args()
     try:
+        if not np.isfinite(args.sweep_position) or not 0 <= args.sweep_position <= 1:
+            raise ValueError('sweep-position must be finite and between 0 and 1')
+        if args.sectional_275d and args.sweep_position != 0.25:
+            raise ValueError('sweep-position applies only to 2.5D')
         root = args.jaxrans_root.resolve()
         branch = subprocess.check_output(['git', '-C', str(root), 'branch', '--show-current'], text=True).strip()
-        if branch != 'feature/continuation-batch-alpha-polar-fp32':
+        if branch not in ('feature/continuation-batch-alpha-polar-fp32', 'feature/continuation-batch-alpha-polar-fp32-275d'):
             raise ValueError(f'{root}: expected checkout of feature/continuation-batch-alpha-polar-fp32, got {branch!r}')
+        if args.sectional_275d and branch != 'feature/continuation-batch-alpha-polar-fp32-275d':
+            raise ValueError('2.75D requires the feature/continuation-batch-alpha-polar-fp32-275d checkout')
         if not args.prepare_only and not (root / 'src/jaxrans/convergence.py').is_file():
             raise ValueError(f'{root}: src/jaxrans/convergence.py is missing; the target branch imports it and cannot start')
         casepath = args.case.resolve()
@@ -205,15 +186,17 @@ def main():
             raise ValueError('domain requires c_grid/o_grid, streamwise section and no airfoil')
         if set(flow) & {'mach', 'alpha_deg', 'sweep_deg'} or flow.get('reynolds') is None:
             raise ValueError('freestream requires reynolds; mach, alpha_deg and sweep_deg come from campaign/geometry')
+        if domain.get('sectional') is not None:
+            raise ValueError('domain.sectional is generated by this script; remove it from the input')
         source = (casepath.parent / config['file']).resolve()
-        sections = read_sections(source, config)
+        sections = read_sections(source, config, args.sweep_position)
         selected = args.sections if args.sections is not None else list(range(len(sections)))
         if len(set(selected)) != len(selected) or any(i < 0 or i >= len(sections) for i in selected):
             raise ValueError('invalid or duplicate section indices')
         out = args.out.resolve()
         # Never silently mix inputs or overwrite an existing campaign.
         setup = {'case': doc, 'numerical': numerical, 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
-                 'sections': selected, 'target_revision': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()}
+                 'sections': selected, 'sectional_275d': args.sectional_275d, 'sweep_position': args.sweep_position, 'target_revision': subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()}
         setup_path = out / 'icms_setup.json'
         if out.exists() and any(out.iterdir()):
             if not (args.resume and setup_path.exists() and json.loads(setup_path.read_text()) == setup):
@@ -233,10 +216,15 @@ def main():
             simple['general']['case_name'] = f"{simple['general']['case_name']}_section_{i:03d}"
             simple['general']['save_path'] = str(out)
             simple['domain'].update(airfoil=str(hug), section='streamwise')
-            simple['freestream'].update(mach=machs[0], alpha_deg=alphas[0], sweep_deg=s['sweep'])
+            simple['freestream'].update(mach=machs[0], alpha_deg=alphas[0])
+            if args.sectional_275d:
+                simple['domain']['sectional'] = {'model': 'conical',
+                    'leading_edge_sweep_deg': s['leading_edge_sweep'], 'taper_rate': s['taper_rate']}
+            else:
+                simple['freestream']['sweep_deg'] = s['sweep']
             (folder / 'case.json').write_text(json.dumps(simple, indent=2) + '\n')
             (folder / 'numerical.json').write_text(json.dumps(numerical, indent=2) + '\n')
-            record = {'index': i, 'source_lines': s['lines'], 'leading_edge_m': s['le'].tolist(), 'trailing_edge_m': s['te'].tolist(), 'quarter_chord_m': s['quarter'].tolist(), 'chord_m': s['chord'], 'basis_columns': s['basis'].tolist(), 'plane_error_over_chord': s['plane_error'], 'sweep_deg': s['sweep'], 'sweep_segment': s['sweep_segment'], 'alpha_correction_deg': 0.0}
+            record = {'index': i, 'source_lines': s['lines'], 'leading_edge_m': s['le'].tolist(), 'trailing_edge_m': s['te'].tolist(), 'quarter_chord_m': s['quarter'].tolist(), 'chord_m': s['chord'], 'basis_columns': s['basis'].tolist(), 'plane_error_over_chord': s['plane_error'], 'sweep_deg': s['sweep'], 'sweep_position': args.sweep_position, 'leading_edge_sweep_deg': s['leading_edge_sweep'], 'taper_rate': s['taper_rate'], 'sweep_segment': s['sweep_segment'], 'alpha_correction_deg': 0.0}
             (folder / 'geometry.json').write_text(json.dumps(record, indent=2) + '\n')
             profiles.append({'name': f'section_{i:03d}', 'case': str(folder), 'alphas': alphas, 'machs': machs})
         manifest = out / 'manifest.json'
@@ -246,6 +234,10 @@ def main():
             return 0
         cmd = [sys.executable, '-m', 'jaxrans.campaign', str(manifest), '--out', str(out / 'results')]
         batch = args.batch_size if args.batch_size is not None else schedule.get('batch_size', 8)
+        # Sectional atlases carry additional geometry outside the campaign
+        # runner's dynamic geometry tree, so do not batch different profiles.
+        if args.sectional_275d:
+            batch = 1
         cmd += ['--batch-size', str(batch)]
         if args.devices is not None: cmd += ['--devices', str(args.devices)]
         if args.resume: cmd.append('--resume')
