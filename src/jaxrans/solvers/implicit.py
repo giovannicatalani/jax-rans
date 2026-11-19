@@ -101,6 +101,78 @@ def relax(dU: Array, U: Array, gamma: float, fraction: float | None, dim: int = 
     return omega * dU, omega
 
 
+LOCAL_RAMP_FRACTION = 0.01
+"""``relaxation = "local"``: the CFL may still grow while at most this
+fraction of block cells has its correction cut."""
+
+
+def _ratios(dU: Array, U: Array, gamma: float, dim: int):
+    """Per cell: ``(|d rho| / rho, |dp| / p)`` and, with SA, ``|d nu~| / max(|nu~|, 1)``
+    (``relax``'s definitions, the pressure change linearized)."""
+    rows = Rows(dim)
+    rho, velocity, p = conservative_to_primitive(U, gamma, dim)
+    d_rho = dU[RHO]
+    d_e = dU[rows.energy]
+    for k in range(dim):
+        d_e = d_e - velocity[k] * dU[1 + k]
+    d_p = (gamma - 1.0) * (d_e + 0.5 * dot(velocity, velocity) * d_rho)
+    flow = [jnp.abs(d_rho) / rho, jnp.abs(d_p) / p]
+    sa = None
+    if U.shape[0] > rows.n_flow:
+        nu_hat = U[rows.nu] / rho
+        d_nu_hat = (dU[rows.nu] - nu_hat * d_rho) / rho
+        sa = jnp.abs(d_nu_hat) / jnp.maximum(jnp.abs(nu_hat), 1.0)
+    return flow, sa, rho
+
+
+def relax_correction(dU: Array, U: Array, gamma: float, fraction: float | None, dim: int,
+                     mode: str = "global", interior: Array | None = None):
+    """``max_relative_update`` applied as ``mode`` says; returns ``(dU,
+    omega, ramp_ok, scaled)``: the bounded correction, the damping reported
+    and used in the acceptance margin, whether the CFL may grow, and whether
+    ``dU`` is the input times ``omega`` (else its operator action must be
+    evaluated again).
+
+    ``global``: ``relax``, one factor for everything; a handful of cells can
+    hold the whole field (and the CFL ramp) back. ``split``: the mean-flow
+    rows get the factor of density and pressure, the SA row its own, from
+    the change of ``rho nu~`` over ``rho max(|nu~|, 1)``; the CFL keys off the
+    mean-flow factor. ``local``: every cell its own factor, the same bound as
+    ``global`` met cell by cell; the CFL may grow while at most
+    ``LOCAL_RAMP_FRACTION`` of block cells are cut.
+    """
+    one = jnp.ones((), dU.dtype)
+    if fraction is None:
+        return dU, one, jnp.asarray(True), True
+    if mode == "global":
+        dU, omega = relax(dU, U, gamma, fraction, dim)
+        return dU, omega, omega >= 1.0, True
+    flow, sa, rho = _ratios(dU, U, gamma, dim)
+    if mode == "split":
+        worst = jnp.maximum(jnp.max(flow[0]), jnp.max(flow[1]))
+        omega = jnp.minimum(one, fraction / jnp.maximum(worst, floor_like(worst)))
+        if sa is None:
+            return omega * dU, omega, omega >= 1.0, True
+        rows = Rows(dim)
+        nu_hat = U[rows.nu] / rho
+        own = jnp.max(jnp.abs(dU[rows.nu]) / (rho * jnp.maximum(jnp.abs(nu_hat), 1.0)))
+        omega_sa = jnp.minimum(one, fraction / jnp.maximum(own, floor_like(own)))
+        scale = jnp.concatenate([jnp.full((rows.n_flow,), omega, dU.dtype), omega_sa[None].astype(dU.dtype)])
+        return scale.reshape((-1,) + (1,) * (dU.ndim - 1)) * dU, omega, omega >= 1.0, False
+    if mode == "local":
+        worst = jnp.maximum(flow[0], flow[1]) if sa is None else jnp.maximum(jnp.maximum(flow[0], flow[1]), sa)
+        factor = jnp.minimum(one, fraction / jnp.maximum(worst, floor_like(worst)))
+        cut = factor < 1.0
+        if interior is not None:
+            cut, counted = cut & interior, jnp.sum(interior)
+            omega = jnp.sum(jnp.where(interior, factor, 0.0)) / counted
+        else:
+            counted, omega = cut.size, jnp.mean(factor)
+        ramp_ok = jnp.sum(cut) <= LOCAL_RAMP_FRACTION * counted
+        return factor[None] * dU, omega.astype(dU.dtype), ramp_ok, False
+    raise ValueError(f"unknown relaxation {mode!r}")
+
+
 def make_newton_step(
     operator: ResidualOperator,
     config: ImplicitConfig = ImplicitConfig(),
@@ -157,6 +229,7 @@ def make_newton_step(
                 # FP32 Krylov vectors in a mixed solve keep the true action:
                 # it is what detects their stagnation (the FP64 fallback below).
                 action_from_arnoldi=basis_dtype is None,
+                early_exit=config.krylov_early_exit,
             )
 
         linear_fp64_fallback = jnp.asarray(False)
@@ -187,7 +260,9 @@ def make_newton_step(
             dU, solved_action = solve(prepare_preconditioner, U, lambdas, cfl)
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
-        dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
+        dU, omega, ramp_ok, scaled = relax_correction(
+            dU, U, gamma, config.max_relative_update, operator.components, config.relaxation,
+            operator.atlas.interior)
 
         # The ramp keys off how well the linear system was solved, not the
         # residual history: a stagnated GMRES returns a null
@@ -196,7 +271,7 @@ def make_newton_step(
         # first can turn a real decrease into exactly 1 and reject the step.
         # The relaxation only scales the direction, and the operator is linear:
         # the action of omega dU is omega times GMRES's action of dU.
-        action = omega * solved_action
+        action = omega * solved_action if scaled else matvec(dU)
         residual_size = jnp.maximum(l2_norm(residual, dtype=jnp.float64), floor_like(residual))
 
         def linear_ratio(factor):
@@ -251,7 +326,7 @@ def make_newton_step(
         # van Leer, J. Comput. Phys. 59 (1985).
         reduction = state.residual_norm / jnp.maximum(norm, floor_like(norm))
         cfl_next = jnp.where(
-            accept & (linear_reduction < config.krylov_success) & (omega >= 1.0),
+            accept & (linear_reduction < config.krylov_success) & ramp_ok & (factor >= 1.0),
             cfl * jnp.clip(reduction, 1.0, config.cfl_growth),
             jnp.where(accept, cfl, cfl / config.cfl_cutback),
         )

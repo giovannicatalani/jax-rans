@@ -385,3 +385,37 @@ measures it.
 - **Small block products elementwise** (`_matvec`, `_matmul` up to 8x8): a
   batched `dot` on 5x5 blocks is not fused. Line factor 7.2 -> 5.8 ms on the
   RAE 2822 2.5D grid (A16); whole step 126.9 -> 112.3 ms.
+
+## numerics/residual.py (2.75D)
+
+- **The sectional stencil runs on its one independent plane.** A sectional
+  canvas has `1 + 2g` planes along k, block cells on the central one only;
+  the residual used to be evaluated on all of them and masked. Its reach
+  along k is `g` cells, exactly the lateral planes, so `sectional_plane`
+  hands `block_residual` the central plane's geometry (its two k-faces
+  included) and no k padding: residual and JVP equal the whole-canvas ones
+  to 1e-14 (FP64, tapered conical case, `test_speedup_options.py`). On CPU
+  the linearized JVP is 3.4x (first order) to 4.5x (second order) cheaper.
+  The state and Krylov vectors still carry the five planes (identity rows
+  off the central one): shrinking them is the next step if vector work shows.
+
+## solvers/implicit.py, solvers/krylov.py (options, default off)
+
+- `krylov_early_exit`: a cycle stops once its Hessenberg least-squares
+  residual meets `krylov_tol` (one fused unrolled solve per Arnoldi step).
+  At low CFL the fixed 10-vector cycle over-solved (linear reduction 0.003 to
+  0.008 against a 1e-2 target); at high CFL both cycles are needed anyway.
+- `relaxation = split | local`: `max_relative_update` without letting a few
+  cells or the SA row hold the whole correction back (the CRM note above).
+  Both cost one more Jacobian-vector product per step (the bounded step is no
+  longer a multiple of GMRES's direction). `local` lets the CFL grow while at
+  most 1% of block cells are cut.
+- `equation_peak = chain` (campaigns): a continued point starts near its
+  solution, so its own residual peak is small and `equation_tol * peak` can
+  sit below the FP32 floor of the SA residual (RAE 2822 2.5D, alpha 1 from
+  alpha 0: 3000 steps, forces settled from ~1300; from freestream it settles
+  in 960-1340). Referring the thresholds to the chain's peak asks every point
+  for the level its chain's first point reached.
+- **No automatic exact/first-order switch.** Under `vmap` a per-case choice
+  evaluates both operators in every product; a per-batch choice mixes cases.
+  `jacobian` stays a case option, chosen from measurements.

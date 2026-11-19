@@ -354,6 +354,20 @@ def swept_atlas(atlas: Atlas, flow: FlowConditions) -> Atlas:
     return atlas
 
 
+def sectional_plane(atlas: SectionalAtlas, canvas: Grid, distance: Array | None):
+    """The independent plane ``k = g`` of a sectional canvas: its index, its
+    geometry (faces of its cells, the two k-faces included), its centres with
+    one ghost layer and its wall distance, for ``block_residual``."""
+    k = atlas.g
+    if not np.all(np.asarray(atlas.interior)[..., np.arange(atlas.shape[-1]) != k] == False):  # noqa: E712
+        raise ValueError("a sectional canvas must have block cells on its central plane only")
+    one, two = slice(k, k + 1), slice(k, k + 2)
+    faces = tuple(f[..., two] if a == canvas.dim - 1 else f[..., one] for a, f in enumerate(canvas.faces))
+    plane_grid = Grid(canvas.nodes[..., two], None if canvas.centres is None else canvas.centres[..., one],
+                      canvas.volume[..., one], faces, canvas.sides)
+    return k, plane_grid, atlas.centres[..., k:k + 3], None if distance is None else distance[..., one]
+
+
 def make_residual(
     grid: Atlas | Grid | tuple[Grid, ...],
     flow: FlowConditions,
@@ -418,6 +432,17 @@ def make_residual(
 
         def net_flux(q: Array, conditions: bc.Conditions) -> Array:
             return slab(slab_fill_ghosts(q, atlas, conditions))
+    elif isinstance(atlas, SectionalAtlas):
+        # One independent plane (k = g) among 1 + 2g: evaluate the stencil on
+        # that plane only. Its reach along k is g cells, exactly the canvas's
+        # lateral planes, so no padding along k; the other planes' residual
+        # is ``U - U_0`` (not block cells) as everywhere else.
+        plane, plane_grid, plane_centres, plane_distance = sectional_plane(atlas, canvas, distance)
+
+        def net_flux(q: Array, conditions: bc.Conditions) -> Array:
+            padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * (dim - 1) + ((0, 0),),
+                             mode="edge")
+            return stencil(padded, plane_grid, plane_centres, plane_distance)
     else:
         def net_flux(q: Array, conditions: bc.Conditions) -> Array:
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * dim, mode="edge")
@@ -432,6 +457,10 @@ def make_residual(
         else:
             reference = far_field(q, atlas, q_inf, gamma)
         conditions = bc.Conditions(q_inf, gamma, reference)
+        if isinstance(atlas, SectionalAtlas) and not isinstance(atlas, SlabAtlas):
+            rest = U - U_0
+            on_plane = jnp.where(atlas.interior[..., plane], net_flux(q, conditions)[..., 0], rest[..., plane])
+            return rest.at[..., plane].set(on_plane)
         return jnp.where(atlas.interior, net_flux(q, conditions), U - U_0)
 
     return ResidualOperator(

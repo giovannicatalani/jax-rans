@@ -141,6 +141,7 @@ class NumericsConfig:
     precision: str = "fp64"
     equation_abs_tols: tuple[tuple[str, float], ...] = ()
     diagnostics: bool = False
+    equation_peak: str = "point"
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.sectional_depth) or self.sectional_depth <= 0.0:
@@ -165,6 +166,8 @@ class NumericsConfig:
         object.__setattr__(self, "equation_abs_tols", tuple(sorted((name, float(value)) for name, value in pairs)))
         if not isinstance(self.diagnostics, bool):
             raise ValueError("diagnostics must be a boolean")
+        if self.equation_peak not in EQUATION_PEAKS:
+            raise ValueError(f"equation_peak must be one of {EQUATION_PEAKS}, got {self.equation_peak!r}")
         if self.precision not in PRECISIONS:
             raise ValueError(f"precision must be one of {tuple(PRECISIONS)}, got {self.precision!r}")
         if not self.cfl > 0.0:
@@ -203,6 +206,13 @@ class NumericsConfig:
         return np.dtype(PRECISIONS[self.precision])
 
 
+RELAXATIONS: tuple[str, ...] = ("global", "split", "local")
+"""How ``max_relative_update`` bounds a step (solvers/implicit.py ``relax``)."""
+
+EQUATION_PEAKS: tuple[str, ...] = ("point", "chain")
+"""What the relative equation thresholds refer to in a continuation polar."""
+
+
 @dataclass(frozen=True)
 class ImplicitConfig:
     """Pseudo-transient Newton-Krylov settings (solvers/implicit.py; meanings in
@@ -224,12 +234,18 @@ class ImplicitConfig:
     nonlinear_growth_limit: float | None = None
     nonlinear_merit: str = "mass"
     backtracking_steps: int = 0
+    krylov_early_exit: bool = False
+    relaxation: str = "global"
 
     def __post_init__(self) -> None:
         if not np.isfinite(self.krylov_min_progress) or not 0 <= self.krylov_min_progress < 1:
             raise ValueError("krylov_min_progress must be finite and in [0, 1)")
         if self.nonlinear_merit not in ("mass", "equations"):
             raise ValueError("nonlinear_merit must be 'mass' or 'equations'")
+        if not isinstance(self.krylov_early_exit, bool):
+            raise ValueError("krylov_early_exit must be a boolean")
+        if self.relaxation not in RELAXATIONS:
+            raise ValueError(f"relaxation must be one of {RELAXATIONS}, got {self.relaxation!r}")
         if type(self.backtracking_steps) is not int or not 0 <= self.backtracking_steps <= 16:
             raise ValueError("backtracking_steps must be an integer in [0, 16]")
         if not self.cfl > 0.0:

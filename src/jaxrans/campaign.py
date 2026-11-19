@@ -357,7 +357,7 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         _campaign_kernels(case, template) if _kernels is None else _kernels)
     results = [[] for _ in requests]
     alive = np.ones(n, dtype=bool)
-    previous = None
+    previous = previous_peak = None
     levels = [() for _ in requests]
     elapsed = np.zeros(n)
     used_devices = len(use)
@@ -389,6 +389,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         active_padded = np.r_[active, np.zeros(len(indices) - n, dtype=bool)]
         samples = []
         equation_peak = np.asarray(equation_monitor(states.U, q, geometry))
+        if case.numerics.equation_peak == "chain" and previous_peak is not None:
+            equation_peak = np.maximum(equation_peak, previous_peak)
         convergence_samples = []
 
         def on_block(b, carry, residuals):
@@ -437,6 +439,7 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
                              jnp.any(a[0].U != b[0].U, axis=tuple(range(1, a[0].U.ndim))))
                             if case.numerics.solver == "implicit" else None)
         previous = carry[0].U
+        previous_peak = equation_peak
         for k, request in enumerate(requests):
             if not active[k]:
                 continue
@@ -532,6 +535,7 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
     q_host = np.zeros((n_slots, template.components + 2))
     chain_of = [None] * n_slots                    # (request, chain, indices, position)
     point_of: list[_Point | None] = [None] * n_slots
+    chain_peak = [None] * n_slots                  # numerics.equation_peak == "chain"
     results = [dict() for _ in requests]
     elapsed = np.zeros(len(requests))
     states = None
@@ -582,6 +586,8 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
             else:
                 starts[s] = ("fresh", None)
             initial_alpha = (float(request.alphas[indices[position - 1]]) if continuing else None)
+            if not continuing:
+                chain_peak[s] = None
             point_of[s] = _Point(k, c, indices[position], initial_alpha, levels)
             active[s] = True
         if not starts:
@@ -611,7 +617,10 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
         peaks = np.asarray(equation_monitor(states.U, q, geometry))
         now = time.perf_counter()
         for s in starts:
-            point_of[s].peak, point_of[s].began = peaks[s], now
+            peak = peaks[s]
+            if numerics.equation_peak == "chain" and chain_peak[s] is not None:
+                peak = np.maximum(peak, chain_peak[s])
+            point_of[s].peak, point_of[s].began = peak, now
 
     schedule(range(n_slots))
     # Padding slots never run; give them a valid freestream for the vmapped kernels.
@@ -695,6 +704,7 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
                             point.levels, coefficients_history=samples, convergence_history=tuple(point.records),
                             provenance=provenance)
             results[k][point.index] = result
+            chain_peak[s] = point.peak
             elapsed[k] += seconds
             if on_point is not None:
                 on_point(request.name, alpha, result)

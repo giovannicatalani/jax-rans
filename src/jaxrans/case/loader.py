@@ -345,6 +345,7 @@ def parse_case(case_doc: dict, numerical_doc: dict, directory: Path = Path("."))
         equation_abs_tol=convergence["equation_abs_tol"],
         equation_abs_tols=convergence["equation_abs_tols"],
         diagnostics=convergence["diagnostics"],
+        equation_peak=convergence["equation_peak"],
         forces_tol=convergence["forces_tol"],
         solver=stepping["solver"],
         far_field=far_field,

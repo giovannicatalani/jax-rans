@@ -151,6 +151,8 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `nonlinear_growth_limit` | number or null | `null` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
 | `nonlinear_merit` | string | `mass` | nonlinear acceptance merit: mass residual or maximum normalized equation residual; one of `mass`, `equations` |
 | `backtracking_steps` | integer | `0` | maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking |
+| `krylov_early_exit` | boolean | `False` | stop each GMRES cycle as soon as krylov_tol is met (estimated from the Arnoldi relation) instead of always building krylov_subspace vectors |
+| `relaxation` | string | `global` | how max_relative_update bounds a step: `global` (one factor for the whole correction), `split` (one factor for the mean flow, one for the SA row) or `local` (per cell); one of `global`, `split`, `local` |
 
 ### `convergence`
 
@@ -162,6 +164,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `equation_abs_tol` | number | `1e-08` | absolute floor for each normalized equation residual |
 | `equation_abs_tols` | object | `{}` | per-equation absolute floor overrides: mass, momentum_x/y/z, energy, sa; unspecified equations use equation_abs_tol; ignored when forces_tol is null |
 | `diagnostics` | boolean | `False` | record detailed equation and nonlinear convergence diagnostics |
+| `equation_peak` | string | `point` | campaigns: relative equation thresholds refer to the residual peak of the `point`, or of the whole continuation `chain` so far (the level the chain's first point had to reach); one of `point`, `chain` |
 | `forces_tol` | number or null | `0.0001` | also require CL, CD and CM to vary by less than this over the last quarter of the iterations (at least four blocks there); null: use `tol` on every equation |
 | `grid_sequencing` | integer | `0` | solve first on this many coarser grids, each the next with every other node (cell counts, patch and interface limits must stay even), each to settled forces or `max_iters`, and start the next from it; 0: the grid only |
 | `block_iters` | integer | 200 explicit, 20 implicit | iterations per device call; forces are monitored at this interval |

@@ -233,6 +233,13 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
             choices=("mass", "equations")),
         Key("backtracking_steps", "integer", _I.backtracking_steps,
             "maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking"),
+        Key("krylov_early_exit", "boolean", _I.krylov_early_exit,
+            "stop each GMRES cycle as soon as krylov_tol is met (estimated from the Arnoldi relation) "
+            "instead of always building krylov_subspace vectors"),
+        Key("relaxation", "string", _I.relaxation,
+            "how max_relative_update bounds a step: `global` (one factor for the whole correction), "
+            "`split` (one factor for the mean flow, one for the SA row) or `local` (per cell)",
+            choices=("global", "split", "local")),
     ),
     "convergence": (
         Key("max_iters", "integer", _N.max_iters, "iteration ceiling"),
@@ -246,6 +253,10 @@ NUMERICAL: dict[str, tuple[Key, ...]] = {
             "unspecified equations use equation_abs_tol; ignored when forces_tol is null"),
         Key("diagnostics", "boolean", _N.diagnostics,
             "record detailed equation and nonlinear convergence diagnostics"),
+        Key("equation_peak", "string", _N.equation_peak,
+            "campaigns: relative equation thresholds refer to the residual peak of the `point`, or of the "
+            "whole continuation `chain` so far (the level the chain's first point had to reach)",
+            choices=("point", "chain")),
         Key("forces_tol", "number|null", _N.forces_tol, "also require CL, CD and CM to vary by less than "
             "this over the last quarter of the iterations (at least four blocks there); null: "
             "use `tol` on every equation"),

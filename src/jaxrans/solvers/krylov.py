@@ -44,6 +44,7 @@ def gmres_right(
     basis_dtype=None,
     return_action: bool = False,
     action_from_arnoldi: bool = False,
+    early_exit: bool = False,
 ) -> Array | tuple[Array, Array]:
     """Restarted GMRES(``restart``), right-preconditioned (``precondition: r -> M^-1 r``),
     for ``matvec`` on any array shape; stops at ``|b - A x| <= tol |b|`` between
@@ -60,6 +61,10 @@ def gmres_right(
     cycle: equal in exact arithmetic, to orthogonalization round-off with
     CGS2. Meant for few cycles (the Newton solve); long restarted sequences
     keep the true residual (the default).
+    ``early_exit`` ends a cycle as soon as its least-squares residual (exact
+    in exact arithmetic, from the Hessenberg matrix) meets ``tol |b|``,
+    instead of always building ``restart`` vectors; under ``vmap`` a cycle
+    runs until every case has met it.
     """
     b_norm = l2_norm(b)
     vector_dtype = b.dtype if basis_dtype is None else jnp.dtype(basis_dtype)
@@ -91,11 +96,29 @@ def gmres_right(
             V = V.at[j + 1].set(w / jnp.maximum(norm, tiny))
             return V, H
 
-        V, H = lax.fori_loop(0, restart, arnoldi, (V, H))
         # H was measured with field-precision vectors: do not interpret FP32
         # round-off as extra independent Krylov directions just because the
         # small factorization itself is done in double.
         rcond = float(jnp.finfo(vector_dtype).eps) * max(H.shape)
+        if early_exit:
+            target = tol * b_norm.astype(jnp.float64)
+            e1 = jnp.zeros(restart + 1, jnp.float64).at[0].set(beta.astype(jnp.float64))
+
+            def more(carry):
+                j, _, _, met = carry
+                return (j < restart) & ~met
+
+            def step(carry):
+                j, V, H, _ = carry
+                V, H = arnoldi(j, (V, H))
+                # Columns past j are still zero: their pivots vanish and
+                # ``hessenberg_lstsq`` leaves those components at zero.
+                y = hessenberg_lstsq(H, beta.astype(jnp.float64), rcond)
+                return j + 1, V, H, jnp.linalg.norm(e1 - H @ y) <= target
+
+            _, V, H, _ = lax.while_loop(more, step, (0, V, H, jnp.asarray(False)))
+        else:
+            V, H = lax.fori_loop(0, restart, arnoldi, (V, H))
         y64 = hessenberg_lstsq(H, beta.astype(jnp.float64), rcond)
         y = y64.astype(vector_dtype)
         correction = precondition(jnp.tensordot(y, V[:restart], axes=1, precision=lax.Precision.HIGHEST))
