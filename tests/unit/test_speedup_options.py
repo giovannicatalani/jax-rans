@@ -204,3 +204,31 @@ def test_chain_peak_carries_the_first_points_level(contraction, scheduler):
     # The first point has no earlier peak: identical.
     assert point.results[0].history.n_iters == chain.results[0].history.n_iters
     np.testing.assert_array_equal(point.results[0].U, chain.results[0].U)
+
+
+# --- sectional Newton step on the plane ------------------------------------------------
+
+
+@pytest.mark.parametrize("jacobian", ["first_order", "exact"])
+def test_sectional_newton_on_the_plane_equals_the_canvas_state(sectional_case, jacobian):
+    """Krylov vectors, line solves and acceptance on the independent plane:
+    the same steps as with the whole five-plane canvas state."""
+    from jaxrans.solvers import implicit
+
+    case = replace(sectional_case, implicit=replace(sectional_case.implicit, jacobian=jacobian))
+    grid = case.grid()
+    op = make_residual(grid, case.flow, case.numerics)
+    jac = None if jacobian == "exact" else make_residual(grid, case.flow, case.numerics, first_order=True,
+                                                         distance=op.distance)
+    assert op.plane is not None
+    canvas_op = replace(op, plane=None)
+    canvas_jac = None if jac is None else replace(jac, plane=None)
+    on_plane = implicit.make_newton_step(op, case.implicit, jac)
+    on_canvas = implicit.make_newton_step(canvas_op, case.implicit, canvas_jac)
+    run = lambda step: jax.jit(lambda s: jax.lax.scan(lambda c, _: step(c), s, None, length=8))
+    start = implicit.initial_state(op, case.implicit)
+    a, ra = run(on_plane)(start)
+    b, rb = run(on_canvas)(start)
+    np.testing.assert_allclose(a.U, b.U, rtol=1e-11, atol=1e-12)
+    np.testing.assert_allclose(ra, rb, rtol=1e-10)
+    assert float(a.cfl) == float(b.cfl)

@@ -156,23 +156,25 @@ def _geometry(atlas: Atlas, distance, flow=None) -> dict:
     the freestream vector, ``mu_inf = M / Re`` (viscous) and the sweep
     (2.5D), so that Mach, Reynolds and sweep need no separate executables.
 
-    A sectional (2.75D) atlas carries geometry outside this tree (its 2D
-    reference, the conical mapping): it keeps its own, fixed, geometry and is
-    batched only with identical sections (``_signature``)."""
+    A sectional (2.75D) atlas carries more geometry than this tree (its 2D
+    reference, the conical mapping, used by the far field and the forces):
+    its canvas metrics, centres and conditions are still passed here, so they
+    are executable arguments rather than constants XLA folds for minutes at
+    compile time, but only identical sections batch (``_signature``)."""
     params = {}
     if flow is not None and not flow.inviscid:
         params["mu_inf"] = jnp.asarray(flow.mu_inf, dtype=jnp.float64)
     if flow is not None and flow.swept and not isinstance(atlas, SectionalAtlas):
         params["sweep_rad"] = jnp.asarray(flow.sweep_rad, dtype=jnp.float64)
-    if isinstance(atlas, SectionalAtlas):
-        return {"distance": distance, **params}
     g = atlas.grid
-    return {"canvas": (g.nodes, g.centres, g.volume, g.faces), "centres": atlas.centres,
-            "conditions": tuple(tuple((normal, midpoint) for _, _, normal, midpoint in s.conditions)
-                                for s in atlas.stages),
-            "quarter_chord": jnp.asarray(atlas.quarter_chord),
-            "wall_nodes": (atlas.walls.faces.a, atlas.walls.faces.b),
-            "distance": distance, **params}
+    geometry = {"canvas": (g.nodes, g.centres, g.volume, g.faces), "centres": atlas.centres,
+                "conditions": tuple(tuple((jnp.asarray(normal), jnp.asarray(midpoint))
+                                          for _, _, normal, midpoint in s.conditions) for s in atlas.stages),
+                "quarter_chord": jnp.asarray(atlas.quarter_chord),
+                "distance": distance, **params}
+    if not isinstance(atlas, SectionalAtlas):
+        geometry["wall_nodes"] = (atlas.walls.faces.a, atlas.walls.faces.b)
+    return geometry
 
 
 def _flow_options(geometry: dict) -> dict:
@@ -181,18 +183,19 @@ def _flow_options(geometry: dict) -> dict:
 
 
 def _with_geometry(template: Atlas, geometry: dict) -> Atlas:
-    if "canvas" not in geometry:            # sectional: fixed geometry (``_geometry``)
-        return template
     nodes, centres, volume, faces = geometry["canvas"]
     stages = tuple(dataclasses.replace(s, conditions=tuple(
         (kind, source, normal, midpoint)
         for (kind, source, _, _), (normal, midpoint) in zip(s.conditions, values)))
         for s, values in zip(template.stages, geometry["conditions"]))
+    atlas = dataclasses.replace(
+        template, grid=dataclasses.replace(template.grid, nodes=nodes, centres=centres, volume=volume, faces=faces),
+        centres=geometry["centres"], stages=stages, quarter_chord=geometry["quarter_chord"])
+    if "wall_nodes" not in geometry:        # sectional: its wall quads stay (forces, conical geometry)
+        return atlas
     a, b = geometry["wall_nodes"]
     return dataclasses.replace(
-        template, grid=dataclasses.replace(template.grid, nodes=nodes, centres=centres, volume=volume, faces=faces),
-        centres=geometry["centres"], stages=stages, quarter_chord=geometry["quarter_chord"],
-        walls=dataclasses.replace(template.walls, faces=dataclasses.replace(template.walls.faces, a=a, b=b)))
+        atlas, walls=dataclasses.replace(template.walls, faces=dataclasses.replace(template.walls.faces, a=a, b=b)))
 
 
 def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:

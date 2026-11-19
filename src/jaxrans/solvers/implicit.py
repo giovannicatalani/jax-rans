@@ -197,22 +197,37 @@ def make_newton_step(
         )
     exact_jacobian = jacobian_operator is None
     jacobian_source = operator if exact_jacobian else jacobian_operator
+    # A sectional canvas is solved on its independent plane (numerics/
+    # residual.py ``SectionalPlane``): residual, Jacobian products, Krylov
+    # vectors and line solves on plane fields, the plane written back.
+    plane = getattr(operator, "plane", None) if getattr(jacobian_source, "plane", None) is not None else None
+    if plane is not None:
+        residual_of, jacobian_of, norm_of = plane.residual, jacobian_source.plane.residual, plane.norm
+        interior, solve_options = plane.interior, {"plane": plane.k}
+    else:
+        residual_of, jacobian_of, norm_of = operator.residual, jacobian_source.residual, operator.norm
+        interior, solve_options = operator.atlas.interior, {}
 
     def step(state: ImplicitState) -> tuple[ImplicitState, Array]:
         U, cfl = state.U, state.cfl
         if mixed_precision:
             U, cfl = U.astype(jnp.float64), cfl.astype(jnp.float64)
+        canvas_U = U                                   # the preconditioner's blocks use the canvas
+        canvas_lambdas = operator.wave_speeds(U)
+        if plane is not None:
+            U, lambdas = plane.take(U), plane.faces(canvas_lambdas)
+        else:
+            lambdas = canvas_lambdas
 
         # One linearization serves the whole Krylov solve; the branch is
         # resolved at trace time, not in the loop.
         if exact_jacobian:
-            residual, jvp = jax.linearize(operator.residual, U)
+            residual, jvp = jax.linearize(residual_of, U)
         else:
-            residual = operator.residual(U)
-            _, jvp = jax.linearize(jacobian_source.residual, U)
-        norm = operator.norm(residual)
+            residual = residual_of(U)
+            _, jvp = jax.linearize(jacobian_of, U)
+        norm = norm_of(residual)
 
-        lambdas = operator.wave_speeds(U)
         volume_over_dt = cell_wave_speed_sum(lambdas) / cfl
 
         def matvec(dU: Array) -> Array:
@@ -223,7 +238,7 @@ def make_newton_step(
         # that the ramp below is judged on (solvers/krylov.py).
         def solve(prepare, state_u, speeds, step_cfl, *, basis_dtype=None):
             return gmres_right(
-                matvec, -residual, prepare(state_u, speeds, step_cfl),
+                matvec, -residual, prepare(state_u, speeds, step_cfl, **solve_options),
                 restart=config.krylov_subspace, maxiter=config.krylov_restarts,
                 tol=config.krylov_tol, basis_dtype=basis_dtype, return_action=True,
                 # FP32 Krylov vectors in a mixed solve keep the true action:
@@ -234,8 +249,8 @@ def make_newton_step(
 
         linear_fp64_fallback = jnp.asarray(False)
         if mixed_precision:
-            dU, solved_action = solve(prepare_low, U.astype(jnp.float32),
-                       tuple(lam.astype(jnp.float32) for lam in lambdas),
+            dU, solved_action = solve(prepare_low, canvas_U.astype(jnp.float32),
+                       tuple(lam.astype(jnp.float32) for lam in canvas_lambdas),
                        cfl.astype(jnp.float32), basis_dtype=jnp.float32)
             initial_size = l2_norm(residual, dtype=jnp.float64)
             solved_size = l2_norm(solved_action + residual, dtype=jnp.float64)
@@ -253,16 +268,16 @@ def make_newton_step(
             # cases if another case does require the fallback.
             _, (dU, solved_action) = jax.lax.while_loop(
                 lambda carry: linear_fp64_fallback & (carry[0] < 1),
-                lambda carry: (carry[0] + 1, solve(prepare_preconditioner, U, lambdas, cfl)),
+                lambda carry: (carry[0] + 1, solve(prepare_preconditioner, canvas_U, canvas_lambdas, cfl)),
                 (jnp.asarray(0, jnp.int32), (dU, solved_action)),
             )
         else:
-            dU, solved_action = solve(prepare_preconditioner, U, lambdas, cfl)
+            dU, solved_action = solve(prepare_preconditioner, canvas_U, canvas_lambdas, cfl)
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
         dU, omega, ramp_ok, scaled = relax_correction(
             dU, U, gamma, config.max_relative_update, operator.components, config.relaxation,
-            operator.atlas.interior)
+            interior)
 
         # The ramp keys off how well the linear system was solved, not the
         # residual history: a stagnated GMRES returns a null
@@ -282,8 +297,10 @@ def make_newton_step(
 
         def merit(value):
             if config.nonlinear_merit == "equations":
+                if plane is not None:             # the other planes are no block cells
+                    value = plane.put(jnp.zeros_like(canvas_U), value)
                 return jnp.max(operator.equation_norms_from_residual(value)).astype(jnp.float64)
-            return operator.norm(value).astype(jnp.float64)
+            return norm_of(value).astype(jnp.float64)
 
         baseline = merit(residual) if growth_limit is not None else jnp.asarray(1., jnp.float64)
 
@@ -300,7 +317,7 @@ def make_newton_step(
             ratio = jnp.asarray(jnp.nan, jnp.float64)
             if growth_limit is not None:
                 nonlinear = jax.lax.cond(
-                    physical, lambda _: merit(operator.residual(candidate)),
+                    physical, lambda _: merit(residual_of(candidate)),
                     lambda _: jnp.asarray(jnp.inf, jnp.float64), None)
                 ratio = nonlinear / jnp.maximum(baseline, floor_like(residual))
                 accept = accept & jnp.isfinite(nonlinear) & (ratio <= growth_limit)
@@ -331,13 +348,14 @@ def make_newton_step(
             jnp.where(accept, cfl, cfl / config.cfl_cutback),
         )
 
+        kept = jnp.where(accept, candidate, U)
         updated = ImplicitState(
-            U=jnp.where(accept, candidate, U),
+            U=kept if plane is None else plane.put(canvas_U, kept),
             cfl=jnp.clip(cfl_next, config.cfl_min, config.cfl_max),
             residual_norm=jnp.where(accept, norm, state.residual_norm),
         )
         if diagnostics:
-            mask = operator.atlas.interior
+            mask = interior
             rho, _, pressure = conservative_to_primitive(candidate, gamma, operator.components)
             return updated, norm, NewtonDiagnostics(
                 accept, correction_finite, physical, linear_reduction, omega, updated.cfl,

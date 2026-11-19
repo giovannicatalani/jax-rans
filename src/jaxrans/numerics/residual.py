@@ -224,6 +224,7 @@ class ResidualOperator:
     viscosity: Viscosity | None = None
     model: SAModel | None = None
     distance: Array | None = None
+    plane: "SectionalPlane | None" = None
 
     @property
     def grid(self) -> Grid:
@@ -324,6 +325,41 @@ class ResidualOperator:
     def initial_state(self, dtype=None) -> Array:
         """The freestream on every canvas cell."""
         return uniform_canvas(self.q_inf, self.grid, self.gamma, self.q_inf.dtype if dtype is None else dtype)
+
+
+@dataclass(frozen=True)
+class SectionalPlane:
+    """The independent plane ``k`` of a sectional canvas, as a solver state.
+
+    A sectional residual depends on its canvas state through plane ``k`` only
+    (the lateral ghost stage copies it over the other planes), and the other
+    planes' rows are ``U - U_0``, decoupled: a Newton step started there at
+    ``U_0`` leaves them at ``U_0`` exactly. So the implicit solver can carry
+    plane fields ``(nvar, ni, nj, 1)`` -- residual, Jacobian products, Krylov
+    vectors, line solves -- and write the plane back into the canvas state.
+    """
+
+    k: int
+    residual: Callable[[Array], Array]
+    interior: Array
+    volume: Array
+
+    def take(self, field: Array) -> Array:
+        """Canvas field ``(..., ni, nj, 1 + 2g)`` -> plane field ``(..., ni, nj, 1)``."""
+        return field[..., self.k:self.k + 1]
+
+    def put(self, field: Array, plane: Array) -> Array:
+        """The canvas field with plane ``k`` replaced."""
+        return field.at[..., self.k:self.k + 1].set(plane)
+
+    def faces(self, fields: tuple[Array, ...]) -> tuple[Array, ...]:
+        """Per-family canvas face fields restricted to the plane's cells (its two k-faces)."""
+        last = len(fields) - 1
+        return tuple(f[..., self.k:self.k + (2 if a == last else 1)] for a, f in enumerate(fields))
+
+    def norm(self, residual: Array, variable: int = RHO) -> Array:
+        """``ResidualOperator.norm`` of a plane residual."""
+        return weighted_rms(residual[variable], jnp.where(self.interior, self.volume, 0.0))
 
 
 def uniform_canvas(q: Array, grid: Grid, gamma: float, dtype=jnp.float64) -> Array:
@@ -463,9 +499,27 @@ def make_residual(
             return rest.at[..., plane].set(on_plane)
         return jnp.where(atlas.interior, net_flux(q, conditions), U - U_0)
 
+    sectional = None
+    if isinstance(atlas, SectionalAtlas) and not isinstance(atlas, SlabAtlas):
+        count = atlas.shape[-1]
+        interior_plane = atlas.interior[..., plane:plane + 1]
+        U_0_plane = U_0[..., plane:plane + 1]
+
+        def plane_residual(U_plane: Array) -> Array:
+            """The residual of plane ``k`` from plane ``k``: the other planes
+            only feed the ghost fill, whose lateral stage overwrites them."""
+            U = jnp.broadcast_to(U_plane, U_plane.shape[:-1] + (count,))
+            q = primitive_from_conservative(U, gamma, nv)
+            section_reference = far_field(atlas.section_values(q), atlas.reference, q_inf, gamma)
+            conditions = bc.Conditions(q_inf, gamma, lambda midpoint: section_reference(midpoint[:2]))
+            return jnp.where(interior_plane, net_flux(q, conditions), U_plane - U_0_plane)
+
+        sectional = SectionalPlane(plane, plane_residual, interior_plane, canvas.volume[..., plane:plane + 1])
+
     return ResidualOperator(
         residual=residual,
         time_step=partial(local_time_step, grid=canvas, gamma=gamma, cfl=numerics.cfl,
                           viscosity=viscosity, model=model),
         atlas=atlas, q_inf=q_inf, gamma=gamma, viscosity=viscosity, model=model, distance=distance,
+        plane=sectional,
     )

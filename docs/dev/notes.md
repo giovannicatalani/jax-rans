@@ -396,8 +396,19 @@ measures it.
   included) and no k padding: residual and JVP equal the whole-canvas ones
   to 1e-14 (FP64, tapered conical case, `test_speedup_options.py`). On CPU
   the linearized JVP is 3.4x (first order) to 4.5x (second order) cheaper.
-  The state and Krylov vectors still carry the five planes (identity rows
-  off the central one): shrinking them is the next step if vector work shows.
+- **The implicit step works on that plane** (`SectionalPlane`): the residual
+  depends on the canvas state through plane `k` only (the lateral ghost stage
+  copies it), and the other planes' rows are `U - U_0`, decoupled, so a step
+  started at `U_0` there leaves them exactly at `U_0`. Residual, Jacobian
+  products, Krylov vectors, line solves and acceptance use plane fields; the
+  plane is written back into the five-plane state, which everything outside
+  the step (forces, output, campaigns, restarts) keeps. Same steps as the
+  canvas state to 1e-14 in FP64 (30 steps, both Jacobians), 1e-7 in mixed
+  precision (FP32 Krylov vectors): GMRES vector work was 73 of 302 ms.
+- **Campaigns pass the sectional geometry as arguments** (canvas metrics,
+  centres, conditions, wall distance), as for 2D: as closure constants XLA
+  constant-folded them for minutes per executable. Only identical sections
+  batch (the conical mapping and 2D reference stay static).
 
 ## solvers/implicit.py, solvers/krylov.py (options, default off)
 
