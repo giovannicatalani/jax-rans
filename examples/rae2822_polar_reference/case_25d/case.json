@@ -1,0 +1,36 @@
+{
+    "general": {
+        "case_name": "rae2822_polar_ref_25d",
+        "description": "Reference de performance : RAE 2822 transsonique, 2.5D (aile en fleche infinie), section dans le sens de l'ecoulement, fleche 30 deg (M normal 0.73)",
+        "save_path": "../../../results",
+        "precision": "fp32"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "../../../validation/references/rae2822/rae2822.dat",
+        "cells_airfoil": 256,
+        "cells_wake": 96,
+        "cells_normal": 128,
+        "wall_spacing": 2e-06,
+        "far_field": 100.0,
+        "leading_edge_spacing": 0.0005,
+        "trailing_edge_spacing": 0.002,
+        "section": "streamwise"
+    },
+    "boundary_conditions": {
+        "wall": {"type": "no_slip_wall"},
+        "farfield": {"type": "far_field", "model": "freestream"}
+    },
+    "freestream": {
+        "mach": 0.842,
+        "alpha_deg": -2.0,
+        "sweep_deg": 30.0,
+        "reynolds": 6500000.0,
+        "temperature": 460.0
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 198.6
+    },
+    "turbulence": {"model": "sa_noft2"}
+}
