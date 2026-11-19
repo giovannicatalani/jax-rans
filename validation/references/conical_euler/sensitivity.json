@@ -1,0 +1,101 @@
+{
+  "purpose": "Numerical depth and relaxation sensitivity; not a comparison to a finite 3D wing",
+  "case": "examples/naca0012_conical_euler",
+  "mesh": {
+    "cells_airfoil": 32,
+    "cells_normal": 32,
+    "far_field": 50.0,
+    "wall_spacing": 0.001
+  },
+  "solver": {
+    "backend": "cpu",
+    "jax": "0.10.2",
+    "float64": true,
+    "limiter": "none",
+    "max_iters": 1600,
+    "block_iters": 100,
+    "tol": 1e-10,
+    "krylov_subspace": 12,
+    "krylov_restarts": 2
+  },
+  "records": [
+    {
+      "taper": 0.0,
+      "depth": 0.1,
+      "relaxation_start": 1.0,
+      "relaxation_end": 5.0,
+      "cl": 0.23631451925713604,
+      "cd": 0.005206840431294434,
+      "cy": 0.0017572170559198097,
+      "iterations": 300,
+      "reason": "converged",
+      "orders": 10.448699721421155,
+      "finite": true
+    },
+    {
+      "taper": 0.2,
+      "depth": 0.2,
+      "relaxation_start": 1.0,
+      "relaxation_end": 5.0,
+      "cl": 0.3052565481647893,
+      "cd": 0.0009327891366941995,
+      "cy": 0.009809999752532265,
+      "iterations": 300,
+      "reason": "converged",
+      "orders": 11.025755405615506,
+      "finite": true
+    },
+    {
+      "taper": 0.2,
+      "depth": 0.1,
+      "relaxation_start": 1.0,
+      "relaxation_end": 5.0,
+      "cl": 0.30525654816548464,
+      "cd": 0.0009327891366823235,
+      "cy": 0.009809999752553955,
+      "iterations": 300,
+      "reason": "converged",
+      "orders": 10.703551401648477,
+      "finite": true
+    },
+    {
+      "taper": 0.2,
+      "depth": 0.05,
+      "relaxation_start": 1.0,
+      "relaxation_end": 5.0,
+      "cl": 0.3052565481657541,
+      "cd": 0.0009327891366963417,
+      "cy": 0.009809999752551991,
+      "iterations": 500,
+      "reason": "converged",
+      "orders": 10.362934605888272,
+      "finite": true
+    },
+    {
+      "taper": 0.2,
+      "depth": 0.1,
+      "relaxation_start": 0.5,
+      "relaxation_end": 3.0,
+      "cl": 0.2917726917169884,
+      "cd": 0.0016035937748454646,
+      "cy": 0.00913837045646423,
+      "iterations": 300,
+      "reason": "converged",
+      "orders": 10.639281537819874,
+      "finite": true
+    },
+    {
+      "taper": 0.2,
+      "depth": 0.1,
+      "relaxation_start": 2.0,
+      "relaxation_end": 8.0,
+      "cl": 0.3222924389496957,
+      "cd": 8.15292003955827e-05,
+      "cy": 0.010664975817896563,
+      "iterations": 300,
+      "reason": "converged",
+      "orders": 10.760644232394425,
+      "finite": true
+    }
+  ]
+}

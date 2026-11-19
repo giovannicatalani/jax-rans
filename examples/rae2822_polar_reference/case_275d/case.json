@@ -1,0 +1,47 @@
+{
+    "general": {
+        "case_name": "rae2822_polar_ref_275d",
+        "description": "Reference de performance : RAE 2822 transsonique, 2.75D (stencil sectionnel conique), section dans le sens de l'ecoulement, fleche de bord d'attaque 30 deg, effilement nul (equivalent au cas 2.5D)",
+        "save_path": "../../../results",
+        "precision": "fp32"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "../../../validation/references/rae2822/rae2822.dat",
+        "cells_airfoil": 256,
+        "cells_wake": 96,
+        "cells_normal": 128,
+        "wall_spacing": 2e-06,
+        "far_field": 100.0,
+        "leading_edge_spacing": 0.0005,
+        "trailing_edge_spacing": 0.002,
+        "section": "streamwise",
+        "sectional": {
+            "model": "conical",
+            "leading_edge_sweep_deg": 30.0,
+            "taper_rate": 0.0
+        }
+    },
+    "boundary_conditions": {
+        "wall": {
+            "type": "no_slip_wall"
+        },
+        "farfield": {
+            "type": "far_field",
+            "model": "freestream"
+        }
+    },
+    "freestream": {
+        "mach": 0.842,
+        "alpha_deg": -2.0,
+        "reynolds": 6500000.0,
+        "temperature": 460.0
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 198.6
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

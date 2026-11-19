@@ -79,7 +79,7 @@ def diagonal(lambdas: tuple[Array, ...], cfl: Array) -> Array:
 @register_preconditioner("none")
 def identity(atlas: Atlas, gamma: float, viscosity=None, model=None, distance=None) -> Preconditioner:
     """No preconditioning: the control."""
-    return lambda U, lambdas, cfl: (lambda r: r)
+    return lambda U, lambdas, cfl, plane=None: (lambda r: r)
 
 
 # --- Chains --------------------------------------------------------------------
@@ -169,6 +169,36 @@ class SliceChains:
         return self._chains(self._cut(fields[self.axis], 1))          # the face above each cell
 
 
+class PlaneChains:
+    """``ChainLayout`` gathers on plane fields ``(..., ni, nj, 1)`` of a
+    sectional canvas whose chains all lie on its plane ``k`` (``numerics.
+    residual.SectionalPlane``): the canvas cell ``c * count + k`` is the plane
+    cell ``c``. Only ``gather`` and ``scatter`` (what a solve applies)."""
+
+    def __init__(self, atlas: Atlas, k: int):
+        lines, count = atlas.lines, atlas.shape[-1]
+        valid = lines.cells >= 0
+        if np.any((lines.cells[valid] - k) % count):
+            raise ValueError("sectional chains must lie on the independent plane")
+        cells = np.where(valid, (lines.cells - k) // count, 0)
+        size = int(np.prod(atlas.shape[:-1]))
+        inverse = np.full(size, -1, dtype=np.int64)
+        inverse[cells[valid]] = np.flatnonzero(valid)
+        self.dim, self.valid = atlas.dim, jnp.asarray(valid)
+        self.cells, self.inverse = jnp.asarray(cells), jnp.asarray(inverse)
+
+    def _flat(self, field: Array) -> Array:
+        return field.reshape(field.shape[:field.ndim - self.dim] + (-1,))
+
+    def gather(self, field: Array) -> Array:
+        return self._flat(field)[..., self.cells]
+
+    def scatter(self, chains: Array, field: Array) -> Array:
+        found = self.inverse >= 0
+        values = chains.reshape(chains.shape[:-2] + (-1,))[..., jnp.where(found, self.inverse, 0)]
+        return jnp.where(found, values, self._flat(field)).reshape(field.shape)
+
+
 Layout = ChainLayout | SliceChains
 
 
@@ -195,7 +225,8 @@ def _scan_major(blocks: Array) -> Array:
 
 
 def chain_solver(lower: Array, diag: Array, upper: Array, layout: Layout):
-    """Factor the chains once; return ``r -> x`` on canvas fields ``(m, *canvas shape)``."""
+    """Factor the chains once; return ``r -> x`` on canvas fields ``(m, *canvas shape)``
+    (on plane fields with a ``PlaneChains`` layout)."""
     factor = factor_cyclic_reduction(lower, diag, upper)
 
     def solve(r: Array) -> Array:
@@ -209,7 +240,9 @@ def chain_solver(lower: Array, diag: Array, upper: Array, layout: Layout):
 def flow_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atlas,
                       gamma: float, layout: Layout):
     """``(lower, diag, upper)`` of the mean-flow chains, ``(L, n_lines, d+2, d+2)``."""
-    grid = atlas.grid
+    # Source geometry may be FP64 even when the Krylov fields are FP32.
+    # Round metrics before forming blocks so factors and matvecs stay in U.dtype.
+    grid = atlas.with_dtype(U.dtype).grid
     nv = grid.components
     m = Rows(nv).n_flow
     q = primitive_from_conservative(U, gamma, nv)
@@ -242,7 +275,8 @@ def sa_chain_blocks(U: Array, lambdas: tuple[Array, ...], cfl: Array, atlas: Atl
     derivative ``2 c_w1 f_w nu_inf nu_hat / d_wall^2`` (``f_w`` frozen, no
     production) and the mean flow's ``V/dt`` complete the diagonal.
     """
-    grid = atlas.grid
+    grid = atlas.with_dtype(U.dtype).grid
+    distance = jnp.asarray(distance, dtype=U.dtype)
     dim, nv = grid.dim, grid.components
     rows = Rows(nv)
     c, nu_inf = model.constants, model.nu_inf
@@ -294,13 +328,19 @@ def line_implicit_j(atlas: Atlas, gamma: float, viscosity=None, model=None, dist
     iteration."""
     layout = chain_layout(atlas)
     n_flow = Rows(atlas.components).n_flow
+    planes = {}
 
-    def prepare(U: Array, lambdas: tuple[Array, ...], cfl: Array):
-        solve_flow = chain_solver(*flow_chain_blocks(U[:n_flow], lambdas, cfl, atlas, gamma, layout), layout)
+    def prepare(U: Array, lambdas: tuple[Array, ...], cfl: Array, *, plane: int | None = None):
+        """Blocks from the canvas state; with ``plane`` (a sectional canvas's
+        independent plane), the returned solve maps plane fields to plane fields."""
+        if plane is not None and plane not in planes:
+            planes[plane] = PlaneChains(atlas, plane)
+        solve_layout = layout if plane is None else planes[plane]
+        solve_flow = chain_solver(*flow_chain_blocks(U[:n_flow], lambdas, cfl, atlas, gamma, layout), solve_layout)
         if U.shape[0] == n_flow:
             return solve_flow
         solve_sa = chain_solver(*sa_chain_blocks(U, lambdas, cfl, atlas, gamma, viscosity,
-                                                 model, distance, layout), layout)
+                                                 model, distance, layout), solve_layout)
         return lambda r: jnp.concatenate([solve_flow(r[:n_flow]), solve_sa(r[n_flow:])], axis=0)
 
     return prepare

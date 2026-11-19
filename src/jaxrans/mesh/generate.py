@@ -317,9 +317,13 @@ def blunt_c_grid(airfoil: Airfoil, cells_airfoil: int, cells_wake: int, cells_no
         raise ValueError(f"the C-grid round the blunt trailing edge of {airfoil.name!r} folds at its corners; "
                          f"try more cells_wake (now {cells_wake}) or cells_normal (now {cells_normal})")
 
-    # Uniform across the wake: clustering it to the body's first cell, to avoid the
-    # jump at the interface, stalled the residual ~3 orders higher for the same forces.
-    across = np.linspace(0.0, 1.0, 4 * max(2, int(np.ceil(cells_airfoil / 128))) + 1)
+    # Match the body's fine corner layers without extending that spacing all
+    # across the wake. A symmetric Vinokur distribution has a smooth, wider
+    # centre; cap the count to avoid making the whole wake excessively stiff.
+    base_width = np.linalg.norm(upper - lower)
+    target = min(8.0 * first, base_width / 8.0)
+    n_across = min(64, 4 * max(2, int(np.ceil(base_width / (12.0 * first * 4.0)))))
+    across = vinokur(n_across, target / base_width, target / base_width)
     nodes = lower_wake[:, None] + across[None, :, None] * (upper - lower)
     blocks = {"body": body, "base": nodes[:len(ramp) + 1, ::-1].transpose(1, 0, 2), "wake": nodes[len(ramp):]}
     return {name: (b[..., 0], b[..., 1]) for name, b in blocks.items()}

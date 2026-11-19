@@ -26,7 +26,9 @@ class FlowConditions:
     ``sweep_deg`` makes a 2D grid an infinite swept wing (2.5D): the grid is the
     section normal to the sweep line, ``alpha`` is streamwise, and the velocity
     gains a spanwise component (core/state.py, ``freestream_vector``).
-    ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep."""
+    ``None``, the default, is plain 2D; ``0.0`` the 2.5D path without sweep.
+    Sectional cases derive this frame from the mean of their geometric edge sweeps;
+    their atlas uses a 3D stencil rather than the lifted 2D one."""
 
     mach: float
     alpha_deg: float = 0.0
@@ -108,13 +110,17 @@ class FlowConditions:
 SOLVERS: tuple[str, ...] = ("explicit", "implicit")
 """Pseudo-time paths: multistage Runge-Kutta, pseudo-transient Newton-Krylov."""
 
+PRECISIONS = {"fp64": "float64", "float64": "float64", "fp32": "float32", "float32": "float32",
+              "mixed": "float64", "mixt": "float64"}
+
 
 @dataclass(frozen=True)
 class NumericsConfig:
-    """Discretization and stepping (``docs/case_reference.md``). ``tol`` is relative
-    to the residual's running peak; ``forces_tol`` the largest spread of CL, CD
-    and CM over the last quarter of a run for it to stop as settled (``None``:
-    never); ``far_field`` keys ``numerics.boundary.FAR_FIELDS``."""
+    """Discretization and stepping (``docs/case_reference.md``). Each normalized
+    equation residual must fall below its relative peak threshold or absolute
+    floor; force stability is additionally required when ``forces_tol`` is set.
+    With ``forces_tol=None``, ``tol`` applies to every equation without an
+    absolute floor. ``far_field`` keys ``numerics.boundary.FAR_FIELDS``."""
 
     flux: str = "hllc"
     limiter: str = "minmod"
@@ -122,12 +128,48 @@ class NumericsConfig:
     max_iters: int = 40_000
     tol: float = 1.0e-12
     forces_tol: float | None = 1.0e-4
+    equation_tol: float = 1.0e-4
+    equation_abs_tol: float = 1.0e-8
     n_ghost: int = 2
     solver: str = "explicit"
     far_field: str = "characteristic"
     kappa: float = 0.0
+    sectional_depth: float = 1.0
+    sectional_relaxation_start: float = 1.0
+    sectional_relaxation_end: float = 5.0
+
+    precision: str = "fp64"
+    equation_abs_tols: tuple[tuple[str, float], ...] = ()
+    diagnostics: bool = False
+    equation_peak: str = "point"
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.sectional_depth) or self.sectional_depth <= 0.0:
+            raise ValueError("sectional depth must be finite and positive")
+        if (not np.isfinite(self.sectional_relaxation_start) or not np.isfinite(self.sectional_relaxation_end)
+                or not 0 <= self.sectional_relaxation_start < self.sectional_relaxation_end):
+            raise ValueError("sectional relaxation needs finite 0 <= relaxation_start < relaxation_end")
+        if self.precision == "mixt":
+            object.__setattr__(self, "precision", "mixed")
+        overrides = self.equation_abs_tols
+        pairs = tuple(overrides.items()) if isinstance(overrides, dict) else tuple(overrides)
+        allowed = {"mass", "momentum_x", "momentum_y", "momentum_z", "energy", "sa"}
+        if any(not isinstance(pair, (tuple, list)) or len(pair) != 2 for pair in pairs):
+            raise ValueError("equation_abs_tols must contain equation/value pairs")
+        if len({name for name, _ in pairs}) != len(pairs):
+            raise ValueError("equation_abs_tols contains duplicate equations")
+        for name, value in pairs:
+            if name not in allowed:
+                raise ValueError(f"unknown equation_abs_tols equation {name!r}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value) or value < 0:
+                raise ValueError(f"equation_abs_tols[{name!r}] must be finite and nonnegative")
+        object.__setattr__(self, "equation_abs_tols", tuple(sorted((name, float(value)) for name, value in pairs)))
+        if not isinstance(self.diagnostics, bool):
+            raise ValueError("diagnostics must be a boolean")
+        if self.equation_peak not in EQUATION_PEAKS:
+            raise ValueError(f"equation_peak must be one of {EQUATION_PEAKS}, got {self.equation_peak!r}")
+        if self.precision not in PRECISIONS:
+            raise ValueError(f"precision must be one of {tuple(PRECISIONS)}, got {self.precision!r}")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.max_iters < 1:
@@ -136,6 +178,8 @@ class NumericsConfig:
             raise ValueError(f"tol must lie in (0, 1), got {self.tol}")
         if self.forces_tol is not None and not self.forces_tol > 0.0:
             raise ValueError(f"forces_tol must be positive or null, got {self.forces_tol}")
+        if not 0.0 < self.equation_tol < 1.0 or not np.isfinite(self.equation_abs_tol) or self.equation_abs_tol <= 0.0:
+            raise ValueError("equation tolerances must be positive, with equation_tol below 1")
         if self.n_ghost < 2:
             raise ValueError(
                 f"n_ghost must be >= 2 for MUSCL reconstruction, got {self.n_ghost}"
@@ -148,10 +192,25 @@ class NumericsConfig:
         if self.solver not in SOLVERS:
             raise ValueError(f"solver must be one of {SOLVERS}, got {self.solver!r}")
 
+        if self.mixed_precision and self.solver != "implicit":
+            raise ValueError("mixed precision requires the implicit solver")
+
+    @property
+    def mixed_precision(self) -> bool:
+        """FP64 outer iteration with FP32 preconditioner and Krylov storage."""
+        return self.precision == "mixed"
+
     @property
     def dtype(self) -> np.dtype:
-        """Always float64: every verification gate runs in double (docs/dev/notes.md)."""
-        return np.dtype("float64")
+        """Field arithmetic; geometry construction stays in double precision."""
+        return np.dtype(PRECISIONS[self.precision])
+
+
+RELAXATIONS: tuple[str, ...] = ("global", "split", "local")
+"""How ``max_relative_update`` bounds a step (solvers/implicit.py ``relax``)."""
+
+EQUATION_PEAKS: tuple[str, ...] = ("point", "chain")
+"""What the relative equation thresholds refer to in a continuation polar."""
 
 
 @dataclass(frozen=True)
@@ -170,9 +229,25 @@ class ImplicitConfig:
     krylov_subspace: int = 10
     krylov_restarts: int = 2
     krylov_success: float = 0.5
+    krylov_min_progress: float = 1.0e-6
     max_relative_update: float | None = None
+    nonlinear_growth_limit: float | None = None
+    nonlinear_merit: str = "mass"
+    backtracking_steps: int = 0
+    krylov_early_exit: bool = False
+    relaxation: str = "global"
 
     def __post_init__(self) -> None:
+        if not np.isfinite(self.krylov_min_progress) or not 0 <= self.krylov_min_progress < 1:
+            raise ValueError("krylov_min_progress must be finite and in [0, 1)")
+        if self.nonlinear_merit not in ("mass", "equations"):
+            raise ValueError("nonlinear_merit must be 'mass' or 'equations'")
+        if not isinstance(self.krylov_early_exit, bool):
+            raise ValueError("krylov_early_exit must be a boolean")
+        if self.relaxation not in RELAXATIONS:
+            raise ValueError(f"relaxation must be one of {RELAXATIONS}, got {self.relaxation!r}")
+        if type(self.backtracking_steps) is not int or not 0 <= self.backtracking_steps <= 16:
+            raise ValueError("backtracking_steps must be an integer in [0, 16]")
         if not self.cfl > 0.0:
             raise ValueError(f"cfl must be positive, got {self.cfl}")
         if self.cfl_max < self.cfl:
@@ -206,6 +281,8 @@ class ImplicitConfig:
             raise ValueError(
                 f"max_relative_update must be positive or None, got {self.max_relative_update}"
             )
+        if self.nonlinear_growth_limit is not None and self.nonlinear_growth_limit < 1.0:
+            raise ValueError("nonlinear_growth_limit must be at least 1 or None")
         if not 0.0 < self.krylov_success < 1.0:
             raise ValueError(
                 f"krylov_success must lie in (0, 1), got {self.krylov_success}"

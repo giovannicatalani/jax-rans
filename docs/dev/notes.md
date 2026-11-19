@@ -45,11 +45,23 @@ each choice, grouped by module.
 
 ## core/config.py
 
-- **float64 only.** A float32 path existed and was removed. The 5.9x
-  double-precision penalty on a 4 GB laptop card is real,
-  but every verification gate must run in double: a suite that cannot tell a
-  bug from round-off is no use, and no result was ever quoted from
-  the single-precision path.
+- **FP64 by default; FP32 is opt-in.** `case.general.precision` selects field
+  arithmetic without changing JAX's process-wide x64 support. Verification
+  references remain in FP64. Source mesh metrics and gradient geometry are
+  constructed in FP64 before rounding; FP32 fields, Krylov vectors and line
+  factors stay single precision. Norm sums and the tiny GMRES least-squares
+  solve use FP64; CGS2 and full FP32 matrix-product precision are retained.
+  Guards must be representable in the field dtype. Tolerances are never
+  silently relaxed: FP32 has a higher rounding floor, particularly on stretched
+  meshes, and aerodynamic coefficients must be checked against an FP64 run.
+  SA's `f_w` must also have a finite directional derivative: its original
+  sixth-power quotient can overflow in FP32 AD while the value remains finite.
+  The FP32 branch uses reciprocal powers for large `g`, an algebraically
+  equivalent form that avoids this overflow.
+  The cap in `r_of` must guard its inactive quotient before division: clipping
+  an overflowing JVP afterwards multiplies infinity by zero and produces NaN.
+  Scalar Newton acceptance compares FP64 norm results without an intervening
+  FP32 cast; otherwise a real small decrease can round to exactly one.
 - **HLLC by default**: it resolves a stationary contact exactly and needs no
   entropy fix, so the scheme carries no tunable dissipation.
 - **Krylov sizes.** The Arnoldi loop (solvers/krylov.py) runs to full length
@@ -342,3 +354,79 @@ measures it.
   12.6 kB per canvas cell (nvidia-smi's peak, preallocation off; the M6's
   7.8 kB was XLA's compile-time estimate of temporaries, a different
   measure). The 3.6M level's canvas (5.07M cells) would need ~64 GB.
+
+## campaign.py (scheduling, batching)
+
+- **Slots, not rounds.** The rounds scheduler advanced every profile of a
+  batch to its next angle together, so a round lasted as long as its slowest
+  point while finished cases were still computed (masked). Each slot now moves
+  to its next point between two blocks as soon as its point stops; per point
+  the calculation is unchanged (`test_slot_and_round_schedulers_agree`).
+- **Mach, Reynolds and 2.5D sweep are traced** (freestream vector, `mu_inf`,
+  sweep in the per-case tree), so they share one executable and one batch;
+  FP64 static and traced runs agree to 1e-10 after 60 RANS steps. Sectional
+  (2.75D) geometry stays static: only identical sections batch.
+- **Why batching matters on large GPUs.** One Newton step of a 57k-cell case
+  is about 2600 kernel launches (2 GMRES cycles of 10 Arnoldi steps, ~100
+  kernels each): ~13 ms of launch latency, close to the 15 ms per step
+  measured on an H100. A single case cannot use such a GPU; several cases per
+  batch share the launches. `chains` gives a single polar several cases.
+- **FP32 transients are chaotic**: the vmapped and unbatched paths of the
+  same code differ by 15% in U after 60 steps (one-ulp differences amplified
+  by acceptance and CFL decisions); compare converged forces, or FP64 runs.
+
+## solvers/krylov.py, core/linalg.py (GPU kernels)
+
+- **No cuSOLVER in GMRES**: the Hessenberg least squares is unrolled Givens
+  rotations (`hessenberg_lstsq`), fused by XLA, instead of an FP64 SVD per
+  cycle; the Newton solve takes `A x` from the Arnoldi relation and the
+  relaxed step's action as `omega` times GMRES's, two Jacobian products fewer
+  per step.
+- **Small block products elementwise** (`_matvec`, `_matmul` up to 8x8): a
+  batched `dot` on 5x5 blocks is not fused. Line factor 7.2 -> 5.8 ms on the
+  RAE 2822 2.5D grid (A16); whole step 126.9 -> 112.3 ms.
+
+## numerics/residual.py (2.75D)
+
+- **The sectional stencil runs on its one independent plane.** A sectional
+  canvas has `1 + 2g` planes along k, block cells on the central one only;
+  the residual used to be evaluated on all of them and masked. Its reach
+  along k is `g` cells, exactly the lateral planes, so `sectional_plane`
+  hands `block_residual` the central plane's geometry (its two k-faces
+  included) and no k padding: residual and JVP equal the whole-canvas ones
+  to 1e-14 (FP64, tapered conical case, `test_speedup_options.py`). On CPU
+  the linearized JVP is 3.4x (first order) to 4.5x (second order) cheaper.
+- **The implicit step works on that plane** (`SectionalPlane`): the residual
+  depends on the canvas state through plane `k` only (the lateral ghost stage
+  copies it), and the other planes' rows are `U - U_0`, decoupled, so a step
+  started at `U_0` there leaves them exactly at `U_0`. Residual, Jacobian
+  products, Krylov vectors, line solves and acceptance use plane fields; the
+  plane is written back into the five-plane state, which everything outside
+  the step (forces, output, campaigns, restarts) keeps. Same steps as the
+  canvas state to 1e-14 in FP64 (30 steps, both Jacobians), 1e-7 in mixed
+  precision (FP32 Krylov vectors): GMRES vector work was 73 of 302 ms.
+- **Campaigns pass the sectional geometry as arguments** (canvas metrics,
+  centres, conditions, wall distance), as for 2D: as closure constants XLA
+  constant-folded them for minutes per executable. Only identical sections
+  batch (the conical mapping and 2D reference stay static).
+
+## solvers/implicit.py, solvers/krylov.py (options, default off)
+
+- `krylov_early_exit`: a cycle stops once its Hessenberg least-squares
+  residual meets `krylov_tol` (one fused unrolled solve per Arnoldi step).
+  At low CFL the fixed 10-vector cycle over-solved (linear reduction 0.003 to
+  0.008 against a 1e-2 target); at high CFL both cycles are needed anyway.
+- `relaxation = split | local`: `max_relative_update` without letting a few
+  cells or the SA row hold the whole correction back (the CRM note above).
+  Both cost one more Jacobian-vector product per step (the bounded step is no
+  longer a multiple of GMRES's direction). `local` lets the CFL grow while at
+  most 1% of block cells are cut.
+- `equation_peak = chain` (campaigns): a continued point starts near its
+  solution, so its own residual peak is small and `equation_tol * peak` can
+  sit below the FP32 floor of the SA residual (RAE 2822 2.5D, alpha 1 from
+  alpha 0: 3000 steps, forces settled from ~1300; from freestream it settles
+  in 960-1340). Referring the thresholds to the chain's peak asks every point
+  for the level its chain's first point reached.
+- **No automatic exact/first-order switch.** Under `vmap` a per-case choice
+  evaluates both operators in every product; a per-batch choice mixes cases.
+  `jacobian` stays a case option, chosen from measurements.

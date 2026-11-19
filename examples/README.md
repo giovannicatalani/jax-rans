@@ -3,6 +3,8 @@
 | example | flow | grid |
 |---|---|---|
 | `naca0012_euler` | Euler, M 0.8, 1.25 deg | generated O-grid |
+| `naca0012_sectional_euler` | sectional 3D stencil, Euler, M 0.5, 2 deg, sweep 30 deg, zero taper | one-cell extrusion of a generated O-grid |
+| `naca0012_conical_euler` | conical Euler section, M 0.5, 2 deg, leading-edge sweep 30 deg, taper rate 0.2 | relaxed conical slab from a generated O-grid |
 | `naca0012_laminar` | laminar, M 0.5, 1 deg, Re 5000 | generated C-grid |
 | `clarky_sa` | SA RANS, M 0.2, 4 deg, Re 3e6 | C-grid round a downloaded coordinate file |
 | `naca0012_sa` | SA RANS, M 0.15, 10 deg, Re 6e6 | NASA TMR C-grid from file |
@@ -28,3 +30,11 @@ your own mesher ([docs/multi-element.md](../docs/multi-element.md));
 `rae2822_sensitivity` for derivatives ([docs/gradients.md](../docs/gradients.md)):
 `python scripts/sensitivity_polar.py examples/rae2822_sensitivity --alpha 0.5 2.0 0.5`
 draws its polar with dCL/dalpha and dCD/dalpha.
+
+## RAE2822: 2.5D / 2.75D continuity qualification
+
+The [RAE2822 campaign](rae2822_275d_campaign/README.md) provides four standalone
+cases (`rae2822_{subsonic,transonic}_{swept,conical}_verification`) and a runner
+for taper continuity, slab depth, mesh and relaxation studies. These use a
+fixed streamwise profile and matching uniform far-field conditions. They are
+qualification scenarios, not completed CFD validation results.

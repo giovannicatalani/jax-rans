@@ -27,6 +27,8 @@ import jax
 import jax.numpy as jnp
 from jax import Array, lax
 
+from ..core.precision import l2_norm
+
 Residual = Callable[[Array, dict], Array]
 Outputs = Callable[[Array, dict], dict]
 
@@ -35,11 +37,11 @@ def defect_correction(matvec: Callable[[Array], Array], b: Array, approximate_in
                       tol: float, maxiter: int) -> tuple[Array, Array]:
     """``x <- x + G (b - A x)`` from zero until ``|b - A x| <= tol |b|`` or
     ``maxiter`` iterations; returns ``x`` and its relative residual."""
-    b_norm = jnp.maximum(jnp.linalg.norm(b), jnp.finfo(b.dtype).tiny)
+    b_norm = jnp.maximum(l2_norm(b), jnp.finfo(b.dtype).tiny)
 
     def unconverged(carry):
         k, _, r = carry
-        return (k < maxiter) & (jnp.linalg.norm(r) > tol * b_norm)
+        return (k < maxiter) & (l2_norm(r) > tol * b_norm)
 
     def step(carry):
         k, x, r = carry
@@ -47,7 +49,7 @@ def defect_correction(matvec: Callable[[Array], Array], b: Array, approximate_in
         return k + 1, x, b - matvec(x)
 
     _, x, r = lax.while_loop(unconverged, step, (0, jnp.zeros_like(b), b))
-    return x, jnp.linalg.norm(r) / b_norm
+    return x, l2_norm(r) / b_norm
 
 
 def tangent(residual: Residual, outputs: Outputs, U: Array, p: dict, parameters: tuple[str, ...],

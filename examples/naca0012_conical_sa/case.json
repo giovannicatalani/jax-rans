@@ -1,0 +1,28 @@
+{
+    "general": {
+        "case_name": "naca0012_conical_sa",
+        "description": "Conical SA section: blunt-TE NACA 0012, three-block C-grid, leading-edge sweep 30 deg, taper rate 0.2"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "naca0012_blunt",
+        "cells_airfoil": 256,
+        "cells_normal": 96,
+        "wall_spacing": 5e-06,
+        "far_field": 100.0,
+        "sectional": {
+            "model": "conical",
+            "leading_edge_sweep_deg": 30.0,
+            "taper_rate": 0.2
+        },
+        "cells_wake": 64
+    },
+    "freestream": {
+        "mach": 0.5,
+        "alpha_deg": 2.0,
+        "reynolds": 1000000.0
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

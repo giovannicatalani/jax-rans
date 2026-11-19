@@ -1,0 +1,10 @@
+{
+  "batch_size": 1,
+  "profiles": [
+    {
+      "name": "rae2822_transonic_sa",
+      "case": "naca0012_transonic",
+      "alpha": [-2, 0, 1, 2, 3]
+    }
+  ]
+}

@@ -214,7 +214,8 @@ def point_vortex_state(dx: Array, dy: Array, q_inf: Array, gamma: float, circula
 
 def wall_vectors(atlas: Atlas) -> Array:
     """Area vector of every wall face into the fluid, ``(d, n)`` (``atlas.walls`` order)."""
-    return atlas.walls.into_fluid * atlas.wall_values(atlas.grid.faces)
+    vectors = atlas.wall_values(atlas.grid.faces)
+    return jnp.asarray(atlas.walls.into_fluid, dtype=vectors.dtype) * vectors
 
 
 def wall_pressure_force(p_gauge: Array, atlas: Atlas) -> tuple[Array, ...]:
@@ -236,8 +237,15 @@ def point_vortex_far_field(q: Array, atlas: Atlas, q_inf: Array, gamma: float) -
     u_f, v_f = velocity_f[0], velocity_f[1]
     speed = jnp.hypot(u_f, v_f)
     circulation = (fy * u_f - fx * v_f) / speed / (q_inf[RHO] * speed)
-    xc, yc = atlas.quarter_chord
-    return lambda m: point_vortex_state(m[0] - xc, m[1] - yc, q_inf, gamma, circulation, nv)
+    centre = jnp.asarray(atlas.quarter_chord)
+
+    def reference(midpoint: Array) -> Array:
+        # Keep the source geometry's precision for coordinate differences,
+        # then use field precision in the vortex state and its Jacobian.
+        offset = (midpoint - centre[:, None]).astype(q.dtype)
+        return point_vortex_state(offset[0], offset[1], q_inf, gamma, circulation, nv)
+
+    return reference
 
 
 FAR_FIELDS: dict[str, FarFieldModel] = {
@@ -261,7 +269,7 @@ def fill_ghosts(q: Array, atlas: Atlas, conditions: Conditions) -> Array:
     for stage in atlas.stages:
         parts = [flat]
         for kind, source, normal, midpoint in stage.conditions:
-            face = Face(jnp.asarray(normal), jnp.asarray(midpoint))
+            face = Face(jnp.asarray(normal, dtype=q.dtype), jnp.asarray(midpoint, dtype=q.dtype))
             parts.append(CONDITIONS[kind](flat[:, source], face, conditions))
         flat = jnp.concatenate(parts, axis=1)[:, stage.index]
     return flat.reshape(q.shape)

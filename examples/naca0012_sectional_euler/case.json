@@ -1,0 +1,25 @@
+{
+    "general": {
+        "case_name": "naca0012_sectional_euler",
+        "description": "Sectional stage A: blunt-TE NACA 0012, three-block C-grid, Euler, sweep 30 deg, zero taper",
+        "save_path": "results"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "naca0012_blunt",
+        "cells_airfoil": 256,
+        "cells_normal": 96,
+        "wall_spacing": 5e-06,
+        "far_field": 100.0,
+        "sectional": {
+            "model": "conical",
+            "leading_edge_sweep_deg": 30.0,
+            "taper_rate": 0.0
+        },
+        "cells_wake": 64
+    },
+    "freestream": {
+        "mach": 0.5,
+        "alpha_deg": 2.0
+    }
+}

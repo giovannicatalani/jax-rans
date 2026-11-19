@@ -1,0 +1,6 @@
+{
+    "sectional": {"depth": 0.1, "relaxation_start": 1.0, "relaxation_end": 5.0},
+    "convective_fluxes": {"limiter": "none"},
+    "time_integration": {"solver": "implicit"},
+    "convergence": {"max_iters": 1600, "forces_tol": null, "tol": 1e-10}
+}
