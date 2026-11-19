@@ -25,7 +25,8 @@ integral round the streamwise section: a face ``(dx, dy)`` of the normal one is
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 
 import jax
 import jax.numpy as jnp
@@ -111,7 +112,8 @@ class ForceReference:
 
 def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
                        reference: ForceReference = ForceReference(),
-                       freestream: Array | None = None, mu_inf: Array | None = None) -> dict[str, Array]:
+                       freestream: Array | None = None, mu_inf: Array | None = None,
+                       sweep_rad: Array | None = None) -> dict[str, Array]:
     """``cl``, ``cd``, ``cm``, ``cd_friction``, ``cy`` (side force, 3D), the
     total ``force`` ``(d,)`` and each body's ``(cl, cd, cm)``, ``bodies``
     ``(n_bodies, 3)``; traceable in ``U`` and in ``freestream`` (primitives)
@@ -123,7 +125,8 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
     ``sum (r_up f_x - r_x f_up)`` about ``reference.centre``, nose-up
     positive, per ``q_inf * area * length``: pressure only in 2D, pressure and
     friction in 3D (as TMR's CMY). Swept: those of the streamwise section in
-    the wing frame (module docstring), ``cy`` and ``force[2]`` spanwise."""
+    the wing frame (module docstring), ``cy`` and ``force[2]`` spanwise;
+    ``sweep_rad`` (possibly traced) replaces ``flow``'s sweep there."""
     if isinstance(atlas, SectionalAtlas):
         if atlas.geometry is not None:
             q = jnp.asarray(freestream_primitive(flow, 3) if freestream is None else freestream, dtype=U.dtype)
@@ -146,7 +149,11 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
     load = pressure + shear
     mid, side = faces.mid, None
     if flow.swept:
-        c, s = float(np.cos(flow.sweep_rad)), float(np.sin(flow.sweep_rad))
+        if sweep_rad is None:
+            c, s = float(np.cos(flow.sweep_rad)), float(np.sin(flow.sweep_rad))
+        else:
+            sweep = jnp.asarray(sweep_rad, dtype=U.dtype)     # Python floats above stay weakly typed
+            c, s = jnp.cos(sweep), jnp.sin(sweep)
 
         def wing(f):
             """Per unit length along the sweep line -> the wing frame per unit span, ``(X, Y)``."""
@@ -155,7 +162,7 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
         side = (c * load[2] - s * load[0]) / c
         load, pressure, shear = wing(load), wing(pressure), wing(shear)
         velocity = jnp.stack([c * velocity[0] + s * velocity[2], velocity[1]])
-        mid = mid / np.array([c, 1.0])
+        mid = mid / (np.array([c, 1.0]) if sweep_rad is None else jnp.stack([c, jnp.ones_like(c)]))
     drag = velocity / speed
     lift = jnp.stack([-drag[1], drag[0]] if dim == 2 else [-drag[2], jnp.zeros_like(speed), drag[0]])
     q_area = 0.5 * rho * speed**2 * (reference.length if dim == 2 else reference.area)
@@ -221,13 +228,37 @@ def _conical_shear(U: Array, atlas: SectionalAtlas, flow: FlowConditions,
     return global_traction * jnp.asarray(np.linalg.norm(surface, axis=0)), traction
 
 
+_FORCE_KERNELS: OrderedDict = OrderedDict()
+
+
+def _force_kernel(atlas: Atlas, flow: FlowConditions, reference: ForceReference):
+    """A compiled ``force_coefficients`` for this atlas and flow, the incidence
+    a traced argument (the freestream primitives): monitoring calls it every
+    block and once per polar point, and op-by-op dispatch of the wall loads
+    cost seconds a call. A few kernels are kept (least recently used); each
+    holds its atlas, so a key's ``id`` cannot be reused by another one."""
+    flow = replace(flow, alpha_deg=0.0)
+    key = (id(atlas), flow, reference)
+    entry = _FORCE_KERNELS.get(key)
+    if entry is None or entry[0] is not atlas:
+        components = swept_atlas(atlas, flow).components
+        kernel = jax.jit(lambda U, q: force_coefficients(U, atlas, flow, reference, freestream=q))
+        entry = _FORCE_KERNELS[key] = (atlas, kernel, components)
+        while len(_FORCE_KERNELS) > 8:
+            _FORCE_KERNELS.popitem(last=False)
+    _FORCE_KERNELS.move_to_end(key)
+    return entry[1], entry[2]
+
+
 def integrate_forces(U: Array, atlas: Atlas, flow: FlowConditions,
                      reference: ForceReference | float = ForceReference()) -> Forces:
     """``force_coefficients`` as Python floats; ``reference`` (or the
     reference length alone)."""
     if not isinstance(reference, ForceReference):
         reference = ForceReference(length=float(reference))
-    c = {k: np.asarray(v) for k, v in force_coefficients(U, atlas, flow, reference).items()}
+    kernel, components = _force_kernel(atlas, flow, reference)
+    q = np.asarray(freestream_primitive(flow, components), dtype=np.float64)
+    c = {k: np.asarray(v) for k, v in kernel(U, q).items()}
     force = [float(f) for f in c["force"]] + [0.0]
     bodies = tuple(tuple(float(x) for x in b) for b in c["bodies"]) if len(c["bodies"]) > 1 else ()
     return Forces(float(c["cl"]), float(c["cd"]), float(c["cm"]), force[0], force[1],

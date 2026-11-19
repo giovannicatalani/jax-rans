@@ -25,12 +25,26 @@ class BlockTridiagonalFactor(NamedTuple):
     c_hat: Array
 
 
+SMALL_BLOCK = 8
+"""Blocks up to this size are multiplied elementwise (see ``_matvec``)."""
+
+
 def _matvec(block: Array, vector: Array) -> Array:
+    """``block @ vector`` per batch entry. Small blocks (the 5x5 and 6x6 of the
+    line solves) as a broadcast multiply and a sum over the last axis: XLA
+    fuses it with its neighbours, where a batched ``dot`` becomes a separate
+    vendor GEMM call per product (the same reason as ``invert_blocks``).
+    Elementwise FP32 products keep full mantissas (no TF32)."""
+    if block.shape[-1] <= SMALL_BLOCK:
+        return jnp.sum(block * vector[..., None, :], axis=-1)
     return jnp.einsum("...ij,...j->...i", block, vector, precision=lax.Precision.HIGHEST)
 
 
 def _matmul(a: Array, b: Array) -> Array:
-    """Full FP32 mantissas on GPUs; no TF32 truncation in line factors."""
+    """Full FP32 mantissas on GPUs; no TF32 truncation in line factors.
+    Small blocks elementwise, as ``_matvec``."""
+    if a.shape[-1] <= SMALL_BLOCK and b.shape[-1] <= SMALL_BLOCK:
+        return jnp.sum(a[..., :, :, None] * b[..., None, :, :], axis=-2)
     return jnp.matmul(a, b, precision=lax.Precision.HIGHEST)
 
 

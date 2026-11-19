@@ -154,6 +154,9 @@ def make_newton_step(
                 matvec, -residual, prepare(state_u, speeds, step_cfl),
                 restart=config.krylov_subspace, maxiter=config.krylov_restarts,
                 tol=config.krylov_tol, basis_dtype=basis_dtype, return_action=True,
+                # FP32 Krylov vectors in a mixed solve keep the true action:
+                # it is what detects their stagnation (the FP64 fallback below).
+                action_from_arnoldi=basis_dtype is None,
             )
 
         linear_fp64_fallback = jnp.asarray(False)
@@ -186,14 +189,14 @@ def make_newton_step(
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
         dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
 
-        # The ramp keys off how well the linear system was solved (one more
-        # matvec), not the residual history: a stagnated GMRES returns a null
+        # The ramp keys off how well the linear system was solved, not the
+        # residual history: a stagnated GMRES returns a null
         # update that leaves the residual unchanged, which looks like success.
         # Keep the scalar decision in double: casting both norms to FP32
         # first can turn a real decrease into exactly 1 and reject the step.
-        # An amortized correction requires a fresh action to preserve rounding
-        # and acceptance decisions; the unmodified direction can reuse GMRES.
-        action = matvec(dU) if config.max_relative_update is not None else solved_action
+        # The relaxation only scales the direction, and the operator is linear:
+        # the action of omega dU is omega times GMRES's action of dU.
+        action = omega * solved_action
         residual_size = jnp.maximum(l2_norm(residual, dtype=jnp.float64), floor_like(residual))
 
         def linear_ratio(factor):
