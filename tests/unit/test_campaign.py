@@ -116,11 +116,24 @@ def test_failure_stops_only_its_own_chain_and_is_saved(cases, grids, contraction
 
 def test_batch_limit_and_incompatible_physics_form_separate_groups(cases, grids, contraction):
     requests = [PolarRequest(str(k), cases[0], [0], grids[0]) for k in range(3)]
-    changed = replace(cases[0], flow=replace(cases[0].flow, mach=0.5))
-    requests.append(PolarRequest("other_mach", changed, [0], grids[0]))
+    changed = replace(cases[0], flow=replace(cases[0].flow, gamma=1.3))
+    requests.append(PolarRequest("other_gamma", changed, [0], grids[0]))
     campaign = run_campaign(requests, batch_size=2)
-    assert campaign.batches == (("0", "1"), ("2",), ("other_mach",))
+    assert campaign.batches == (("0", "1"), ("2",), ("other_gamma",))
     assert campaign.successful
+
+
+def test_mach_numbers_share_one_batch_and_match_separate_runs(cases, grids, contraction):
+    """Mach enters only through the traced freestream: one executable."""
+    other = replace(cases[0], flow=replace(cases[0].flow, mach=0.5))
+    requests = [PolarRequest("m0", cases[0], [0, 1], grids[0]), PolarRequest("m1", other, [0, 1], grids[0])]
+    batched = run_campaign(requests)
+    assert batched.batches == (("m0", "m1"),) and batched.successful
+    for request in requests:
+        single = run_campaign([request]).polars[request.name]
+        for a, b in zip(batched.polars[request.name].results, single.results):
+            np.testing.assert_allclose(a.U, b.U, rtol=1e-13, atol=1e-13)
+            assert a.history.n_iters == b.history.n_iters
 
 
 def test_progress_reports_each_profile_residual(cases, grids, contraction):
@@ -652,3 +665,43 @@ def test_adaptive_checkpoint_rejects_changed_fields_preserving_files(cases, grid
         module._checkpoint_attempt(tmp_path, changed)
     assert before == {str(path.relative_to(tmp_path)): path.read_bytes()
                       for path in tmp_path.rglob("*") if path.is_file()}
+
+
+def test_chains_split_a_polar_into_independent_continuations(cases, grids, contraction, tmp_path):
+    """Two chains over four angles: [0, 1] and [2, 3], each continued from its
+    own previous point, each identical to a separate one-chain polar."""
+    request = PolarRequest("p", cases[0], (0.0, 1.0, 2.0, 3.0), grids[0], chains=2)
+    polar = run_campaign([request]).polars["p"]
+    assert list(polar.alphas) == [0.0, 1.0, 2.0, 3.0]
+    assert [r.provenance["initial_alpha"] for r in polar.results] == [None, 0.0, None, 2.0]
+    assert [r.provenance["chain"] for r in polar.results] == [0, 0, 1, 1]
+    for segment, results in (((0.0, 1.0), polar.results[:2]), ((2.0, 3.0), polar.results[2:])):
+        single = run_campaign([PolarRequest("s", cases[0], segment, grids[0])]).polars["s"]
+        for a, b in zip(results, single.results):
+            np.testing.assert_allclose(a.U, b.U, rtol=1e-13, atol=1e-13)
+            assert a.history.n_iters == b.history.n_iters
+    polar.write(tmp_path)
+    meta = json.loads((tmp_path / "polar_metadata.json").read_text())
+    assert [p["initial_alpha"] for p in meta["points"]] == [None, 0.0, None, 2.0]
+
+
+def test_slot_and_round_schedulers_agree(cases, grids, contraction):
+    angles = [(0.0, 1.0, 2.0), (2.0, 1.0)]
+    requests = [PolarRequest(f"p{k}", c, a, g) for k, (c, a, g) in enumerate(zip(cases, angles, grids))]
+    slots, rounds = run_campaign(requests), run_campaign(requests, scheduler="rounds")
+    for name in ("p0", "p1"):
+        for a, b in zip(slots.polars[name].results, rounds.polars[name].results):
+            np.testing.assert_allclose(a.U, b.U, rtol=1e-13, atol=1e-13)
+            np.testing.assert_allclose(a.history.residual, b.history.residual, rtol=1e-12, atol=1e-14)
+            assert a.history.reason == b.history.reason and a.history.n_iters == b.history.n_iters
+            np.testing.assert_allclose(a.coefficients_history, b.coefficients_history, rtol=1e-12, atol=1e-14)
+
+
+def test_chains_validation(cases, grids):
+    with pytest.raises(ValueError, match="chains"):
+        PolarRequest("p", cases[0], (0.0,), grids[0], chains=0)
+    with pytest.raises(ValueError, match="adaptive"):
+        PolarRequest("p", cases[0], (0.0, 1.0), grids[0], chains=2,
+                     continuation=module.ContinuationPolicy(adaptive=True))
+    with pytest.raises(ValueError, match="slots"):
+        run_campaign([PolarRequest("p", cases[0], (0.0, 1.0), grids[0], chains=2)], scheduler="rounds")

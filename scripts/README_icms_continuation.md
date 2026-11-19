@@ -29,8 +29,14 @@ python scripts/icms_continuation.py /path/to/campaign \
 The 2.75D mode uses leading-edge sweep and `taper_rate = -dc/ds`, with
 `ds = hypot(dY, dZ)` measured between quarter-chord points. Each section uses
 the segment to its next neighbour; the tip uses the preceding segment. Thus
-positive taper means decreasing chord. Profiles are processed one at a time
-in this mode because the campaign runner does not batch all sectional geometry.
+positive taper means decreasing chord. Different 2.75D sections are not
+batched together (their conical geometry is static); each section's Mach
+numbers and continuation chains still share one batch.
+
+`--chains N` (or `"chains": N` under `campaign`) splits each polar into N
+contiguous runs of angles, each continued from its own previous point and
+started from freestream, run side by side. A single section then fills a large
+GPU (RTX, H100) that one case leaves latency-bound; `--resume` needs `N = 1`.
 The target checkout must contain `src/jaxrans/convergence.py` to run.
 
 For 2.5D, omit `--sectional-275d` and optionally select the sweep reference:

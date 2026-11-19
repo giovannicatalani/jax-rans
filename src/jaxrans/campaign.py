@@ -24,6 +24,7 @@ import json
 import re
 import shutil
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
@@ -36,7 +37,8 @@ from .case import Case, load_case
 from .core.state import freestream_primitive
 from .mesh.atlas import Atlas
 from .mesh.coarsen import prolong
-from .numerics.residual import make_residual
+from .mesh.sectional import SectionalAtlas
+from .numerics.residual import make_residual, swept_atlas
 from .polar import ContinuationTiming, Polar, alpha_range, at_alpha, validate_alphas
 from .post.forces import force_coefficients, integrate_forces
 from .simulation import Result, Timing, _march, make_stepper
@@ -77,6 +79,15 @@ class PolarRequest:
     grid: Atlas | None = None
     initial: object | None = None
     continuation: ContinuationPolicy = ContinuationPolicy()
+    chains: int = 1
+    """Independent continuation chains the angles are split into (contiguous
+    runs, each starting from freestream), run side by side in the batch."""
+
+    def __post_init__(self):
+        if isinstance(self.chains, bool) or not isinstance(self.chains, int) or self.chains < 1:
+            raise ValueError("chains must be a positive integer")
+        if self.chains > 1 and self.continuation.adaptive:
+            raise ValueError("adaptive continuation runs a single chain")
 
 
 @dataclass(frozen=True)
@@ -139,18 +150,39 @@ class Campaign:
         return directory
 
 
-def _geometry(atlas: Atlas, distance) -> dict:
-    """Only geometry varies: all integer connectivity stays on the template."""
+def _geometry(atlas: Atlas, distance, flow=None) -> dict:
+    """What varies inside a batch, one entry per case: the geometry (all integer
+    connectivity stays on the template) and the flow parameters that are not
+    the freestream vector, ``mu_inf = M / Re`` (viscous) and the sweep
+    (2.5D), so that Mach, Reynolds and sweep need no separate executables.
+
+    A sectional (2.75D) atlas carries geometry outside this tree (its 2D
+    reference, the conical mapping): it keeps its own, fixed, geometry and is
+    batched only with identical sections (``_signature``)."""
+    params = {}
+    if flow is not None and not flow.inviscid:
+        params["mu_inf"] = jnp.asarray(flow.mu_inf, dtype=jnp.float64)
+    if flow is not None and flow.swept and not isinstance(atlas, SectionalAtlas):
+        params["sweep_rad"] = jnp.asarray(flow.sweep_rad, dtype=jnp.float64)
+    if isinstance(atlas, SectionalAtlas):
+        return {"distance": distance, **params}
     g = atlas.grid
     return {"canvas": (g.nodes, g.centres, g.volume, g.faces), "centres": atlas.centres,
             "conditions": tuple(tuple((normal, midpoint) for _, _, normal, midpoint in s.conditions)
                                 for s in atlas.stages),
             "quarter_chord": jnp.asarray(atlas.quarter_chord),
             "wall_nodes": (atlas.walls.faces.a, atlas.walls.faces.b),
-            "distance": distance}
+            "distance": distance, **params}
+
+
+def _flow_options(geometry: dict) -> dict:
+    """The traced flow parameters of one case, as ``make_stepper`` keywords."""
+    return {"mu_inf": geometry["mu_inf"]} if "mu_inf" in geometry else {}
 
 
 def _with_geometry(template: Atlas, geometry: dict) -> Atlas:
+    if "canvas" not in geometry:            # sectional: fixed geometry (``_geometry``)
+        return template
     nodes, centres, volume, faces = geometry["canvas"]
     stages = tuple(dataclasses.replace(s, conditions=tuple(
         (kind, source, normal, midpoint)
@@ -187,11 +219,33 @@ def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
         kinds.append(tuple(kind for kind, *_ in stage.conditions))
         for _, source, _, _ in stage.conditions:
             add(source)
+    if isinstance(atlas, SectionalAtlas):
+        # Its geometry is static (``_geometry``): only identical sections batch.
+        for field in (atlas.grid.volume, *atlas.grid.faces, atlas.grid.centres, atlas.centres):
+            add(field)
+        for stage in atlas.stages:
+            for _, _, normal, midpoint in stage.conditions:
+                add(normal)
+                add(midpoint)
+        digest.update(repr((atlas.spec, atlas.depth, atlas.relaxation_start, atlas.relaxation_end)).encode())
     leaves, tree = jax.tree_util.tree_flatten(geometry)
     shapes = tuple((np.shape(a), np.asarray(a).dtype.str) for a in leaves)
-    return (dataclasses.replace(case.flow, alpha_deg=0.0), case.numerics, case.implicit,
+    return (_static_flow(case.flow, atlas), case.numerics, case.implicit,
             case.rk_scheme, case.block_iters, case.grid_spec.force_reference(), atlas.g,
             repr((atlas.origins, atlas.windows)), tuple(kinds), digest.digest(), tree, shapes)
+
+
+def _static_flow(flow, atlas: Atlas):
+    """The flow conditions an executable is compiled for: incidence, Mach,
+    Reynolds and (2.5D) sweep are traced per case (freestream vector,
+    ``_geometry``), so they are normalized out of the grouping key. A
+    sectional atlas's sweep is part of its geometry and stays."""
+    changes = {"alpha_deg": 0.0, "mach": 0.5}
+    if flow.reynolds is not None:
+        changes["reynolds"] = 1.0e6
+    if flow.swept and not isinstance(atlas, SectionalAtlas):
+        changes["sweep_deg"] = 0.0
+    return dataclasses.replace(flow, **changes)
 
 
 def _coarse_start(case: Case, grid: Atlas):
@@ -210,10 +264,38 @@ def _coarse_start(case: Case, grid: Atlas):
     return prolong(*start, grid, default), tuple(levels)
 
 
+_NORM_KERNELS: dict = {}
+
+
+def _point_equation_norms(result: Result) -> np.ndarray:
+    """Equation norms of a finished point, for ``points.csv``: one compiled
+    kernel per grid, flow (incidence excluded) and numerics, the incidence a
+    traced freestream and the wall distance computed once. Rebuilding the
+    operator per point repeated the NumPy wall distance and ran the residual
+    op by op."""
+    history = result.convergence_history
+    if history and history[-1].get("current") is not None and \
+            history[-1].get("iteration") == result.history.n_iters:
+        # The campaign monitor measured them on this very state (last block).
+        return np.asarray(history[-1]["current"], dtype=float)
+    grid, numerics = result.grid, result.case.numerics
+    flow = dataclasses.replace(result.case.flow, alpha_deg=0.0)
+    key = (id(grid), flow, numerics)
+    entry = _NORM_KERNELS.get(key)
+    if entry is None or entry[0] is not grid:
+        distance = make_residual(grid, flow, numerics).distance
+        components = swept_atlas(grid, flow).components
+        kernel = jax.jit(lambda U, q: make_residual(grid, flow, numerics, freestream=q,
+                                                    distance=distance).equation_norms(U))
+        entry = _NORM_KERNELS[key] = (grid, kernel, components)
+    q = jnp.asarray(freestream_primitive(result.case.flow, entry[2]), dtype=numerics.dtype)
+    return np.asarray(entry[1](result.U, q))
+
+
 def _equation_norms(case: Case, template: Atlas, U, q, g):
     atlas = _with_geometry(template, g)
     return make_residual(atlas, case.flow, case.numerics, freestream=q,
-                         distance=g["distance"]).equation_norms(U)
+                         distance=g["distance"], **_flow_options(g)).equation_norms(U)
 
 
 def _campaign_kernels(case, template):
@@ -222,7 +304,8 @@ def _campaign_kernels(case, template):
     step_options = {"diagnostics": True} if diagnostics else {}
 
     def initial(q, g):
-        return make_stepper(case, _with_geometry(template, g), freestream=q, distance=g["distance"])[1]
+        return make_stepper(case, _with_geometry(template, g), freestream=q, distance=g["distance"],
+                            **_flow_options(g))[1]
 
     initialize = jax.jit(jax.vmap(initial))
 
@@ -231,7 +314,8 @@ def _campaign_kernels(case, template):
 
         def one(s, f, geom):
             atlas = _with_geometry(template, geom)
-            return make_stepper(case, atlas, freestream=f, distance=geom["distance"], **step_options)[0](s)
+            return make_stepper(case, atlas, freestream=f, distance=geom["distance"], **step_options,
+                                **_flow_options(geom))[0](s)
 
         advanced = jax.vmap(one)(states, q, g)
         return ((advanced[0], q, g), *advanced[1:])
@@ -239,14 +323,16 @@ def _campaign_kernels(case, template):
     reference = case.grid_spec.force_reference()
 
     def coefficients(U, q, g):
-        c = force_coefficients(U, _with_geometry(template, g), case.flow, reference, freestream=q)
+        c = force_coefficients(U, _with_geometry(template, g), case.flow, reference, freestream=q,
+                               mu_inf=g.get("mu_inf"), sweep_rad=g.get("sweep_rad"))
         return jnp.stack([c["cl"], c["cd"], c["cm"]])
 
     equation_monitor = jax.jit(jax.vmap(lambda U, q, g: _equation_norms(case, template, U, q, g)))
 
     def detailed_norms(U, q, g):
         atlas = _with_geometry(template, g)
-        operator = make_residual(atlas, case.flow, case.numerics, freestream=q, distance=g["distance"])
+        operator = make_residual(atlas, case.flow, case.numerics, freestream=q, distance=g["distance"],
+                                 **_flow_options(g))
         return operator.equation_diagnostics(U)
 
     def monitored(U, q, g):
@@ -376,6 +462,255 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             for k, (r, rows) in enumerate(zip(requests, results))]
 
 
+def _chains(requests) -> list[tuple[int, int, list[int]]]:
+    """``(request, chain, angle indices)``: each profile's angles split into
+    ``request.chains`` contiguous runs, each continued in its own order. One
+    chain (the default) is the whole polar, as before."""
+    out = []
+    for k, request in enumerate(requests):
+        n = len(request.alphas)
+        for c, run in enumerate(np.array_split(np.arange(n), min(max(request.chains, 1), n))):
+            out.append((k, c, [int(i) for i in run]))
+    return out
+
+
+@dataclass
+class _Point:
+    """Host bookkeeping of the point a slot is computing."""
+
+    request: int
+    chain: int
+    index: int
+    initial_alpha: float | None
+    levels: tuple = ()
+    began: float = 0.0
+    first_block: float = float("nan")
+    residuals: list = dataclasses.field(default_factory=list)
+    samples: list = dataclasses.field(default_factory=list)
+    records: list = dataclasses.field(default_factory=list)
+    reports: list = dataclasses.field(default_factory=list)
+    peak: object = None
+    residual_peak: float = 0.0
+
+
+def _run_slots(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
+               progress_with_coefficients=None, progress_with_equation_residuals=None,
+               _kernels=None) -> list[Polar]:
+    """Continuation polars of one compatible group, scheduled per slot.
+
+    Every chain (``_chains``) occupies one slot of the batch. When a slot's
+    point stops (settled, failed, or out of iterations) it is recorded at once
+    and the slot moves on, between two blocks of the same executable: to the
+    chain's next angle (continuing from its own field, the solver control
+    reset), or to a waiting chain. No slot waits for the slowest point of a
+    round, so the batch keeps doing useful work, and independent chains of
+    one profile fill the GPU that a single case leaves idle.
+
+    Per point this is ``_run_group``'s calculation: the same initial state,
+    stopping tests in the driver's order (non-finite, stalled, settled,
+    iteration limit), histories, monitoring and callbacks.
+    """
+    from .solvers.driver import BATCH_AXIS, _masked_block, _mesh
+
+    case, template = requests[0].case, grids[0]
+    numerics = case.numerics
+    implicit = numerics.solver == "implicit"
+    diagnostics = numerics.diagnostics and implicit
+    block_iters = case.block_iters
+    max_blocks = max(1, -(-numerics.max_iters // block_iters))
+    names = None
+    pending = deque(_chains(requests))
+    use = jax.devices()[:min(devices or len(jax.devices()), len(pending))]
+    n_slots = len(pending) + (-len(pending) % len(use))
+    initialize, step, equation_monitor, monitor = (
+        _campaign_kernels(case, template) if _kernels is None else _kernels)
+    block = _masked_block(step, block_iters, tuple(use) if len(use) > 1 else None, diagnostics)
+
+    first_chains = [pending[min(s, len(pending) - 1)] for s in range(n_slots)]
+    geometry = jax.tree_util.tree_map(lambda *a: jnp.stack(a), *(geometries[c[0]] for c in first_chains))
+    owner = [c[0] for c in first_chains]          # request whose geometry each slot holds
+    q_host = np.zeros((n_slots, template.components + 2))
+    chain_of = [None] * n_slots                    # (request, chain, indices, position)
+    point_of: list[_Point | None] = [None] * n_slots
+    results = [dict() for _ in requests]
+    elapsed = np.zeros(len(requests))
+    states = None
+    active = np.zeros(n_slots, dtype=bool)
+    last = jnp.zeros(n_slots)
+    multi = len(use) > 1
+
+    def put(tree):
+        if not multi:
+            return tree
+        from jax.sharding import NamedSharding, PartitionSpec as P
+        return jax.device_put(tree, NamedSharding(_mesh(use), P(BATCH_AXIS)))
+
+    def schedule(slots_to_fill):
+        """Start the next point of every slot in ``slots_to_fill``."""
+        nonlocal states, geometry
+        starts = {}
+        for s in slots_to_fill:
+            current = chain_of[s]
+            continuing = current is not None and current[3] + 1 < len(current[2])
+            if continuing:
+                k, c, indices, position = current
+                chain_of[s] = (k, c, indices, position + 1)
+            elif pending:
+                k, c, indices = pending.popleft()
+                chain_of[s] = (k, c, indices, 0)
+            else:
+                chain_of[s], point_of[s], active[s] = None, None, False
+                continue
+            k, c, indices, position = chain_of[s]
+            request = requests[k]
+            alpha = request.alphas[indices[position]]
+            q_host[s] = freestream_primitive(at_alpha(request.case, alpha).flow, template.components)
+            if owner[s] != k:
+                geometry = jax.tree_util.tree_map(lambda G, g: G.at[s].set(g), geometry, geometries[k])
+                owner[s] = k
+            levels = ()
+            if continuing:
+                starts[s] = ("continue", None)
+            elif indices[0] == 0 and request.initial is not None:
+                field = jnp.asarray(request.initial, dtype=numerics.dtype)
+                starts[s] = ("interior", field)
+            elif case.sequencing:
+                begun = time.perf_counter()
+                field, levels = _coarse_start(at_alpha(request.case, alpha), grids[k])
+                elapsed[k] += time.perf_counter() - begun
+                starts[s] = ("all", field)
+            else:
+                starts[s] = ("fresh", None)
+            initial_alpha = (float(request.alphas[indices[position - 1]]) if continuing else None)
+            point_of[s] = _Point(k, c, indices[position], initial_alpha, levels)
+            active[s] = True
+        if not starts:
+            return
+        q = jnp.asarray(q_host, dtype=numerics.dtype)
+        fresh = initialize(q, geometry)            # CFL and residual control reset at every angle
+        U = fresh.U if states is None else states.U
+        new_U = fresh.U
+        for s, (kind, field) in starts.items():
+            if kind == "continue":
+                new_U = new_U.at[s].set(jnp.where(template.interior, U[s], fresh.U[s]))
+            elif kind == "interior":
+                if field.shape != fresh.U.shape[1:]:
+                    raise ValueError("resume field shape does not match the grid")
+                new_U = new_U.at[s].set(jnp.where(template.interior, field, fresh.U[s]))
+            elif kind == "all":
+                new_U = new_U.at[s].set(field)
+        fresh = fresh._replace(U=new_U)
+        if states is None:
+            states = fresh
+        else:
+            mask = np.zeros(n_slots, dtype=bool)
+            mask[list(starts)] = True
+            mask = jnp.asarray(mask)
+            states = jax.tree_util.tree_map(
+                lambda f, o: jnp.where(mask.reshape(mask.shape + (1,) * (o.ndim - 1)), f, o), fresh, states)
+        peaks = np.asarray(equation_monitor(states.U, q, geometry))
+        now = time.perf_counter()
+        for s in starts:
+            point_of[s].peak, point_of[s].began = peaks[s], now
+
+    schedule(range(n_slots))
+    # Padding slots never run; give them a valid freestream for the vmapped kernels.
+    q_host[~active] = q_host[np.flatnonzero(active)[0]]
+    while active.any():
+        before = states
+        q = jnp.asarray(q_host, dtype=numerics.dtype)
+        began = time.perf_counter()
+        output = block(put(((states, q, geometry), jnp.asarray(active), last)))
+        (inner, _, last), block_residual = output[0], output[1]
+        report = None
+        if diagnostics:
+            block_residual, report = block_residual
+            report = {key: np.asarray(value) for key, value in report.items()}
+        states = inner[0]
+        block_residual = np.asarray(block_residual).reshape(block_iters, n_slots)
+        equation_values, values, detailed = jax.tree_util.tree_map(np.asarray, monitor(states.U, q, geometry))
+        if names is None:
+            names = equation_labels(equation_values.shape[-1], template.components)
+        axes = tuple(range(1, states.U.ndim))
+        finite = np.asarray(jnp.all(jnp.isfinite(states.U), axis=axes))
+        changed = (np.asarray((before.cfl != states.cfl) | jnp.any(before.U != states.U, axis=axes))
+                   if implicit else np.zeros(n_slots, dtype=bool))
+        finished = []
+        for s in np.flatnonzero(active):
+            point = point_of[s]
+            k = point.request
+            request = requests[k]
+            alpha = float(request.alphas[point.index])
+            columns = block_residual[:, s]
+            point.residuals.append(columns)
+            if np.isnan(point.first_block):
+                point.first_block = time.perf_counter() - point.began
+            point.peak = np.maximum(point.peak, equation_values[s])
+            point.samples.append(values[s])
+            iteration = len(point.residuals) * block_iters
+            for callback, extra in ((progress, ()), (progress_with_residual, (float(columns[-1]),)),
+                                    (progress_with_coefficients,
+                                     (float(columns[-1]), float(values[s, 1]), float(values[s, 2])))):
+                if callback is not None:
+                    callback(request.name, alpha, iteration, float(values[s, 0]), *extra)
+            if progress_with_equation_residuals is not None:
+                progress_with_equation_residuals(
+                    request.name, alpha, iteration, float(values[s, 0]), float(values[s, 1]), float(values[s, 2]),
+                    tuple(zip(names, np.asarray(equation_values[s], dtype=float))))
+            record = convergence_record(equation_values[s], point.peak, np.asarray(point.samples), numerics,
+                                        names=names)
+            if numerics.diagnostics:
+                operator = make_residual(grids[k], request.case.flow, numerics, freestream=q[s],
+                                         distance=geometries[k]["distance"])
+                record["equation_diagnostics"] = diagnostics_report(
+                    operator, {key: value[s] for key, value in detailed.items()})
+            point.records.append(dict(record, iteration=iteration))
+            if report is not None:
+                point.reports.append(dict({key: value[s] for key, value in report.items()}, iteration=iteration))
+            failed = not np.all(np.isfinite(columns)) or not finite[s]
+            if np.isfinite(columns).any():
+                point.residual_peak = max(point.residual_peak, float(np.max(columns[np.isfinite(columns)])))
+            # tol = 0: only an exact zero after a nonzero peak converges (the driver's test).
+            converged = point.residual_peak > 0 and columns[-1] <= 0.0
+            frozen = len(columns) > 1 and np.all(columns == columns[0])
+            if report is not None and "changed_count" in report:
+                frozen &= not report["changed_count"][s] > 0
+            frozen &= not changed[s]
+            reason = (ExitReason.NON_FINITE if failed else ExitReason.CONVERGED if converged
+                      else ExitReason.STALLED if frozen
+                      else ExitReason.SETTLED if record["settled"]
+                      else ExitReason.MAX_ITERS if len(point.residuals) >= max_blocks else None)
+            if reason is None:
+                continue
+            seconds = time.perf_counter() - point.began
+            history = ConvergenceHistory(np.concatenate(point.residuals), reason, iteration, seconds,
+                                         point.first_block, block_diagnostics=tuple(point.reports))
+            sub = at_alpha(request.case, alpha)
+            U = states.U[s]
+            samples = np.asarray(point.samples)
+            provenance = ({"chain": point.chain, "initial_alpha": point.initial_alpha}
+                          if request.chains > 1 else {})
+            result = Result(sub, grids[k], U, integrate_forces(U, grids[k], sub.flow, sub.grid_spec.force_reference()),
+                            history, samples[:, 0], Timing.of(history, block_iters, grids[k].cells, devices=len(use)),
+                            point.levels, coefficients_history=samples, convergence_history=tuple(point.records),
+                            provenance=provenance)
+            results[k][point.index] = result
+            elapsed[k] += seconds
+            if on_point is not None:
+                on_point(request.name, alpha, result)
+            if reason not in SUCCESS:
+                kk, c, indices, position = chain_of[s]
+                chain_of[s] = (kk, c, indices, len(indices) - 1)     # the chain stops here
+            finished.append(s)
+        if finished:
+            schedule(finished)
+    return [Polar(r.case, np.asarray([r.alphas[i] for i in sorted(rows)]), [rows[i] for i in sorted(rows)],
+                  ContinuationTiming(float(elapsed[k]), sum(x.history.n_iters for x in rows.values()),
+                                     devices=len(use)),
+                  mode="continuation", requested_alphas=tuple(r.alphas))
+            for k, (r, rows) in enumerate(zip(requests, results))]
+
+
 def _run_adaptive(request, grid, geometry, devices, progress, progress_with_residual,
                   on_point, on_attempt, saved=(), progress_with_coefficients=None,
                   progress_with_equation_residuals=None):
@@ -451,7 +786,8 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                  on_point=None, on_group=None, on_attempt=None, progress_with_coefficients=None,
                  progress_with_equation_residuals=None,
                  continuation: ContinuationPolicy | None = None,
-                 resume_attempts: dict[str, Sequence[Result]] | None = None) -> Campaign:
+                 resume_attempts: dict[str, Sequence[Result]] | None = None,
+                 scheduler: str = "slots") -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
 
     Different topology or physics forms a separate batch. Within a batch the
@@ -463,7 +799,13 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
     arguments followed by drag CD (Cx in wind axes) and pitching moment CM.
     ``progress_with_equation_residuals`` receives those coefficient arguments
     followed by normalized equation residuals.
+    ``scheduler``: ``"slots"`` (default, ``_run_slots``) moves each batch slot
+    to its next point as soon as its current one stops, and runs a profile's
+    ``chains``; ``"rounds"`` (``_run_group``) advances all profiles angle by
+    angle together. Adaptive continuation always runs alone.
     """
+    if scheduler not in ("slots", "rounds"):
+        raise ValueError("scheduler must be 'slots' or 'rounds'")
     requests = list(requests)
     if continuation is not None:
         requests = [dataclasses.replace(r, continuation=continuation) for r in requests]
@@ -482,7 +824,7 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
         request = dataclasses.replace(request, alphas=tuple(validate_alphas(request.alphas)))
         grid = request.case.grid() if request.grid is None else request.grid
         distance = make_residual(grid, request.case.flow, request.case.numerics).distance
-        geometry = _geometry(grid, distance)
+        geometry = _geometry(grid, distance, request.case.flow)
         key = (_signature(request.case, grid, geometry), request.case.sequencing,
                request.name if request.continuation.adaptive else None)
         groups.setdefault(key, []).append((request, grid, geometry))
@@ -501,8 +843,11 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                                           (resume_attempts or {}).get(reqs[0].name, ()),
                                           progress_with_coefficients, progress_with_equation_residuals)]
             else:
-                computed = _run_group(reqs, grids, geometries, devices, progress, progress_with_residual, on_point,
-                                      progress_with_coefficients, progress_with_equation_residuals)
+                runner = _run_slots if scheduler == "slots" else _run_group
+                if runner is _run_group and any(r.chains > 1 for r in reqs):
+                    raise ValueError("several chains per profile need the 'slots' scheduler")
+                computed = runner(reqs, grids, geometries, devices, progress, progress_with_residual, on_point,
+                                  progress_with_coefficients, progress_with_equation_residuals)
             for request, polar in zip(reqs, computed):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
@@ -686,6 +1031,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--devices", type=int)
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--resume", action="store_true", help="resume from saved successful points in --out")
+    parser.add_argument("--chains", type=int,
+                        help="split each profile's angles into this many continuation chains run side by side "
+                             "(default: the manifest's 'chains', else 1)")
+    parser.add_argument("--scheduler", choices=("slots", "rounds"), default="slots",
+                        help="slots: refill each batch slot as soon as its point stops (default); "
+                             "rounds: advance all profiles angle by angle together")
     args = parser.parse_args(argv)
     try:
         doc = json.loads(args.manifest.read_text())
@@ -695,8 +1046,12 @@ def main(argv: list[str] | None = None) -> int:
             angles = entry["alphas"] if "alphas" in entry else alpha_range(*entry["alpha"])
             overrides = tuple(entry.get("overrides", ()))
             policy = ContinuationPolicy(**entry.get("continuation", doc.get("continuation", {})))
+            chains = args.chains if args.chains is not None else entry.get("chains", doc.get("chains", 1))
+            if args.resume and chains != 1:
+                raise ValueError("--resume needs one chain per profile (chains = 1)")
             if "machs" not in entry:
-                requests.append(PolarRequest(entry["name"], load_case(path, overrides), angles, continuation=policy))
+                requests.append(PolarRequest(entry["name"], load_case(path, overrides), angles, continuation=policy,
+                                             chains=1 if policy.adaptive else chains))
                 continue
             machs = entry["machs"]
             if (not isinstance(machs, list) or not machs or
@@ -708,7 +1063,8 @@ def main(argv: list[str] | None = None) -> int:
             for mach in machs:
                 label = repr(float(mach)).replace("+", "p").replace("-", "m")
                 case = load_case(path, overrides + (f"case.freestream.mach={float(mach)!r}",))
-                requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles, continuation=policy))
+                requests.append(PolarRequest(f"{entry['name']}_mach_{label}", case, angles, continuation=policy,
+                                             chains=1 if policy.adaptive else chains))
 
         def progress(name, alpha, iteration, cl, cd, cm, equation_residuals):
             residuals = " ".join(
@@ -745,7 +1101,7 @@ def main(argv: list[str] | None = None) -> int:
             if request_by_name[name].continuation.adaptive:
                 return
             flow = result.case.flow
-            norms = np.asarray(make_residual(result.grid, flow, result.case.numerics).equation_norms(result.U))
+            norms = _point_equation_norms(result)
             labels = ["mass", *[f"momentum_{axis}" for axis in "xyz"[:result.grid.components]], "energy"]
             if len(norms) > len(labels):
                 labels.append("sa")
@@ -772,14 +1128,16 @@ def main(argv: list[str] | None = None) -> int:
                           == len(request.alphas) else
                           f"point_{matching:04d}_alpha_{alpha:+.8g}")
             profile_dir = args.out / name
+            initial_alpha = (result.provenance["initial_alpha"] if "initial_alpha" in result.provenance
+                             else float(request.alphas[matching - 1]) if matching else None)
             result.write(profile_dir / point_name, extra={
-                "polar_mode": "continuation",
-                "initial_alpha": float(request.alphas[matching - 1]) if matching else None,
+                "polar_mode": "continuation", "initial_alpha": initial_alpha,
+                **({"chain": result.provenance["chain"]} if "chain" in result.provenance else {}),
             })
             points[matching] = {
                 "alpha": float(alpha), "exit_reason": result.history.reason,
                 "iterations": result.history.n_iters,
-                "initial_alpha": float(request.alphas[matching - 1]) if matching else None,
+                "initial_alpha": initial_alpha,
                 "cl": float(result.forces.cl), "cd": float(result.forces.cd),
                 "cd_friction": float(result.forces.cd_friction), "cm": float(result.forces.cm),
                 "orders_dropped": float(result.history.orders_dropped),
@@ -913,7 +1271,8 @@ def main(argv: list[str] | None = None) -> int:
                     _adaptive_resume(request, args.out / request.name, False)
                 elif (args.out / request.name / "continuation.json").exists():
                     raise ValueError("adaptive output requires its continuation policy")
-            campaign = run_campaign(requests, batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
+            campaign = run_campaign(requests, scheduler=args.scheduler,
+                                    batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
                                     devices=devices, progress_with_equation_residuals=None if args.quiet else progress,
                                     on_point=save_point, on_group=None if args.quiet else announce,
                                     on_attempt=save_attempt)

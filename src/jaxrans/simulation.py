@@ -205,14 +205,17 @@ def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
 
 def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
                  distance: Array | None = None, initial: Array | None = None,
-                 *, diagnostics: bool = False) -> tuple[Callable, object]:
+                 *, diagnostics: bool = False, mu_inf: Array | None = None) -> tuple[Callable, object]:
     """``(step, initial state)`` of the case's pseudo-time path; ``freestream``
-    (``(4,)`` primitives, possibly traced) is how a polar maps it over angles."""
+    (``(4,)`` primitives, possibly traced) is how a polar maps it over angles,
+    and ``mu_inf`` (``M / Re``, possibly traced) how a campaign batches Mach
+    and Reynolds numbers."""
     flow, numerics = case.flow, case.numerics
-    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance)
+    operator = make_residual(grid, flow, numerics, freestream=freestream, distance=distance, mu_inf=mu_inf)
     if numerics.solver == "implicit":
         jacobian = None if case.implicit.jacobian == "exact" else make_residual(
-            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance)
+            grid, flow, numerics, first_order=True, freestream=freestream, distance=operator.distance,
+            mu_inf=mu_inf)
         step = implicit.make_newton_step(operator, case.implicit, jacobian, diagnostics=diagnostics,
                                         mixed_precision=numerics.mixed_precision)
         state = implicit.initial_state(operator, case.implicit, dtype=numerics.dtype)

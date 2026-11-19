@@ -105,8 +105,7 @@ class Polar:
             "timing": self.timing.record(), "settled_cl_spread": SETTLED_CL_SPREAD,
             "mode": self.mode, "requested_alphas": list(self.requested_alphas) or self.alphas.tolist(),
             "points": [{"alpha": float(a), "exit_reason": r.history.reason,
-                        "iterations": r.history.n_iters,
-                        "initial_alpha": float(self.alphas[k - 1]) if self.mode == "continuation" and k else None}
+                        "iterations": r.history.n_iters, "initial_alpha": self._initial_alpha(k)}
                        for k, (a, r) in enumerate(zip(self.alphas, self.results))],
             "git": git_revision(), "environment": environment_record(),
         }, indent=2, default=float))
@@ -133,10 +132,19 @@ class Polar:
                 continue
             name = names[k] if unique_names else f"point_{k:04d}_alpha_{alpha:+.8g}"
             result.write(directory / name, extra={
-                "polar_mode": self.mode,
-                "initial_alpha": float(self.alphas[k - 1]) if self.mode == "continuation" and k else None,
+                "polar_mode": self.mode, "initial_alpha": self._initial_alpha(k),
+                **({"chain": result.provenance["chain"]} if "chain" in result.provenance else {}),
             })
         return directory
+
+    def _initial_alpha(self, k: int) -> float | None:
+        """The angle point ``k`` was continued from: the previous one, unless a
+        chain (``PolarRequest.chains``) started there from freestream."""
+        provenance = self.results[k].provenance
+        if "initial_alpha" in provenance and "attempt" not in provenance:
+            value = provenance["initial_alpha"]
+            return None if value is None else float(value)
+        return float(self.alphas[k - 1]) if self.mode == "continuation" and k else None
 
 
 def at_alpha(case: Case, alpha: float) -> Case:

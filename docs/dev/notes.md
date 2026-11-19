@@ -354,3 +354,34 @@ measures it.
   12.6 kB per canvas cell (nvidia-smi's peak, preallocation off; the M6's
   7.8 kB was XLA's compile-time estimate of temporaries, a different
   measure). The 3.6M level's canvas (5.07M cells) would need ~64 GB.
+
+## campaign.py (scheduling, batching)
+
+- **Slots, not rounds.** The rounds scheduler advanced every profile of a
+  batch to its next angle together, so a round lasted as long as its slowest
+  point while finished cases were still computed (masked). Each slot now moves
+  to its next point between two blocks as soon as its point stops; per point
+  the calculation is unchanged (`test_slot_and_round_schedulers_agree`).
+- **Mach, Reynolds and 2.5D sweep are traced** (freestream vector, `mu_inf`,
+  sweep in the per-case tree), so they share one executable and one batch;
+  FP64 static and traced runs agree to 1e-10 after 60 RANS steps. Sectional
+  (2.75D) geometry stays static: only identical sections batch.
+- **Why batching matters on large GPUs.** One Newton step of a 57k-cell case
+  is about 2600 kernel launches (2 GMRES cycles of 10 Arnoldi steps, ~100
+  kernels each): ~13 ms of launch latency, close to the 15 ms per step
+  measured on an H100. A single case cannot use such a GPU; several cases per
+  batch share the launches. `chains` gives a single polar several cases.
+- **FP32 transients are chaotic**: the vmapped and unbatched paths of the
+  same code differ by 15% in U after 60 steps (one-ulp differences amplified
+  by acceptance and CFL decisions); compare converged forces, or FP64 runs.
+
+## solvers/krylov.py, core/linalg.py (GPU kernels)
+
+- **No cuSOLVER in GMRES**: the Hessenberg least squares is unrolled Givens
+  rotations (`hessenberg_lstsq`), fused by XLA, instead of an FP64 SVD per
+  cycle; the Newton solve takes `A x` from the Arnoldi relation and the
+  relaxed step's action as `omega` times GMRES's, two Jacobian products fewer
+  per step.
+- **Small block products elementwise** (`_matvec`, `_matmul` up to 8x8): a
+  batched `dot` on 5x5 blocks is not fused. Line factor 7.2 -> 5.8 ms on the
+  RAE 2822 2.5D grid (A16); whole step 126.9 -> 112.3 ms.

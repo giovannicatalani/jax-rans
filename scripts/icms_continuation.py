@@ -149,6 +149,8 @@ def main():
     ap.add_argument('--out', type=Path, required=True)
     ap.add_argument('--batch-size', type=int)
     ap.add_argument('--devices', type=int)
+    ap.add_argument('--chains', type=int, help='continuation chains per polar run side by side '
+                    '(default: campaign.chains, else 1); fills large GPUs, see jaxrans.campaign')
     ap.add_argument('--sections', type=int, nargs='+', help='zero-based section indices (default: all)')
     ap.add_argument('--resume', action='store_true')
     ap.add_argument('--quiet', action='store_true')
@@ -162,11 +164,11 @@ def main():
         if args.sectional_275d and args.sweep_position != 0.25:
             raise ValueError('sweep-position applies only to 2.5D')
         root = args.jaxrans_root.resolve()
-        branch = subprocess.check_output(['git', '-C', str(root), 'branch', '--show-current'], text=True).strip()
-        if branch not in ('feature/continuation-batch-alpha-polar-fp32', 'feature/continuation-batch-alpha-polar-fp32-275d'):
-            raise ValueError(f'{root}: expected checkout of feature/continuation-batch-alpha-polar-fp32, got {branch!r}')
-        if args.sectional_275d and branch != 'feature/continuation-batch-alpha-polar-fp32-275d':
-            raise ValueError('2.75D requires the feature/continuation-batch-alpha-polar-fp32-275d checkout')
+        # Check capabilities, not branch names (worktrees and derived branches).
+        if not (root / 'src/jaxrans/campaign.py').is_file():
+            raise ValueError(f'{root}: no campaign runner (src/jaxrans/campaign.py)')
+        if args.sectional_275d and not (root / 'src/jaxrans/mesh/sectional.py').is_file():
+            raise ValueError(f'{root}: 2.75D needs the sectional solver (src/jaxrans/mesh/sectional.py)')
         if not args.prepare_only and not (root / 'src/jaxrans/convergence.py').is_file():
             raise ValueError(f'{root}: src/jaxrans/convergence.py is missing; the target branch imports it and cannot start')
         casepath = args.case.resolve()
@@ -176,7 +178,7 @@ def main():
         numerical_path = casepath.parent / 'numerical.json'
         numerical = json.loads(numerical_path.read_text()) if numerical_path.exists() else {}
         config, schedule = doc['sections'], doc['campaign']
-        if set(config) - {'file', 'count', 'units', 'header_lines', 'plane_tolerance'} or set(schedule) - {'mach', 'alpha_deg', 'batch_size'}:
+        if set(config) - {'file', 'count', 'units', 'header_lines', 'plane_tolerance'} or set(schedule) - {'mach', 'alpha_deg', 'batch_size', 'chains'}:
             raise ValueError('unknown sections or campaign keys')
         machs, alphas = expand(schedule['mach'], 'mach'), expand(schedule['alpha_deg'], 'alpha_deg')
         if any(m <= 0 for m in machs) or any(abs(a) > 90 for a in alphas):
@@ -234,11 +236,13 @@ def main():
             return 0
         cmd = [sys.executable, '-m', 'jaxrans.campaign', str(manifest), '--out', str(out / 'results')]
         batch = args.batch_size if args.batch_size is not None else schedule.get('batch_size', 8)
-        # Sectional atlases carry additional geometry outside the campaign
-        # runner's dynamic geometry tree, so do not batch different profiles.
-        if args.sectional_275d:
-            batch = 1
+        # Different 2.75D sections never share a batch (their conical geometry
+        # is static); the campaign runner groups them by itself, and still
+        # batches each section's Mach numbers and chains.
         cmd += ['--batch-size', str(batch)]
+        chains = args.chains if args.chains is not None else schedule.get('chains')
+        if chains is not None:
+            cmd += ['--chains', str(chains)]
         if args.devices is not None: cmd += ['--devices', str(args.devices)]
         if args.resume: cmd.append('--resume')
         if args.quiet: cmd.append('--quiet')
