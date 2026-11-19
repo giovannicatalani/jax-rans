@@ -631,7 +631,6 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
     while active.any():
         before = states
         q = jnp.asarray(q_host, dtype=numerics.dtype)
-        began = time.perf_counter()
         output = block(put(((states, q, geometry), jnp.asarray(active), last)))
         (inner, _, last), block_residual = output[0], output[1]
         report = None
