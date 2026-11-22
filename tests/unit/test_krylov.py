@@ -52,3 +52,42 @@ def test_array_shaped_unknowns_and_zero_rhs() -> None:
     assert np.allclose(np.asarray(d * x), np.asarray(b), atol=1e-10)
     zero = gmres_right(lambda v: d * v, jnp.zeros_like(b), lambda r: r, restart=4, maxiter=2, tol=1e-12)
     assert not np.any(np.asarray(zero))
+
+
+def test_givens_least_squares_matches_lstsq() -> None:
+    from jaxrans.solvers.krylov import hessenberg_lstsq
+
+    rng = np.random.default_rng(4)
+    for m in (1, 4, 10):
+        H = np.triu(rng.standard_normal((m + 1, m)), -1)
+        e1 = np.zeros(m + 1)
+        e1[0] = 1.7
+        want = np.linalg.lstsq(H, e1, rcond=None)[0]
+        got = np.asarray(hessenberg_lstsq(jnp.asarray(H), jnp.asarray(1.7), 1e-15 * (m + 1)))
+        np.testing.assert_allclose(got, want, rtol=1e-11, atol=1e-13)
+
+
+def test_givens_least_squares_at_a_krylov_breakdown() -> None:
+    """``H[k, k-1] = 0``: the exact solution lies in the first ``k`` directions."""
+    from jaxrans.solvers.krylov import hessenberg_lstsq
+
+    rng = np.random.default_rng(5)
+    H = np.triu(rng.standard_normal((9, 8)), -1)
+    H[4, 3] = 0.0
+    H[4:, 4:] = 0.0
+    e1 = np.zeros(9)
+    e1[0] = 1.0
+    y = np.asarray(hessenberg_lstsq(jnp.asarray(H), jnp.asarray(1.0), 1e-15 * 9))
+    assert np.all(np.isfinite(y)) and np.linalg.norm(e1 - H @ y) < 1e-14
+
+
+@pytest.mark.parametrize("arnoldi", [False, True])
+def test_returned_action_is_the_operator_on_the_solution(arnoldi: bool) -> None:
+    A, b = system(seed=6)
+    x, action = gmres_right(lambda v: jnp.asarray(A) @ v, jnp.asarray(b), lambda r: r / 4.0,
+                            restart=6, maxiter=3, tol=1e-14, return_action=True,
+                            action_from_arnoldi=arnoldi)
+    np.testing.assert_allclose(np.asarray(action), A @ np.asarray(x), rtol=0, atol=1e-12 * np.linalg.norm(b))
+    plain = gmres_right(lambda v: jnp.asarray(A) @ v, jnp.asarray(b), lambda r: r / 4.0,
+                        restart=6, maxiter=3, tol=1e-14)
+    np.testing.assert_allclose(np.asarray(x), np.asarray(plain), rtol=1e-12, atol=1e-14)

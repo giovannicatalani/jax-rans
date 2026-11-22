@@ -117,22 +117,26 @@ def make_newton_step(
 
         # Right preconditioning, so GMRES minimizes the true linear residual
         # that the ramp below is judged on (solvers/krylov.py).
-        dU = gmres_right(
+        dU, action = gmres_right(
             matvec,
             -residual,
             prepare_preconditioner(U, lambdas, cfl),
             restart=config.krylov_subspace,
             maxiter=config.krylov_restarts,
             tol=config.krylov_tol,
+            return_action=True,
+            action_from_arnoldi=True,
         )
 
         # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
         dU, omega = relax(dU, U, gamma, config.max_relative_update, operator.components)
 
-        # The ramp keys off how well the linear system was solved (one more
-        # matvec), not the residual history: a stagnated GMRES returns a null
-        # update that leaves the residual unchanged, which looks like success.
-        linear_reduction = jnp.linalg.norm(matvec(dU) + residual) / jnp.maximum(
+        # The ramp keys off how well the linear system was solved, not the
+        # residual history: a stagnated GMRES returns a null update that leaves
+        # the residual unchanged, which looks like success. The relaxation only
+        # scales the direction and the operator is linear, so the action of
+        # omega dU is omega times GMRES's own action: no further product.
+        linear_reduction = jnp.linalg.norm(omega * action + residual) / jnp.maximum(
             jnp.linalg.norm(residual), 1e-300
         )
 
