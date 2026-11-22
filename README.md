@@ -62,7 +62,8 @@ How to rerun them, with their sources: [validation/](validation/README.md).
   geometry.
 - **Solvers**: pseudo-transient Newton-Krylov with line-implicit
   preconditioning, or explicit Runge-Kutta; grid sequencing; a polar's angles
-  batched on the GPU; one large case split over several GPUs.
+  batched on the GPU; alpha and Mach sweeps, each point continued from the
+  last ([sweeps](docs/guide.md#polars)); one large case split over several GPUs.
 - **Derivatives**: dCL, dCD and dCM with respect to the angle of attack and
   the Mach number, exact for the discrete solution, one linear solve each
   ([how](docs/gradients.md)).Still quite experimental for general inputs.

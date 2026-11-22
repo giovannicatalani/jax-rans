@@ -13,6 +13,7 @@ pip install jax-rans[plot,cgns]
 jaxrans my_case --check     # build and draw the grid
 jaxrans my_case             # solve
 python -m jaxrans.polar my_case --alpha -2 10 1
+python -m jaxrans.sweep my_case --alpha -2 10 1 --mach 0.70 0.75
 ```
 
 - [Running a case](guide.md)
