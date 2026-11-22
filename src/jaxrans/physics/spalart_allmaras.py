@@ -127,7 +127,7 @@ def f_v2(chi: Array, c: SAConstants = SA) -> Array:
 
 def eddy_viscosity(rho: Array, nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """``mu_t = rho nu~ f_v1(chi)``, and zero where ``nu~ < 0`` (SA-neg)."""
-    chi = nu_tilde / nu
+    chi = jnp.where(nu_tilde > 0.0, nu_tilde / nu, 0.0)
     return jnp.where(nu_tilde > 0.0, rho * nu_tilde * f_v1(chi, c), 0.0)
 
 
@@ -139,10 +139,12 @@ def s_tilde(omega: Array, nu_tilde: Array, nu: Array, d: Array, c: SAConstants =
     """
     chi = nu_tilde / nu
     s_bar = nu_tilde * f_v2(chi, c) / (c.kappa * d) ** 2
-    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / (
-        (c.c_3 - 2.0 * c.c_2) * omega - s_bar
-    )
-    return jnp.where(s_bar >= -c.c_2 * omega, omega + s_bar, clipped)
+    # The clipped quotient is guarded where it is not selected: a zero
+    # denominator there would put inf/NaN into reverse-mode derivatives.
+    ordinary = s_bar >= -c.c_2 * omega
+    denominator = jnp.where(ordinary, 1.0, (c.c_3 - 2.0 * c.c_2) * omega - s_bar)
+    clipped = omega + omega * (c.c_2**2 * omega + c.c_3 * s_bar) / denominator
+    return jnp.where(ordinary, omega + s_bar, clipped)
 
 
 def f_w(r: Array, c: SAConstants = SA) -> Array:
@@ -166,7 +168,7 @@ def source(
     """``(P, D)`` per unit mass from ``nu~``, ``nu = mu / rho``, the vorticity
     magnitude and the wall distance; the source of ``rho nu~`` is ``rho (P - D)``."""
     positive = nu_tilde >= 0.0
-    s_t = s_tilde(omega, nu_tilde, nu, d, c)
+    s_t = s_tilde(omega, jnp.where(positive, nu_tilde, 0.0), nu, d, c)   # used where nu~ >= 0 only
     wall_term = (nu_tilde / d) ** 2
     production = jnp.where(positive, c.c_b1 * s_t, c.c_b1 * omega) * nu_tilde
     destruction = jnp.where(
@@ -179,7 +181,7 @@ def f_n(nu_tilde: Array, nu: Array, c: SAConstants = SA) -> Array:
     """SA-neg diffusion factor: 1 for ``nu~ >= 0``, else
     ``(c_n1 + chi^3) / (c_n1 - chi^3)``, which keeps the diffusion
     coefficient ``nu + nu~ f_n`` positive."""
-    chi3 = (nu_tilde / nu) ** 3
+    chi3 = jnp.where(nu_tilde >= 0.0, 0.0, (nu_tilde / nu) ** 3)
     return jnp.where(nu_tilde >= 0.0, 1.0, (c.c_n1 + chi3) / (c.c_n1 - chi3))
 
 

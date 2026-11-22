@@ -184,3 +184,22 @@ def test_the_qcr_model_sets_its_constant() -> None:
     plain = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2"))
     qcr = sa.SAModel.of(FlowConditions(0.5, 2.0, 1e6, turbulence="sa_noft2_qcr"))
     assert plain.c_cr1 == 0.0 and qcr.c_cr1 == 0.3
+
+
+def test_reverse_mode_derivatives_are_finite_on_every_branch() -> None:
+    """The quotients of unselected branches are guarded, so gradients stay
+    finite everywhere the adjoint may differentiate; ``nu~ = 0`` with zero
+    vorticity (the clipped S~ quotient is 0/0 there) gave NaN before."""
+    import jax
+
+    nu, d = 1e-3, 1e-2
+
+    def total(x):
+        nu_t, omega = x[0], x[1]
+        production, destruction = sa.source(nu_t, nu, omega, d)
+        return (production - destruction + sa.eddy_viscosity(1.0, nu_t, nu)
+                + sa.f_n(nu_t, nu) + sa.s_tilde(omega, nu_t, nu, d))
+
+    for nu_t, omega in [(0.0, 0.0), (-2e-3, 10.0), (0.0, 10.0), (5e-3, 1e-6), (1e-3, 0.0), (-1e-3, 0.0)]:
+        g = jax.grad(total)(jnp.asarray([nu_t, omega]))
+        assert np.all(np.isfinite(np.asarray(g))), (nu_t, omega, g)
