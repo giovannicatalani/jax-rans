@@ -2,11 +2,14 @@
 
     python -m jaxrans.plot RESULT_DIR [--out DIR] [--window XMIN XMAX YMIN YMAX]
     python -m jaxrans.plot POLAR_DIR
+    python -m jaxrans.plot CAMPAIGN_DIR
 
 Reads only what ``Result.write`` / ``Polar.write`` saved, never the solver, so
 results computed on a cluster are plotted anywhere. Writes PNGs to
 ``<dir>/figures/``: ``mach.png``, ``cp_field.png``, ``cp.png``, ``cf.png``
 (viscous), ``convergence.png``; for a polar ``polar.png`` and ``cp_family.png``.
+For a campaign, plots each immediate child polar into its own ``figures/``;
+``--out DIR`` instead writes to ``DIR/<profile>/``.
 Comparison curves are the caller's (``validation/compare_surface.py``); this module
 knows no reference. Needs matplotlib (``pip install -e .[plot]``).
 
@@ -319,18 +322,31 @@ def plot_cp_family(directory: str | Path, alphas=None, out: Path | None = None):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m jaxrans.plot", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("directory", type=Path, help="a result or polar directory")
+    parser.add_argument("directory", type=Path, help="a result, polar or campaign directory")
     parser.add_argument("--out", type=Path, help="figure directory (default: DIRECTORY/figures)")
     parser.add_argument("--window", type=float, nargs=4, default=WINDOW,
                         metavar=("XMIN", "XMAX", "YMIN", "YMAX"), help="field plot window, chords")
     args = parser.parse_args(argv)
+    if not args.directory.is_dir():
+        parser.error(f"not a directory: {args.directory}")
     out = args.out or args.directory / "figures"
     if (args.directory / "polar.dat").is_file():
         plot_polar(args.directory, out / "polar.png")
         plot_cp_family(args.directory, out=out / "cp_family.png")
         paths = [out / "polar.png", out / "cp_family.png"]
-    else:
+    elif any(args.directory.glob("*_fields.npz")):
         paths = plot_result(args.directory, out, tuple(args.window))
+    else:
+        polars = sorted(child for child in args.directory.iterdir()
+                        if child.is_dir() and (child / "polar.dat").is_file())
+        if not polars:
+            parser.error(f"{args.directory}: no saved result or child polar.dat found")
+        paths = []
+        for directory in polars:
+            target = args.out / directory.name if args.out is not None else directory / "figures"
+            plot_polar(directory, target / "polar.png")
+            plot_cp_family(directory, out=target / "cp_family.png")
+            paths.extend([target / "polar.png", target / "cp_family.png"])
     print("\n".join(map(str, paths)))
     return 0
 

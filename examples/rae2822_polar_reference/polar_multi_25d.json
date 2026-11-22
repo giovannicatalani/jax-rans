@@ -1,0 +1,6 @@
+{
+  "batch_size": 8,
+  "profiles": [
+    {"name": "rae2822_25d", "case": "case_25d", "alpha": [0.0, 1.0, 1.0], "machs": [0.842, 0.8]}
+  ]
+}

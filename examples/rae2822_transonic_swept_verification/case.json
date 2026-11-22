@@ -1,0 +1,42 @@
+{
+    "general": {
+        "case_name": "rae2822_transonic_swept_verification",
+        "description": "RAE2822 fixed streamwise section: transonic SA continuity qualification, not AGARD validation",
+        "save_path": "results"
+    },
+    "domain": {
+        "grid": "c_grid",
+        "airfoil": "../../validation/references/rae2822/rae2822.dat",
+        "cells_airfoil": 192,
+        "cells_wake": 48,
+        "cells_normal": 80,
+        "wall_spacing": 2e-06,
+        "far_field": 100.0,
+        "leading_edge_spacing": 0.0005,
+        "trailing_edge_spacing": 0.002,
+        "section": "streamwise"
+    },
+    "boundary_conditions": {
+        "wall": {
+            "type": "no_slip_wall"
+        },
+        "farfield": {
+            "type": "far_field",
+            "model": "freestream"
+        }
+    },
+    "freestream": {
+        "mach": 0.842,
+        "alpha_deg": 2.0,
+        "sweep_deg": 30.0,
+        "reynolds": 6500000.0,
+        "temperature": 460.0
+    },
+    "material_properties": {
+        "dynamic_viscosity": "sutherland",
+        "sutherland_temperature": 198.6
+    },
+    "turbulence": {
+        "model": "sa_noft2"
+    }
+}

@@ -55,7 +55,9 @@ def make_rk_step(
     def step(state: SolverState) -> tuple[SolverState, Array]:
         u_old = state.U
         dt = operator.time_step(u_old)
-        factor = dt / volume
+        # Only block cells are advanced. Ghost and gap geometry can yield a
+        # degenerate CFL limit and an overflowing dt/V in FP32.
+        factor = jnp.where(operator.atlas.interior, dt / volume, 0.0)
 
         # The first-stage residual is the one reported: it is evaluated at U^n,
         # so the history measures the residual of the state actually reached.
@@ -71,7 +73,7 @@ def make_rk_step(
     return step
 
 
-def initial_state(operator: ResidualOperator, dtype=jnp.float64) -> SolverState:
+def initial_state(operator: ResidualOperator, dtype=None) -> SolverState:
     """Uniform freestream: it satisfies the far field exactly and leaves the
     wall as the only initial inconsistency."""
     return SolverState(U=operator.initial_state(dtype))

@@ -1,0 +1,6 @@
+{
+    "sectional": {"depth": 1.0},
+    "convective_fluxes": {"limiter": "van_albada"},
+    "time_integration": {"solver": "implicit"},
+    "convergence": {"max_iters": 1500}
+}

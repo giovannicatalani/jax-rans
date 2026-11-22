@@ -50,6 +50,10 @@ class SlabAtlas(Atlas):
         Raises:
             ValueError: the canvas's first axis does not divide over the devices.
         """
+        from ..mesh.sectional import SectionalAtlas
+
+        if isinstance(atlas, SectionalAtlas):
+            raise ValueError("spatial multi-device decomposition is not implemented for a sectional atlas")
         if atlas.shape[0] % len(devices):
             raise ValueError(f"cannot split the canvas over {len(devices)} devices: its first axis has "
                              f"{atlas.shape[0]} cells (ghosts included), not a multiple of {len(devices)}")
@@ -71,7 +75,8 @@ def fill_ghosts(q: Array, atlas: SlabAtlas, conditions: bc.Conditions) -> Array:
         ghosts = np.flatnonzero(stage.index != np.arange(n))
         source = stage.index[ghosts]
         copied = source < n                      # the rest take a boundary condition's value
-        values = [bc.CONDITIONS[kind](flat[:, cells], bc.Face(jnp.asarray(normal), jnp.asarray(midpoint)), conditions)
+        values = [bc.CONDITIONS[kind](flat[:, cells], bc.Face(jnp.asarray(normal, dtype=q.dtype),
+                                                           jnp.asarray(midpoint, dtype=q.dtype)), conditions)
                   for kind, cells, normal, midpoint in stage.conditions]       # from the stage's start, as unsplit
         new = flat.at[:, ghosts[copied]].set(flat[:, source[copied]])
         if values:

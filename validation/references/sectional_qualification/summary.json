@@ -1,0 +1,2130 @@
+{
+  "tolerances": {
+    "coefficient_abs": 1e-06,
+    "cp_linf": 1e-05,
+    "cf_linf": 1e-06,
+    "field_relative": 1e-05
+  },
+  "limits": [
+    {
+      "reference": "limit_euler_0_legacy",
+      "sectional": "limit_euler_0_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 3.004049231591921e-10,
+        "cd": 7.470491239502941e-13,
+        "cm": 5.6921915098095965e-11,
+        "cd_friction": 0.0,
+        "cy": 0.0
+      },
+      "field_relative_linf_by_row": [
+        3.463168947930788e-10,
+        1.4246035462406326e-09,
+        2.0588765414775168e-10,
+        0.0,
+        2.604987336951581e-10
+      ],
+      "cp": {
+        "linf": 2.0839898695612646e-09,
+        "l2": 1.9617112441616274e-10
+      }
+    },
+    {
+      "reference": "limit_euler_30_legacy",
+      "sectional": "limit_euler_30_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 1.8351048736153786e-09,
+        "cd": 1.7082021561143357e-12,
+        "cm": 3.7593718416051303e-10,
+        "cd_friction": 0.0,
+        "cy": 3.796159176935876e-11
+      },
+      "field_relative_linf_by_row": [
+        2.287422266732899e-09,
+        1.0655656190738938e-08,
+        1.6579149997308917e-09,
+        1.1574075031717257e-14,
+        1.8184377337249202e-09
+      ],
+      "cp": {
+        "linf": 1.4547501869799362e-08,
+        "l2": 1.197687726207061e-09
+      }
+    },
+    {
+      "reference": "limit_laminar_0_legacy",
+      "sectional": "limit_laminar_0_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 7.395603573989717e-11,
+        "cd": 4.691247390553599e-13,
+        "cm": 1.5650956225465862e-11,
+        "cd_friction": 1.4888992816430857e-12,
+        "cy": 0.0
+      },
+      "field_relative_linf_by_row": [
+        2.406731972619393e-09,
+        4.2340075889768514e-11,
+        2.199346260667312e-11,
+        0.0,
+        1.1073697514518699e-11
+      ],
+      "cp": {
+        "linf": 8.858958011614959e-11,
+        "l2": 4.201780655800341e-11
+      },
+      "cf": {
+        "linf": 1.510480629463018e-11,
+        "l2": 1.710088160861856e-12
+      },
+      "cf_z": {
+        "linf": 0.0,
+        "l2": 0.0
+      }
+    },
+    {
+      "reference": "limit_laminar_30_legacy",
+      "sectional": "limit_laminar_30_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 8.196320011588654e-11,
+        "cd": 1.2198714260946986e-12,
+        "cm": 1.7959609494022644e-11,
+        "cd_friction": 1.1987910664146284e-12,
+        "cy": 2.2969456198174143e-12
+      },
+      "field_relative_linf_by_row": [
+        2.947821852420919e-09,
+        4.5327311348764e-11,
+        2.7457133788821864e-11,
+        8.147685304216168e-11,
+        1.213162903468401e-11
+      ],
+      "cp": {
+        "linf": 9.705303227747208e-11,
+        "l2": 4.722904173314861e-11
+      },
+      "cf": {
+        "linf": 1.670071372861237e-11,
+        "l2": 1.9970996892287e-12
+      },
+      "cf_z": {
+        "linf": 1.039174128691922e-11,
+        "l2": 1.6405796284638998e-12
+      }
+    },
+    {
+      "reference": "limit_sa_0_legacy",
+      "sectional": "limit_sa_0_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 5.211171494323708e-10,
+        "cd": 4.141999243589822e-12,
+        "cm": 8.026329123902998e-11,
+        "cd_friction": 1.4274224163779436e-12,
+        "cy": 0.0
+      },
+      "field_relative_linf_by_row": [
+        1.2085320592522082e-07,
+        1.842961255826836e-09,
+        4.191378737139484e-10,
+        0.0,
+        4.375092510500167e-10,
+        2.9743708762132554e-09
+      ],
+      "cp": {
+        "linf": 3.2340636835215264e-09,
+        "l2": 3.308515675519041e-10
+      },
+      "cf": {
+        "linf": 8.907608418234902e-11,
+        "l2": 9.999293724666643e-12
+      },
+      "cf_z": {
+        "linf": 0.0,
+        "l2": 0.0
+      }
+    },
+    {
+      "reference": "limit_sa_30_legacy",
+      "sectional": "limit_sa_30_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 2.0328463912200334e-10,
+        "cd": 1.5827616994812388e-12,
+        "cm": 2.898363580389196e-11,
+        "cd_friction": 8.201217482906031e-13,
+        "cy": 4.549081163846003e-12
+      },
+      "field_relative_linf_by_row": [
+        5.569085053061036e-08,
+        7.342431107559833e-10,
+        1.911819834388151e-10,
+        1.1194215276955077e-09,
+        1.824241868675358e-10,
+        2.2667171571422274e-09
+      ],
+      "cp": {
+        "linf": 1.3400880405356475e-09,
+        "l2": 1.322036289624648e-10
+      },
+      "cf": {
+        "linf": 3.275181124570703e-11,
+        "l2": 3.913474929722045e-12
+      },
+      "cf_z": {
+        "linf": 3.272243218575832e-11,
+        "l2": 4.265591232772317e-12
+      }
+    },
+    {
+      "reference": "limit_qcr_0_legacy",
+      "sectional": "limit_qcr_0_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 5.124963786684589e-10,
+        "cd": 4.251612950589845e-12,
+        "cm": 7.620565680224733e-11,
+        "cd_friction": 1.5583714874090049e-12,
+        "cy": 0.0
+      },
+      "field_relative_linf_by_row": [
+        1.263086472589386e-07,
+        1.9364792547271747e-09,
+        4.3743846739330294e-10,
+        0.0,
+        4.564350009061968e-10,
+        3.084027046847918e-09
+      ],
+      "cp": {
+        "linf": 3.3818059463897043e-09,
+        "l2": 3.317471886224137e-10
+      },
+      "cf": {
+        "linf": 9.273513814495038e-11,
+        "l2": 1.0480287603524006e-11
+      },
+      "cf_z": {
+        "linf": 0.0,
+        "l2": 0.0
+      }
+    },
+    {
+      "reference": "limit_qcr_30_legacy",
+      "sectional": "limit_qcr_30_sectional",
+      "passed": true,
+      "converged": true,
+      "force_absolute_differences": {
+        "cl": 2.046363911656357e-10,
+        "cd": 1.6498954980015412e-12,
+        "cm": 2.742778443601268e-11,
+        "cd_friction": 9.424024061122083e-13,
+        "cy": 4.70822252712777e-12
+      },
+      "field_relative_linf_by_row": [
+        6.027777190759864e-08,
+        8.067640167030987e-10,
+        2.0671165473773456e-10,
+        1.2104891533581963e-09,
+        1.9795554084822697e-10,
+        2.4577021309927086e-09
+      ],
+      "cp": {
+        "linf": 1.4517764768129382e-09,
+        "l2": 1.3690872712930262e-10
+      },
+      "cf": {
+        "linf": 3.54331702867583e-11,
+        "l2": 4.273679025265281e-12
+      },
+      "cf_z": {
+        "linf": 3.5074086647199354e-11,
+        "l2": 4.675188794467934e-12
+      }
+    }
+  ],
+  "mesh": {
+    "global": {
+      "cases": [
+        "mesh_sa_l3",
+        "mesh_sa_l2",
+        "mesh_sa_l1",
+        "mesh_sa_l0"
+      ],
+      "complete": true,
+      "converged": true,
+      "changes": [
+        {
+          "from": "mesh_sa_l3",
+          "to": "mesh_sa_l2",
+          "force_differences": {
+            "cl": -0.008794596568560298,
+            "cd": -0.004678252957048056,
+            "cm": 0.0031800408484111017,
+            "cd_friction": 0.00010728833800104434,
+            "cy": 0.002267227164124315
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.20627093580052755,
+              "l2": 0.026500347956256446
+            },
+            "cf": {
+              "linf": 0.0026459076639383378,
+              "l2": 0.0003317400480782747
+            },
+            "cf_z": {
+              "linf": 0.0003416082339530639,
+              "l2": 4.2748587825427804e-05
+            }
+          }
+        },
+        {
+          "from": "mesh_sa_l2",
+          "to": "mesh_sa_l1",
+          "force_differences": {
+            "cl": -0.010106732815136243,
+            "cd": -0.0009382386856223108,
+            "cm": 0.002160599884119086,
+            "cd_friction": -1.8351382445942754e-05,
+            "cy": 0.00020671924109829862
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.12008864057585339,
+              "l2": 0.00876632784312387
+            },
+            "cf": {
+              "linf": 0.0025281409909462915,
+              "l2": 0.0001580977830657128
+            },
+            "cf_z": {
+              "linf": 0.00038341253137567466,
+              "l2": 2.3852786067137605e-05
+            }
+          }
+        },
+        {
+          "from": "mesh_sa_l1",
+          "to": "mesh_sa_l0",
+          "force_differences": {
+            "cl": -0.0066149147278414255,
+            "cd": -0.00026323979246335814,
+            "cm": 0.0012926120857119996,
+            "cd_friction": -2.0338454513187457e-05,
+            "cy": -4.769810365923277e-05
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.07179451576740123,
+              "l2": 0.004445244785188238
+            },
+            "cf": {
+              "linf": 0.002496554622166625,
+              "l2": 8.992888253064501e-05
+            },
+            "cf_z": {
+              "linf": 0.0004359534642974269,
+              "l2": 1.6645329580241236e-05
+            }
+          }
+        }
+      ],
+      "richardson": {
+        "cl": {
+          "order": 0.6115222311350672,
+          "extrapolated": 0.24759375454875066,
+          "monotone": true,
+          "differences": [
+            -0.010106732815136243,
+            -0.0066149147278414255
+          ],
+          "shrinking": true
+        },
+        "cd": {
+          "order": 1.8335773979475067,
+          "extrapolated": 0.007016179111082812,
+          "monotone": true,
+          "differences": [
+            -0.0009382386856223108,
+            -0.00026323979246335814
+          ],
+          "shrinking": true
+        },
+        "cm": {
+          "order": 0.7411425422302699,
+          "extrapolated": 0.0037981868240571865,
+          "monotone": true,
+          "differences": [
+            0.002160599884119086,
+            0.0012926120857119996
+          ],
+          "shrinking": true
+        },
+        "cd_friction": {
+          "order": null,
+          "extrapolated": null,
+          "monotone": true,
+          "differences": [
+            -1.8351382445942754e-05,
+            -2.0338454513187457e-05
+          ],
+          "shrinking": false
+        }
+      }
+    },
+    "wall": {
+      "cases": [
+        "mesh_sa_l2",
+        "wall_sa_0.5",
+        "wall_sa_0.25"
+      ],
+      "complete": true,
+      "converged": true,
+      "changes": [
+        {
+          "from": "mesh_sa_l2",
+          "to": "wall_sa_0.5",
+          "force_differences": {
+            "cl": -0.00019921787910348598,
+            "cd": 1.003959271967704e-05,
+            "cm": 8.775934442018267e-06,
+            "cd_friction": -6.944787415405496e-06,
+            "cy": -1.300361646705897e-05
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.0008717763996086703,
+              "l2": 0.0001604831958939043
+            },
+            "cf": {
+              "linf": 4.2942328217303836e-05,
+              "l2": 5.120305779515003e-06
+            },
+            "cf_z": {
+              "linf": 1.3269425580150762e-05,
+              "l2": 1.8600827764143486e-06
+            }
+          }
+        },
+        {
+          "from": "wall_sa_0.5",
+          "to": "wall_sa_0.25",
+          "force_differences": {
+            "cl": -0.00020198866502862955,
+            "cd": 1.809481666085848e-05,
+            "cm": 1.0353430218723548e-05,
+            "cd_friction": -2.5638733550711196e-06,
+            "cy": -1.4848992773538322e-05
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.0008860233649095051,
+              "l2": 0.00016425147298086045
+            },
+            "cf": {
+              "linf": 2.9027688348601255e-05,
+              "l2": 3.0787170483577358e-06
+            },
+            "cf_z": {
+              "linf": 4.512088942718127e-06,
+              "l2": 1.0680861862880453e-06
+            }
+          }
+        }
+      ]
+    },
+    "outer": {
+      "cases": [
+        "mesh_sa_l2",
+        "outer_sa_2",
+        "outer_sa_4"
+      ],
+      "complete": true,
+      "converged": true,
+      "changes": [
+        {
+          "from": "mesh_sa_l2",
+          "to": "outer_sa_2",
+          "force_differences": {
+            "cl": 0.0012466039464006373,
+            "cd": -5.974058893758703e-05,
+            "cm": -4.077757115965742e-06,
+            "cd_friction": -1.4061038824311062e-06,
+            "cy": 5.328007575145302e-05
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.0038282157839750752,
+              "l2": 0.0009535961124376171
+            },
+            "cf": {
+              "linf": 4.112245749129419e-05,
+              "l2": 4.6964787197284325e-06
+            },
+            "cf_z": {
+              "linf": 2.0902604063489927e-06,
+              "l2": 3.6147417493985126e-07
+            }
+          }
+        },
+        {
+          "from": "outer_sa_2",
+          "to": "outer_sa_4",
+          "force_differences": {
+            "cl": 0.000548046538203173,
+            "cd": -2.6366951318766707e-05,
+            "cm": -1.9631452601561253e-06,
+            "cd_friction": -6.298012312118406e-07,
+            "cy": 2.341858447721737e-05
+          },
+          "surface": {
+            "cp": {
+              "linf": 0.0016817948535843286,
+              "l2": 0.00041928312233046976
+            },
+            "cf": {
+              "linf": 1.8063327141099386e-05,
+              "l2": 2.064139095750766e-06
+            },
+            "cf_z": {
+              "linf": 9.213641870620994e-07,
+              "l2": 1.590362310791518e-07
+            }
+          }
+        }
+      ]
+    }
+  },
+  "runs": {
+    "limit_euler_0_legacy": {
+      "job": {
+        "id": "limit_euler_0_legacy",
+        "study": "limits",
+        "physics": "euler",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 1.2220627644313229e-06,
+        "min_angle_deg": 63.192955718542805,
+        "max_growth": 2.0689542993986274,
+        "max_aspect": 171.58826021666894,
+        "wall_spacing": [
+          0.00014962222620895638,
+          0.0011182010510175557
+        ],
+        "wall_angle_deg": 7.218302284906669,
+        "far_field": 49.76435510836862
+      },
+      "forces": {
+        "cl": 0.2802093456000315,
+        "cd": 0.006995603566427926,
+        "cm": -0.003907546653714625,
+        "fx": -0.00034847788737851445,
+        "fy": 0.03503534908516173,
+        "cd_friction": 0.0,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.633487005509688,
+      "iterations": 400,
+      "seconds": 8.640941141999065,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        1.0921879651795365e-09,
+        1.5442002578440873e-09,
+        6.929869211962299e-10,
+        3.1677081572663886e-09
+      ]
+    },
+    "limit_euler_0_sectional": {
+      "job": {
+        "id": "limit_euler_0_sectional",
+        "study": "limits",
+        "physics": "euler",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 1.2220627644313229e-06,
+        "min_angle_deg": 63.192955718542805,
+        "max_growth": 2.0689542993986274,
+        "max_aspect": 171.58826021666894,
+        "wall_spacing": [
+          0.00014962222620895638,
+          0.0011182010510175557
+        ],
+        "wall_angle_deg": 7.218302284906669,
+        "far_field": 49.76435510836862
+      },
+      "forces": {
+        "cl": 0.28020934590043645,
+        "cd": 0.006995603565680877,
+        "cm": -0.0039075467106365405,
+        "fx": -0.00034847788878233633,
+        "fy": 0.035035349122686195,
+        "cd_friction": 0.0,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 11.245514825687879,
+      "iterations": 300,
+      "seconds": 11.616125848000593,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        1.2821645288209257e-11,
+        8.397139268696335e-12,
+        6.8049076438211735e-12,
+        0.0,
+        3.510611695603053e-11
+      ]
+    },
+    "limit_euler_30_legacy": {
+      "job": {
+        "id": "limit_euler_30_legacy",
+        "study": "limits",
+        "physics": "euler",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 1.0583373990165565e-06,
+        "min_angle_deg": 70.73094001599475,
+        "max_growth": 2.0511938565033616,
+        "max_aspect": 148.63641962926857,
+        "wall_spacing": [
+          0.00012957664886770193,
+          0.0011156050715316302
+        ],
+        "wall_angle_deg": 4.104112173234227,
+        "far_field": 43.097195726797125
+      },
+      "forces": {
+        "cl": 0.23617882379972926,
+        "cd": 0.00524660445461824,
+        "cm": -0.003539927881696409,
+        "fx": -0.0003748892146820264,
+        "fy": 0.029527256737059,
+        "cd_friction": 0.0,
+        "bodies": [],
+        "fz": 0.00021644238901295508,
+        "cy": 0.0017315391121036406
+      },
+      "reason": "converged",
+      "orders_dropped": 10.235344958976162,
+      "iterations": 400,
+      "seconds": 10.843796367000323,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        4.555793954489785e-09,
+        5.72344061891809e-09,
+        3.0427533452478568e-09,
+        1.1382505209700888e-09,
+        1.2762054534666307e-08
+      ]
+    },
+    "limit_euler_30_sectional": {
+      "job": {
+        "id": "limit_euler_30_sectional",
+        "study": "limits",
+        "physics": "euler",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 1.0583373990165565e-06,
+        "min_angle_deg": 70.73094001599475,
+        "max_growth": 2.0511938565033616,
+        "max_aspect": 148.63641962926857,
+        "wall_spacing": [
+          0.00012957664886770193,
+          0.0011156050715316302
+        ],
+        "wall_angle_deg": 4.104112173234227,
+        "far_field": 43.097195726797125
+      },
+      "forces": {
+        "cl": 0.23617882563483414,
+        "cd": 0.005246604452910038,
+        "cm": -0.003539928257633593,
+        "fx": -0.0003748892229009512,
+        "fy": 0.029527256966299917,
+        "cd_friction": 0.0,
+        "bodies": [],
+        "fz": 0.00021644239375815405,
+        "cy": 0.0017315391500652324
+      },
+      "reason": "converged",
+      "orders_dropped": 10.592382936548649,
+      "iterations": 350,
+      "seconds": 12.211596364999423,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        7.422072723160036e-11,
+        3.9620455679656083e-11,
+        3.912792567523913e-11,
+        1.855343585140969e-11,
+        1.976073840398237e-10
+      ]
+    },
+    "limit_laminar_0_legacy": {
+      "job": {
+        "id": "limit_laminar_0_legacy",
+        "study": "limits",
+        "physics": "laminar",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.2906149111683974e-07,
+        "min_angle_deg": 30.250938024417273,
+        "max_growth": 2.066004956398663,
+        "max_aspect": 844.4000910188557,
+        "wall_spacing": [
+          0.00019054806285805157,
+          0.0002851980335005777
+        ],
+        "wall_angle_deg": 28.83485211030775,
+        "far_field": 49.68536517561298
+      },
+      "forces": {
+        "cl": 0.0948387072201484,
+        "cd": 0.06670843529293252,
+        "cm": 0.010815999840990152,
+        "fx": 0.007919746895831838,
+        "fy": 0.012138628107462593,
+        "cd_friction": 0.03470780198319873,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 11.010700086230246,
+      "iterations": 350,
+      "seconds": 13.554591205998804,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.642803569422278e-09,
+        3.147051297592241e-11,
+        1.9907140420179627e-10,
+        7.346461530621621e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 0.1506804413202576,
+        "p95": 0.13647815956552953
+      }
+    },
+    "limit_laminar_0_sectional": {
+      "job": {
+        "id": "limit_laminar_0_sectional",
+        "study": "limits",
+        "physics": "laminar",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.2906149111683974e-07,
+        "min_angle_deg": 30.250938024417273,
+        "max_growth": 2.066004956398663,
+        "max_aspect": 844.4000910188557,
+        "wall_spacing": [
+          0.00019054806285805157,
+          0.0002851980335005777
+        ],
+        "wall_angle_deg": 28.83485211030775,
+        "far_field": 49.68536517561298
+      },
+      "forces": {
+        "cl": 0.09483870729410443,
+        "cd": 0.06670843529340165,
+        "cm": 0.010815999825339196,
+        "fx": 0.007919746895567806,
+        "fy": 0.012138628116703506,
+        "cd_friction": 0.03470780198170983,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.0659834511402,
+      "iterations": 350,
+      "seconds": 20.272117065000202,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.478369814970205e-10,
+        8.864810379663031e-11,
+        6.909143094000479e-10,
+        0.0,
+        8.981692309556984e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 0.1506804413225542,
+        "p95": 0.13647815956570733
+      }
+    },
+    "limit_laminar_30_legacy": {
+      "job": {
+        "id": "limit_laminar_30_legacy",
+        "study": "limits",
+        "physics": "laminar",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 2.849756107143545e-07,
+        "min_angle_deg": 34.563552408914624,
+        "max_growth": 2.0520319992211493,
+        "max_aspect": 731.452126994831,
+        "wall_spacing": [
+          0.0001816927374679368,
+          0.0002469887421208128
+        ],
+        "wall_angle_deg": 23.709981123896362,
+        "far_field": 43.028788438387515
+      },
+      "forces": {
+        "cl": 0.07556788842203425,
+        "cd": 0.06181209571652891,
+        "cm": 0.008794159533929782,
+        "fx": 0.007392145023140699,
+        "fy": 0.009709883192102153,
+        "cd_friction": 0.03538491284208459,
+        "bodies": [],
+        "fz": -0.0017001697067469523,
+        "cy": -0.013601357653975618
+      },
+      "reason": "converged",
+      "orders_dropped": 10.705797402746168,
+      "iterations": 350,
+      "seconds": 16.12386569499904,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.6387862583886547e-09,
+        1.2121806294133658e-11,
+        3.910857589594062e-11,
+        1.2911777411581088e-12,
+        8.03801137918475e-11
+      ],
+      "yplus_normal_cut": {
+        "max": 0.12988393174437327,
+        "p95": 0.11880027478962757
+      }
+    },
+    "limit_laminar_30_sectional": {
+      "job": {
+        "id": "limit_laminar_30_sectional",
+        "study": "limits",
+        "physics": "laminar",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 2.849756107143545e-07,
+        "min_angle_deg": 34.563552408914624,
+        "max_growth": 2.0520319992211493,
+        "max_aspect": 731.452126994831,
+        "wall_spacing": [
+          0.0001816927374679368,
+          0.0002469887421208128
+        ],
+        "wall_angle_deg": 23.709981123896362,
+        "far_field": 43.028788438387515
+      },
+      "forces": {
+        "cl": 0.07556788850399745,
+        "cd": 0.06181209571774878,
+        "cm": 0.008794159515970172,
+        "fx": 0.0073921450229355295,
+        "fy": 0.009709883202346635,
+        "cd_friction": 0.035384912840885796,
+        "bodies": [],
+        "fz": -0.001700169706459834,
+        "cy": -0.013601357651678673
+      },
+      "reason": "converged",
+      "orders_dropped": 10.757729323178248,
+      "iterations": 400,
+      "seconds": 20.835160610999083,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        8.751624432532273e-11,
+        1.1275146745375953e-10,
+        4.636928511485779e-10,
+        3.6522120512892745e-13,
+        2.5391494726334804e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 0.12988393174715443,
+        "p95": 0.11880027479235292
+      }
+    },
+    "limit_sa_0_legacy": {
+      "job": {
+        "id": "limit_sa_0_legacy",
+        "study": "limits",
+        "physics": "sa",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.4815102825295975e-08,
+        "min_angle_deg": 24.53312890061062,
+        "max_growth": 2.07349976161774,
+        "max_aspect": 8258.113051131171,
+        "wall_spacing": [
+          2.163890405516723e-05,
+          3.9359583673403975e-05
+        ],
+        "wall_angle_deg": 35.19602726093489,
+        "far_field": 49.53714447243757
+      },
+      "forces": {
+        "cl": 0.25450941662575943,
+        "cd": 0.01727210950897045,
+        "cm": -0.0005450943535893278,
+        "fx": 0.00104741715753103,
+        "fy": 0.03186964553682737,
+        "cd_friction": 0.00823120587160151,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.417323808371977,
+      "iterations": 400,
+      "seconds": 16.55065728899899,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.485897465437951e-07,
+        2.765129426652253e-09,
+        3.905266682483758e-09,
+        3.1190298396210647e-09,
+        4.6943587690409446e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.9240994109427886,
+        "p95": 0.8516522406626791
+      }
+    },
+    "limit_sa_0_sectional": {
+      "job": {
+        "id": "limit_sa_0_sectional",
+        "study": "limits",
+        "physics": "sa",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.4815102825295975e-08,
+        "min_angle_deg": 24.53312890061062,
+        "max_growth": 2.07349976161774,
+        "max_aspect": 8258.113051131171,
+        "wall_spacing": [
+          2.163890405516723e-05,
+          3.9359583673403975e-05
+        ],
+        "wall_angle_deg": 35.19602726093489,
+        "far_field": 49.53714447243757
+      },
+      "forces": {
+        "cl": 0.2545094171468766,
+        "cd": 0.01727210951311245,
+        "cm": -0.0005450944338526191,
+        "fx": 0.001047417155775122,
+        "fy": 0.03186964560194539,
+        "cd_friction": 0.008231205873028932,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.933163323252693,
+      "iterations": 450,
+      "seconds": 24.771204013000897,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.317626756688502e-11,
+        7.339282722364303e-12,
+        2.907849093997111e-11,
+        0.0,
+        1.5698602029173008e-10,
+        6.146297567810671e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 0.9240994111189439,
+        "p95": 0.8516522408753237
+      }
+    },
+    "limit_sa_30_legacy": {
+      "job": {
+        "id": "limit_sa_30_legacy",
+        "study": "limits",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.015076348207128e-08,
+        "min_angle_deg": 28.145770059100112,
+        "max_growth": 2.073253523694106,
+        "max_aspect": 7153.498198034882,
+        "wall_spacing": [
+          2.0293219791022226e-05,
+          3.408639934354696e-05
+        ],
+        "wall_angle_deg": 29.861298395194126,
+        "far_field": 42.90042554407082
+      },
+      "forces": {
+        "cl": 0.21355502342670935,
+        "cd": 0.015402890946564142,
+        "cm": -0.0008222253251375417,
+        "fx": 0.0009925681357110898,
+        "fy": 0.026745310577287504,
+        "cd_friction": 0.008230825868231257,
+        "bodies": [],
+        "fz": 1.4508927023539032e-05,
+        "cy": 0.00011607141618831225
+      },
+      "reason": "converged",
+      "orders_dropped": 10.627531136982507,
+      "iterations": 400,
+      "seconds": 19.95112439100012,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.582325902818242e-07,
+        1.1293441387941386e-09,
+        3.3616312081189002e-09,
+        8.866475163668857e-10,
+        2.0425296592773735e-09,
+        2.8954347447402327e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.764183057121471,
+        "p95": 0.7207746413721388
+      }
+    },
+    "limit_sa_30_sectional": {
+      "job": {
+        "id": "limit_sa_30_sectional",
+        "study": "limits",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.015076348207128e-08,
+        "min_angle_deg": 28.145770059100112,
+        "max_growth": 2.073253523694106,
+        "max_aspect": 7153.498198034882,
+        "wall_spacing": [
+          2.0293219791022226e-05,
+          3.408639934354696e-05
+        ],
+        "wall_angle_deg": 29.861298395194126,
+        "far_field": 42.90042554407082
+      },
+      "forces": {
+        "cl": 0.21355502362999398,
+        "cd": 0.015402890948146904,
+        "cm": -0.0008222253541211775,
+        "fx": 0.000992568135021998,
+        "fy": 0.026745310602689507,
+        "cd_friction": 0.008230825869051378,
+        "bodies": [],
+        "fz": 1.4508927592174177e-05,
+        "cy": 0.00011607142073739342
+      },
+      "reason": "converged",
+      "orders_dropped": 10.096494766175308,
+      "iterations": 450,
+      "seconds": 24.676916293999966,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        1.1525231536458243e-10,
+        1.9052930996004026e-11,
+        1.1463237240721435e-10,
+        2.169592358403511e-12,
+        3.009181568690887e-10,
+        6.4891759510281426e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.7641830571471923,
+        "p95": 0.7207746414552911
+      }
+    },
+    "limit_qcr_0_legacy": {
+      "job": {
+        "id": "limit_qcr_0_legacy",
+        "study": "limits",
+        "physics": "qcr",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.4815102825295975e-08,
+        "min_angle_deg": 24.53312890061062,
+        "max_growth": 2.07349976161774,
+        "max_aspect": 8258.113051131171,
+        "wall_spacing": [
+          2.163890405516723e-05,
+          3.9359583673403975e-05
+        ],
+        "wall_angle_deg": 35.19602726093489,
+        "far_field": 49.53714447243757
+      },
+      "forces": {
+        "cl": 0.2547820335222564,
+        "cd": 0.017295016318437564,
+        "cm": -0.0006632473685615229,
+        "fx": 0.0010490894903781999,
+        "fy": 0.03190380181954875,
+        "cd_friction": 0.008189439065638746,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.450712150367883,
+      "iterations": 400,
+      "seconds": 18.829918153000108,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.708531331451657e-07,
+        2.660971310835072e-09,
+        5.6453864496307004e-09,
+        3.0390100518940635e-09,
+        4.8547897623394176e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.9242921791552638,
+        "p95": 0.8518783846154624
+      }
+    },
+    "limit_qcr_0_sectional": {
+      "job": {
+        "id": "limit_qcr_0_sectional",
+        "study": "limits",
+        "physics": "qcr",
+        "sweep": 0.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.4815102825295975e-08,
+        "min_angle_deg": 24.53312890061062,
+        "max_growth": 2.07349976161774,
+        "max_aspect": 8258.113051131171,
+        "wall_spacing": [
+          2.163890405516723e-05,
+          3.9359583673403975e-05
+        ],
+        "wall_angle_deg": 35.19602726093489,
+        "far_field": 49.53714447243757
+      },
+      "forces": {
+        "cl": 0.2547820340347528,
+        "cd": 0.017295016322689177,
+        "cm": -0.0006632474447671797,
+        "fx": 0.0010490894886735934,
+        "fy": 0.031903801883590294,
+        "cd_friction": 0.008189439067197117,
+        "bodies": [],
+        "fz": 0.0,
+        "cy": 0.0
+      },
+      "reason": "converged",
+      "orders_dropped": 10.946491836349667,
+      "iterations": 450,
+      "seconds": 30.650785717998588,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.099611714242557e-11,
+        2.5548076790913354e-12,
+        1.6561272342999246e-11,
+        0.0,
+        6.574542873402101e-11,
+        5.943604570705504e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 0.9242921793298509,
+        "p95": 0.8518783848262477
+      }
+    },
+    "limit_qcr_30_legacy": {
+      "job": {
+        "id": "limit_qcr_30_legacy",
+        "study": "limits",
+        "physics": "qcr",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "legacy",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.015076348207128e-08,
+        "min_angle_deg": 28.145770059100112,
+        "max_growth": 2.073253523694106,
+        "max_aspect": 7153.498198034882,
+        "wall_spacing": [
+          2.0293219791022226e-05,
+          3.408639934354696e-05
+        ],
+        "wall_angle_deg": 29.861298395194126,
+        "far_field": 42.90042554407082
+      },
+      "forces": {
+        "cl": 0.21372648466507566,
+        "cd": 0.01542633250411147,
+        "cm": -0.000927093789570608,
+        "fx": 0.0009947485565436989,
+        "fy": 0.02676683243820912,
+        "cd_friction": 0.008188193014383801,
+        "bodies": [],
+        "fz": 1.1592323436676144e-05,
+        "cy": 9.273858749340915e-05
+      },
+      "reason": "converged",
+      "orders_dropped": 10.565095215928007,
+      "iterations": 400,
+      "seconds": 21.014625068000896,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.7890369455681066e-07,
+        1.3330441897443803e-09,
+        2.164496618561171e-09,
+        9.768759457549335e-10,
+        1.7326689232597725e-09,
+        2.951535523057846e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.7647034843914161,
+        "p95": 0.7209880178833803
+      }
+    },
+    "limit_qcr_30_sectional": {
+      "job": {
+        "id": "limit_qcr_30_sectional",
+        "study": "limits",
+        "physics": "qcr",
+        "sweep": 30.0,
+        "taper": 0.0,
+        "formulation": "sectional",
+        "level": 1,
+        "family": "limit",
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 1024,
+      "shape": [
+        32,
+        32,
+        1
+      ],
+      "quality": {
+        "cells": 1024,
+        "min_area": 3.015076348207128e-08,
+        "min_angle_deg": 28.145770059100112,
+        "max_growth": 2.073253523694106,
+        "max_aspect": 7153.498198034882,
+        "wall_spacing": [
+          2.0293219791022226e-05,
+          3.408639934354696e-05
+        ],
+        "wall_angle_deg": 29.861298395194126,
+        "far_field": 42.90042554407082
+      },
+      "forces": {
+        "cl": 0.21372648486971205,
+        "cd": 0.015426332505761366,
+        "cm": -0.0009270938169983925,
+        "fx": 0.000994748555857096,
+        "fy": 0.026766832463780286,
+        "cd_friction": 0.008188193015326204,
+        "bodies": [],
+        "fz": 1.159232402520396e-05,
+        "cy": 9.273859220163168e-05
+      },
+      "reason": "converged",
+      "orders_dropped": 10.121180728830723,
+      "iterations": 450,
+      "seconds": 29.121287602998564,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.0467120139583282e-10,
+        3.1711827285798354e-11,
+        1.5169566286752034e-10,
+        3.256306466940429e-12,
+        5.35018609074174e-10,
+        1.0706648023875652e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.7647034844176991,
+        "p95": 0.7209880179679696
+      }
+    },
+    "mesh_sa_l3": {
+      "job": {
+        "id": "mesh_sa_l3",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "mesh",
+        "level": 3,
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 768,
+      "shape": [
+        32,
+        24,
+        1
+      ],
+      "quality": {
+        "cells": 768,
+        "min_area": 1.8905058969624058e-07,
+        "min_angle_deg": 44.11713064073176,
+        "max_growth": 2.7691173743639634,
+        "max_aspect": 2781.5788081762475,
+        "wall_spacing": [
+          4.571530356245367e-05,
+          7.002007307399527e-05
+        ],
+        "wall_angle_deg": 4.589199139069039,
+        "far_field": 45.143098039485814
+      },
+      "forces": {
+        "cl": 0.2856413206715429,
+        "cd": 0.012998570252830062,
+        "cm": -0.004760030846450238,
+        "fx": 0.00037773919327088994,
+        "fy": 0.03574011990705448,
+        "cd_friction": 0.00851079223623991,
+        "bodies": [],
+        "fz": 0.000981383665205884,
+        "cy": 0.007851069321647072
+      },
+      "reason": "converged",
+      "orders_dropped": 10.877369358696859,
+      "iterations": 500,
+      "seconds": 27.093347886999254,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        3.744843857471998e-12,
+        9.390228566661841e-13,
+        2.2658654571054763e-12,
+        1.6575008880156198e-13,
+        9.684558137122861e-12,
+        2.643656945280439e-10
+      ],
+      "yplus_normal_cut": {
+        "max": 1.7803163287842365,
+        "p95": 1.6681212984722829
+      }
+    },
+    "mesh_sa_l2": {
+      "job": {
+        "id": "mesh_sa_l2",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "mesh",
+        "level": 2,
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 3072,
+      "shape": [
+        64,
+        48,
+        1
+      ],
+      "quality": {
+        "cells": 3072,
+        "min_area": 3.2206426874731667e-08,
+        "min_angle_deg": 38.360991337775864,
+        "max_growth": 1.8207004021209574,
+        "max_aspect": 3307.582137732308,
+        "wall_spacing": [
+          1.9446957931635334e-05,
+          3.1552965999881444e-05
+        ],
+        "wall_angle_deg": 7.379115957710297,
+        "far_field": 45.143098039485814
+      },
+      "forces": {
+        "cl": 0.2768467241029826,
+        "cd": 0.008320317295782005,
+        "cm": -0.0015799899980391365,
+        "fx": -0.00016832031895467158,
+        "fy": 0.03462105643060438,
+        "cd_friction": 0.008618080574240954,
+        "bodies": [],
+        "fz": 0.0012647870607214234,
+        "cy": 0.010118296485771387
+      },
+      "reason": "converged",
+      "orders_dropped": 10.927208424874767,
+      "iterations": 650,
+      "seconds": 35.429508404000444,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        9.965977916100158e-12,
+        2.287394900293418e-12,
+        6.351019203731677e-12,
+        4.0843950967547855e-13,
+        3.5277509892117253e-11,
+        1.3225948559119984e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.8243111901456781,
+        "p95": 0.7619949208335267
+      }
+    },
+    "mesh_sa_l1": {
+      "job": {
+        "id": "mesh_sa_l1",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "mesh",
+        "level": 1,
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 12288,
+      "shape": [
+        128,
+        96,
+        1
+      ],
+      "quality": {
+        "cells": 12288,
+        "min_area": 5.708550547653967e-09,
+        "min_angle_deg": 28.066528326366445,
+        "max_growth": 1.6110446626829023,
+        "max_aspect": 3575.9232346497542,
+        "wall_spacing": [
+          9.036140534812469e-06,
+          1.497361973046285e-05
+        ],
+        "wall_angle_deg": 29.99358583379596,
+        "far_field": 45.143098039485814
+      },
+      "forces": {
+        "cl": 0.26673999128784637,
+        "cd": 0.007382078610159695,
+        "cm": 0.0005806098860799494,
+        "fx": -0.00024143872488098191,
+        "fy": 0.0333543914150425,
+        "cd_friction": 0.00859972919179501,
+        "bodies": [],
+        "fz": 0.0012906269658587107,
+        "cy": 0.010325015726869686
+      },
+      "reason": "converged",
+      "orders_dropped": 10.37177090396681,
+      "iterations": 900,
+      "seconds": 71.86878392699873,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.1828488917410315e-09,
+        1.1186958983842843e-10,
+        1.2500155528994005e-10,
+        1.7946848790084447e-11,
+        5.785350627385275e-10,
+        2.8431303173396305e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.3892822690373931,
+        "p95": 0.3583596374125149
+      }
+    },
+    "mesh_sa_l0": {
+      "job": {
+        "id": "mesh_sa_l0",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "mesh",
+        "level": 0,
+        "wall_factor": 1.0,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 49152,
+      "shape": [
+        256,
+        192,
+        1
+      ],
+      "quality": {
+        "cells": 49152,
+        "min_area": 1.030792003486855e-09,
+        "min_angle_deg": 19.0908324625847,
+        "max_growth": 1.3031715786105202,
+        "max_aspect": 3709.976096915719,
+        "wall_spacing": [
+          4.358178386730889e-06,
+          7.293501598670815e-06
+        ],
+        "wall_angle_deg": 55.69091286532298,
+        "far_field": 45.143098039485814
+      },
+      "forces": {
+        "cl": 0.26012507656000494,
+        "cd": 0.007118838817696337,
+        "cm": 0.001873221971791949,
+        "fx": -0.0002454665047763149,
+        "fy": 0.03252688241044409,
+        "cd_friction": 0.008579390737281823,
+        "bodies": [],
+        "fz": 0.0012846647029013066,
+        "cy": 0.010277317623210453
+      },
+      "reason": "converged",
+      "orders_dropped": 10.216132173122743,
+      "iterations": 1750,
+      "seconds": 464.6726025219996,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        5.531777854238107e-08,
+        4.298313340902674e-10,
+        5.933126035388664e-10,
+        1.8887747769869155e-10,
+        4.6011786555736365e-09,
+        8.208809070320533e-08
+      ],
+      "yplus_normal_cut": {
+        "max": 0.18793363802043295,
+        "p95": 0.17339185326210235
+      }
+    },
+    "wall_sa_0.5": {
+      "job": {
+        "id": "wall_sa_0.5",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "wall",
+        "level": 2,
+        "wall_factor": 0.5,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 3072,
+      "shape": [
+        64,
+        48,
+        1
+      ],
+      "quality": {
+        "cells": 3072,
+        "min_area": 1.621391516379084e-08,
+        "min_angle_deg": 37.67550399719579,
+        "max_growth": 2.0747915057474184,
+        "max_aspect": 6574.0132292112285,
+        "wall_spacing": [
+          9.78604873600644e-06,
+          1.6306848240832394e-05
+        ],
+        "wall_angle_deg": 7.558623619072109,
+        "far_field": 45.14188529204955
+      },
+      "forces": {
+        "cl": 0.2766475062238791,
+        "cd": 0.008330356888501683,
+        "cm": -0.0015712140635971183,
+        "fx": -0.0001661970588814334,
+        "fy": 0.03459621316257674,
+        "cd_friction": 0.008611135786825548,
+        "bodies": [],
+        "fz": 0.001263161608663041,
+        "cy": 0.010105292869304328
+      },
+      "reason": "converged",
+      "orders_dropped": 10.485585039692108,
+      "iterations": 650,
+      "seconds": 35.639245664000555,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        1.8441847009675083e-09,
+        1.9869646712734654e-11,
+        1.0050210850822357e-10,
+        4.0001281837552984e-12,
+        1.417833296717704e-10,
+        2.1727239558574296e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.4150389959091553,
+        "p95": 0.38361418063117897
+      }
+    },
+    "wall_sa_0.25": {
+      "job": {
+        "id": "wall_sa_0.25",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "wall",
+        "level": 2,
+        "wall_factor": 0.25,
+        "outer_factor": 1.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 3072,
+      "shape": [
+        64,
+        48,
+        1
+      ],
+      "quality": {
+        "cells": 3072,
+        "min_area": 8.160543619005007e-09,
+        "min_angle_deg": 37.32328871034119,
+        "max_growth": 2.0225427120115715,
+        "max_aspect": 13066.316864861905,
+        "wall_spacing": [
+          4.9240546457629985e-06,
+          8.319612866847237e-06
+        ],
+        "wall_angle_deg": 7.654750208039217,
+        "far_field": 45.14057595612293
+      },
+      "forces": {
+        "cl": 0.2764455175588505,
+        "cd": 0.008348451705162541,
+        "cm": -0.0015608606333783947,
+        "fx": -0.00016305542181436266,
+        "fy": 0.03457105889770211,
+        "cd_friction": 0.008608571913470477,
+        "bodies": [],
+        "fz": 0.0012613054845663487,
+        "cy": 0.01009044387653079
+      },
+      "reason": "converged",
+      "orders_dropped": 10.627158172083695,
+      "iterations": 700,
+      "seconds": 37.38065519400152,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        1.3585307363514882e-08,
+        1.6031985090805802e-10,
+        9.864501034156398e-10,
+        1.728930404417137e-11,
+        6.134770852647628e-10,
+        4.8382961260918144e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.20885291259421127,
+        "p95": 0.19302436546833407
+      }
+    },
+    "outer_sa_2": {
+      "job": {
+        "id": "outer_sa_2",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "outer",
+        "level": 2,
+        "wall_factor": 1.0,
+        "outer_factor": 2.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 3328,
+      "shape": [
+        64,
+        52,
+        1
+      ],
+      "quality": {
+        "cells": 3328,
+        "min_area": 3.2206426874731667e-08,
+        "min_angle_deg": 38.360991337775864,
+        "max_growth": 1.8207004021209574,
+        "max_aspect": 3307.582137732308,
+        "wall_spacing": [
+          1.9446957931635334e-05,
+          3.1552965999881444e-05
+        ],
+        "wall_angle_deg": 7.379115957710297,
+        "far_field": 102.92873918881784
+      },
+      "forces": {
+        "cl": 0.27809332804938325,
+        "cd": 0.008260576706844418,
+        "cm": -0.0015840677551551023,
+        "fx": -0.0001812215748173812,
+        "fy": 0.03477652638466337,
+        "cd_friction": 0.008616674470358522,
+        "bodies": [],
+        "fz": 0.001271447070190355,
+        "cy": 0.01017157656152284
+      },
+      "reason": "converged",
+      "orders_dropped": 10.16541372222463,
+      "iterations": 1200,
+      "seconds": 49.42015775599975,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        4.000363953701044e-11,
+        4.899679897300331e-12,
+        1.785009658318996e-11,
+        8.398213787661349e-13,
+        1.0454458125614511e-10,
+        3.6102340519917044e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.8248860217666764,
+        "p95": 0.76222870298958
+      }
+    },
+    "outer_sa_4": {
+      "job": {
+        "id": "outer_sa_4",
+        "study": "mesh",
+        "physics": "sa",
+        "sweep": 30.0,
+        "taper": 0.2,
+        "formulation": "sectional",
+        "family": "outer",
+        "level": 2,
+        "wall_factor": 1.0,
+        "outer_factor": 4.0,
+        "max_iters": 3000,
+        "tol": 1e-10
+      },
+      "source_sha256": "57d623aac2ead6f727145f5a001246ba00d09bf89e39792786fc35f5cbb6d8bf",
+      "jax": "0.10.2",
+      "devices": [
+        "cuda:0"
+      ],
+      "dtype": "float64",
+      "cells": 3584,
+      "shape": [
+        64,
+        56,
+        1
+      ],
+      "quality": {
+        "cells": 3584,
+        "min_area": 3.2206426874731667e-08,
+        "min_angle_deg": 38.360991337775864,
+        "max_growth": 1.8207004021209574,
+        "max_aspect": 3307.582137732308,
+        "wall_spacing": [
+          1.9446957931635334e-05,
+          3.1552965999881444e-05
+        ],
+        "wall_angle_deg": 7.379115957710297,
+        "far_field": 225.39016720365964
+      },
+      "forces": {
+        "cl": 0.2786413745875864,
+        "cd": 0.008234209755525652,
+        "cm": -0.0015860309004152584,
+        "fx": -0.00018690625452204003,
+        "fy": 0.03484487544587954,
+        "cd_friction": 0.00861604466912731,
+        "bodies": [],
+        "fz": 0.0012743743932500072,
+        "cy": 0.010194995146000058
+      },
+      "reason": "converged",
+      "orders_dropped": 10.087995172676083,
+      "iterations": 2500,
+      "seconds": 83.44344098500005,
+      "finite": true,
+      "equation_residual_rms_per_volume": [
+        2.5099370911191674e-11,
+        4.617429188489616e-12,
+        2.1554697171484648e-11,
+        5.921600486709379e-13,
+        6.581119535864867e-11,
+        1.3207593682388493e-09
+      ],
+      "yplus_normal_cut": {
+        "max": 0.8251377294361302,
+        "p95": 0.7623306998782656
+      }
+    }
+  },
+  "missing": []
+}

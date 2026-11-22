@@ -1,0 +1,10 @@
+{
+  "fp64_ms_per_iteration": 168.77766679999695,
+  "fp32_ms_per_iteration": 65.74261665000449,
+  "steady_speedup": 2.5672489992073566,
+  "fp64_first_block_seconds": 20.39019917800033,
+  "fp32_first_block_seconds": 17.07119505799892,
+  "fp64_total_solver_seconds": 42.96749954999905,
+  "fp32_total_solver_seconds": 32.157468672001414,
+  "validation_scope": "fixed-iteration speed; equal time to convergence is not established"
+}

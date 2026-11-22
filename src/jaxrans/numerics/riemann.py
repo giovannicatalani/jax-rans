@@ -14,6 +14,7 @@ import jax.numpy as jnp
 from jax import Array
 
 from ..core.state import dot, magnitude, primitive_to_conservative, split
+from ..core.precision import floor_like
 from ..physics import euler
 
 
@@ -48,7 +49,7 @@ def _unit_normal(s: Array) -> tuple[Array, Array]:
     """Split an area vector into its magnitude and unit normal; a zero-area
     face (a pole) gets a zero normal, so its flux is exactly zero."""
     length = magnitude(s)
-    return length, s / jnp.maximum(length, 1e-300)
+    return length, s / jnp.maximum(length, floor_like(length))
 
 
 @register_flux("roe")
@@ -164,7 +165,7 @@ def hllc_flux(qL: Array, qR: Array, s: Array, gamma: float) -> Array:
     mass_l = rho_l * (s_l - vn_l)
     mass_r = rho_r * (s_r - vn_r)
     s_m = (p_r - p_l + mass_l * vn_l - mass_r * vn_r) / jnp.minimum(
-        mass_l - mass_r, -1e-300
+        mass_l - mass_r, -floor_like(mass_l)
     )
 
     def star_flux(rho, velocity, p, vn, s_k, flux_k, u_k, widening):
@@ -186,9 +187,9 @@ def hllc_flux(qL: Array, qR: Array, s: Array, gamma: float) -> Array:
     # S_L < S_M < S_R strictly for physical states; clamping keeps the sign and
     # protects the unselected branches, as above.
     star_l = star_flux(rho_l, v_l, p_l, vn_l, s_l, flux_l, u_l,
-                       jnp.minimum(s_l - s_m, -1e-300))
+                       jnp.minimum(s_l - s_m, -floor_like(s_l)))
     star_r = star_flux(rho_r, v_r, p_r, vn_r, s_r, flux_r, u_r,
-                       jnp.maximum(s_r - s_m, 1e-300))
+                       jnp.maximum(s_r - s_m, floor_like(s_r)))
 
     flux = jnp.where(
         s_l >= 0.0,

@@ -37,7 +37,8 @@ Issues = "https://github.com/giovannicatalani/jax-rans/issues"
 jaxrans = "jaxrans.__main__:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "hypothesis>=6", "sympy>=1.12", "build>=1", "pyflakes>=3"]
+# Boundary-layer tests exercise matplotlib.tri interpolation, including without plots.
+dev = ["pytest>=8", "hypothesis>=6", "sympy>=1.12", "build>=1", "pyflakes>=3", "matplotlib>=3.7"]
 docs = ["mkdocs>=1.6,<2", "mkdocs-material>=9,<10"]
 plot = ["matplotlib>=3.7"]
 cgns = ["h5py>=3.8"]

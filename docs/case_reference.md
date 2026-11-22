@@ -13,6 +13,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `case_name` | string | required | names the output directory |
 | `description` | string | `case_name` | one line, printed in the log |
 | `save_path` | string | `results` | output root, relative to the case directory |
+| `precision` | string | `fp64` | `fp32` or `fp64` fields; geometry is built in FP64. `mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. The small GMRES least-squares solve is FP64; convergence tolerances are unchanged; one of `fp64`, `float64`, `fp32`, `float32`, `mixed`, `mixt` |
 
 ### `domain`
 
@@ -21,6 +22,10 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `grid` | string | required | all | where the grid comes from: generated round one airfoil (`o_grid`, `c_grid`) or round a slat, main element and flap (`multi_element`), or read from a file; one of `c_grid`, `file`, `multi_element`, `o_grid` |
 | `airfoil` | string | required | `o_grid`, `c_grid` | `naca` + 4 digits (closed trailing edge; `naca0012_blunt` for the standard open one), or a coordinate file (Selig, Lednicer, two columns or a one-element `.hug`), scaled to unit chord |
 | `cells_airfoil` | integer | required | `o_grid`, `c_grid` | cells round the airfoil |
+| `airfoil_smoothing` | number | `0.0` | `o_grid`, `c_grid` | optional contour regularization: maximum continuous displacement in chords; 0 preserves the original interpolation. Fixes LE/TE endpoints and constrains derivatives; inspect geometry changes before CFD (docs/airfoil-regularization.md) |
+| `airfoil_smoothing_method` | string | `parametric` | `o_grid`, `c_grid` | contour regularizer: parametric fairing, C4 B-spline, or global geometric curvature fitting with bounded displacement; one of `parametric`, `bspline`, `curvature` |
+| `airfoil_smoothing_points` | integer | `96` | `o_grid`, `c_grid` | number of quintic B-spline control points for curvature fitting (>=12); incompatible fidelity/complexity bounds raise an error |
+| `airfoil_smoothing_radius_tol` | number | `0.1` | `o_grid`, `c_grid` | maximum relative change of nose radius for curvature fitting, in [0,1); 0 fixes it; 0.1 permits +/-10% |
 | `cells_wake` | integer | required | `c_grid` | cells along each side of the wake cut |
 | `cells_normal` | integer | required | `o_grid`, `c_grid` | cells from the wall to the far field |
 | `wall_spacing` | number | required | `o_grid`, `c_grid`, `multi_element` | first-cell height, chords; for y+ ~ 1 see docs/own-airfoil.md |
@@ -42,7 +47,18 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `reference_length` | number | `1.0` | all | length the force coefficients are per (3D: the moment's) |
 | `reference_area` | number or null | `null` | all | 3D grids (required there): area the force coefficients are per; 2D coefficients are per unit span |
 | `moment_centre` | list | `[0.25, 0.0, 0.0]` | all | point the pitching moment is about, `[x, y]` or `[x, y, z]`; nose-up positive about the spanwise axis (z in 2D, y in 3D) |
-| `section` | string | `streamwise` | all | swept cases (`freestream.sweep_deg`): the plane the 2D section is given in; `streamwise` is meshed normal to the sweep line (x scaled by cos(sweep)), `normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise (docs/swept.md); one of `normal`, `streamwise` |
+| `section` | string | `streamwise` | all | swept/sectional cases: the plane the 2D section is given in; `streamwise` is mapped to the normal plane (cosine scaling at zero taper), `normal` is used as given; lengths, `reference_length` and `moment_centre` stay streamwise (docs/swept.md); one of `normal`, `streamwise` |
+| `sectional` | object or null |  | all | sectional 3D stencil: model, leading_edge_sweep_deg and taper_rate; Euler, laminar and SA/QCR (docs/sectional.md); replaces freestream.sweep_deg |
+
+### `domain.sectional`
+
+Optional object; mutually exclusive with `freestream.sweep_deg`. The source mesh is 2D. See [sectional calculations](sectional.md).
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `model` | string | `conical` | sectional formulation; one of `conical` |
+| `leading_edge_sweep_deg` | number | `0.0` | geometric leading-edge sweep, degrees, strictly between -90 and 90 |
+| `taper_rate` | number | `0.0` | -dc/ds along geometric span, positive for decreasing chord |
 
 ### `boundary_conditions`
 
@@ -70,7 +86,8 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `alpha_deg` | number | `0.0` | incidence, degrees (streamwise when swept) |
 | `sweep_deg` | number or null | `null` | 2D grids: sweep of an infinite swept wing (2.5D), degrees, the spanwise velocity M cos(alpha) sin(sweep); `null` is plain 2D (docs/swept.md) |
 | `reynolds` | number or null | `null` | per unit length of the grid (per chord for a grid of unit chord); `null` is inviscid |
-| `temperature` | number |  | absolute, in the unit of `sutherland_temperature`; Sutherland's law needs it |
+| `temperature` | number |  | absolute, in the unit of `sutherland_temperature`; static freestream temperature; Sutherland's law needs it unless `total_temperature` is given |
+| `total_temperature` | number |  | absolute total freestream temperature, in the unit of `sutherland_temperature`; converted to static temperature at the current Mach |
 
 ### `material_properties`
 
@@ -89,6 +106,14 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `freestream_nu_tilde_ratio` | number | `3.0` | far-field nu~/nu (3 to 5) |
 
 ## `numerical.json`
+
+### `sectional`
+
+| key | type | default | meaning |
+|---|---|---|---|
+| `depth` | number | `1.0` | artificial extrusion depth in grid length units; domain.sectional only, not a physical wing span |
+| `relaxation_start` | number | `1.0` | full conicity up to this wall distance, in streamwise chords |
+| `relaxation_end` | number | `5.0` | periodic translation from this wall distance, in streamwise chords; greater than relaxation_start |
 
 ### `convective_fluxes`
 
@@ -121,14 +146,25 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `krylov_subspace` | integer | `10` | GMRES vectors before a restart |
 | `krylov_restarts` | integer | `2` | GMRES restarts |
 | `krylov_success` | number | `0.5` | linear residual reduction for the CFL to grow |
+| `krylov_min_progress` | number | `1e-06` | minimum useful relative linear-residual decrease, scaled by damping; below this reject the correction and reduce CFL, including after FP64 fallback; 0 restores strict decrease only; does not change convergence tolerances |
 | `max_relative_update` | number or null | `null` | bound on a step's relative change of density, pressure and nu~ (0.2 for SA at incidence) |
+| `nonlinear_growth_limit` | number or null | `null` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
+| `nonlinear_merit` | string | `mass` | nonlinear acceptance merit: mass residual or maximum normalized equation residual; one of `mass`, `equations` |
+| `backtracking_steps` | integer | `0` | maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking |
+| `krylov_early_exit` | boolean | `False` | stop each GMRES cycle as soon as krylov_tol is met (estimated from the Arnoldi relation) instead of always building krylov_subspace vectors |
+| `relaxation` | string | `global` | how max_relative_update bounds a step: `global` (one factor for the whole correction), `split` (one factor for the mean flow, one for the SA row) or `local` (per cell); one of `global`, `split`, `local` |
 
 ### `convergence`
 
 | key | type | default | meaning |
 |---|---|---|---|
 | `max_iters` | integer | `40000` | iteration ceiling |
-| `tol` | number | `1e-12` | residual drop from its running peak |
-| `forces_tol` | number or null | `0.0001` | stop once CL, CD and CM each vary by less than this over the last quarter of the iterations (at least four blocks there); null: run to `tol` or `max_iters` |
+| `tol` | number | `1e-12` | required relative drop per equation when forces_tol is null |
+| `equation_tol` | number | `0.0001` | required relative drop of every normalized equation residual |
+| `equation_abs_tol` | number | `1e-08` | absolute floor for each normalized equation residual |
+| `equation_abs_tols` | object | `{}` | per-equation absolute floor overrides: mass, momentum_x/y/z, energy, sa; unspecified equations use equation_abs_tol; ignored when forces_tol is null |
+| `diagnostics` | boolean | `False` | record detailed equation and nonlinear convergence diagnostics |
+| `equation_peak` | string | `point` | campaigns: relative equation thresholds refer to the residual peak of the `point`, or of the whole continuation `chain` so far (the level the chain's first point had to reach); one of `point`, `chain` |
+| `forces_tol` | number or null | `0.0001` | also require CL, CD and CM to vary by less than this over the last quarter of the iterations (at least four blocks there); null: use `tol` on every equation |
 | `grid_sequencing` | integer | `0` | solve first on this many coarser grids, each the next with every other node (cell counts, patch and interface limits must stay even), each to settled forces or `max_iters`, and start the next from it; 0: the grid only |
 | `block_iters` | integer | 200 explicit, 20 implicit | iterations per device call; forces are monitored at this interval |

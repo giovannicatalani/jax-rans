@@ -10,7 +10,7 @@
         "max_relative_update": 0.2
     },
     "convergence": {
-        "max_iters": 6000,
+        "max_iters": 10000,
         "forces_tol": null,
         "notes": "Converged to round-off, not stopped when the forces settle: derivatives need R = 0."
     }

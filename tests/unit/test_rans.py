@@ -24,14 +24,45 @@ from tests.karman_trefftz import TMR, make_o_grid
 
 from ..single import PLATE_RULES, Single, atlas_of, fill_ghosts, from_canvas, n_symmetry, read_grid, to_canvas, wall_slice
 from jaxrans.numerics.residual import make_residual, primitive_from_conservative
-from jaxrans.numerics.turbulence import face_eddy_viscosity
+from jaxrans.numerics.turbulence import density_gradient_correction, face_eddy_viscosity
 from jaxrans.physics import spalart_allmaras as sa
 from jaxrans.physics.navier_stokes import Viscosity
 from jaxrans.solvers.explicit import initial_state
 
 NVAR_RANS, P_NU, RHO_NU = 5, 4, 4     # 2D: Rows(2).nu
 
+
+@pytest.mark.parametrize("nu_tilde", [2e-4, -2e-4])
+def test_compressible_sa_diffusion_density_correction(nu_tilde) -> None:
+    """Product rule on affine rho and nu_hat, including SA-neg diffusion."""
+    rho, mu, volume = 1.2, 1e-4, 0.3
+    grad_rho = jnp.asarray([0.4, -0.2])
+    grad_nu_hat = jnp.asarray([0.5, 0.3])
+    expected = ((mu / rho + nu_tilde * float(sa.f_n(jnp.asarray(nu_tilde), jnp.asarray(mu / rho))))
+                / sa.SA.sigma * float(jnp.dot(grad_rho, grad_nu_hat)) * volume)
+    got = density_gradient_correction(jnp.asarray(rho), jnp.asarray(nu_tilde), jnp.asarray(mu),
+                                      grad_rho, grad_nu_hat, jnp.asarray(volume))
+    assert float(got) == pytest.approx(expected, rel=1e-13)
+    assert float(density_gradient_correction(jnp.asarray(rho), jnp.asarray(nu_tilde), jnp.asarray(mu),
+                                             jnp.zeros_like(grad_rho), grad_nu_hat,
+                                             jnp.asarray(volume))) == 0.0
+
 GRIDS = Path(__file__).resolve().parents[2] / "data" / "grids"
+
+
+def test_rae_continuation_moves_from_uniform_freestream() -> None:
+    from jaxrans import load_case, run
+    from jaxrans.simulation import make_stepper
+
+    case = load_case(Path(__file__).resolve().parents[2] / "examples/rae2822_sensitivity", (
+        "case.domain.cells_airfoil=64", "case.domain.cells_wake=16", "case.domain.cells_normal=32",
+        "case.domain.wall_spacing=0.0001", "numerical.convergence.max_iters=20",
+        "numerical.convergence.block_iters=20"))
+    grid = case.grid()
+    initial = np.asarray(make_stepper(case, grid)[1].U)
+    result = run(case, grid)
+    assert result.history.reason != "stalled"
+    assert np.max(np.abs(np.asarray(result.U) - initial)) > 1e-6
 
 
 def flow(mach=0.15, alpha=10.0, reynolds=6e6):

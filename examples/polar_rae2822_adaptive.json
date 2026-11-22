@@ -1,0 +1,27 @@
+{
+  "description": "Experimental witness campaign; these robustness settings are not tuned or validated for this polar.",
+  "batch_size": 1,
+  "continuation": {
+    "adaptive": true,
+    "min_step": 0.125,
+    "max_attempts": 32,
+    "on_failure": "stop"
+  },
+  "profiles": [
+    {
+      "name": "rae2822_adaptive",
+      "case": "rae2822_sensitivity",
+      "machs": [0.745, 0.76],
+      "alpha": [-3, 6, 0.5],
+      "overrides": [
+        "case.general.precision=fp32",
+        "case.freestream.sweep_deg=0.0",
+        "numerical.convergence.forces_tol=0.0001",
+        "numerical.convergence.diagnostics=true",
+        "numerical.implicit.nonlinear_merit=equations",
+        "numerical.implicit.nonlinear_growth_limit=1.05",
+        "numerical.implicit.backtracking_steps=4"
+      ]
+    }
+  ]
+}
