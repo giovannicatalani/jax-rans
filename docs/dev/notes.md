@@ -13,8 +13,18 @@ each choice, grouped by module.
   stagnated GMRES returns a null update, which leaves the residual unchanged
   and looks like success to a residual-based test; a freestream start makes
   the residual rise through the transient, which looks like failure to
-  textbook SER (Mulder and van Leer, J. Comput. Phys. 59 (1985)). One extra
-  matvec, about 1% of a step, measures the linear reduction instead.
+  textbook SER (Mulder and van Leer, J. Comput. Phys. 59 (1985)). The linear
+  reduction is measured instead, from the action GMRES already has (the
+  Arnoldi relation ``A M^-1 V_m y = V_{m+1} H y``), times the relaxation
+  factor: no extra Jacobian product.
+- **GMRES products.** The residual ending a cycle starts the next one, and the
+  Newton solve takes ``A x`` from the Arnoldi relation; the Hessenberg least
+  squares is unrolled Givens rotations rather than ``lstsq`` (a cuSOLVER SVD
+  per cycle on GPUs). On the RAE 2822 NPARC grid (23.5k cells, SA, FP64, one
+  A100) these with the line-solve block products below took a Newton step
+  from 13.2 to 9.8 ms. The run took the same 760 iterations and CL agreed
+  to 1e-6. With forces integrated by one compiled kernel (post/forces.py),
+  a whole run went from 43.1 to 12.0 ms per iteration.
 - **`max_relative_update`.** Rejection alone only stops steps that leave the
   physical domain. On TMR NACA 0012 at 15 deg, 449x129, accepted steps built
   an odd-even checkerboard in nu~ and rho within 600 steps, after which every

@@ -25,7 +25,8 @@ integral round the streamwise section: a face ``(dx, dy)`` of the normal one is
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 
 import jax
 import jax.numpy as jnp
@@ -160,13 +161,39 @@ def force_coefficients(U: Array, atlas: Atlas, flow: FlowConditions,
             "bodies": jax.ops.segment_sum(per_face.T, jnp.asarray(faces.body), faces.bodies)}
 
 
+_FORCE_KERNELS: OrderedDict = OrderedDict()
+_KEPT_KERNELS = 8
+
+
+def _force_kernel(atlas: Atlas, flow: FlowConditions, reference: ForceReference):
+    """A compiled ``force_coefficients`` for this atlas and flow, the incidence
+    a traced argument (the freestream primitives): a run monitors the forces
+    every block and a polar integrates them per angle, and op-by-op dispatch
+    of the wall loads cost tens of milliseconds a call. The last few kernels
+    are kept; each holds its atlas, so a key's ``id`` cannot be reused by
+    another atlas while it is cached."""
+    flow = replace(flow, alpha_deg=0.0)
+    key = (id(atlas), flow, reference)
+    entry = _FORCE_KERNELS.get(key)
+    if entry is None or entry[0] is not atlas:
+        components = swept_atlas(atlas, flow).components
+        kernel = jax.jit(lambda U, q: force_coefficients(U, atlas, flow, reference, freestream=q))
+        entry = _FORCE_KERNELS[key] = (atlas, kernel, components)
+        while len(_FORCE_KERNELS) > _KEPT_KERNELS:
+            _FORCE_KERNELS.popitem(last=False)
+    _FORCE_KERNELS.move_to_end(key)
+    return entry[1], entry[2]
+
+
 def integrate_forces(U: Array, atlas: Atlas, flow: FlowConditions,
                      reference: ForceReference | float = ForceReference()) -> Forces:
     """``force_coefficients`` as Python floats; ``reference`` (or the
     reference length alone)."""
     if not isinstance(reference, ForceReference):
         reference = ForceReference(length=float(reference))
-    c = {k: np.asarray(v) for k, v in force_coefficients(U, atlas, flow, reference).items()}
+    kernel, components = _force_kernel(atlas, flow, reference)
+    q = np.asarray(freestream_primitive(flow, components), dtype=np.float64)
+    c = {k: np.asarray(v) for k, v in kernel(U, q).items()}
     force = [float(f) for f in c["force"]] + [0.0]
     bodies = tuple(tuple(float(x) for x in b) for b in c["bodies"]) if len(c["bodies"]) > 1 else ()
     return Forces(float(c["cl"]), float(c["cd"]), float(c["cm"]), force[0], force[1],
