@@ -133,8 +133,11 @@ def test_diagnostics_share_norms_scales_and_ignore_ghosts(dtype, components, sa)
     rates = np.asarray(residual, dtype=np.float64)[:, 0, :] / np.array([1, 3]) / scales[:, None]
     expected = np.sqrt(np.sum(rates**2 * np.array([1, 3]), axis=1) / 4)
     np.testing.assert_allclose(diagnostics["l2_volume"], expected, rtol=1e-14)
-    np.testing.assert_array_equal(operator.equation_norms(operator.initial_state()), diagnostics["l2_volume"])
-    np.testing.assert_array_equal(operator.equation_norms_from_residual(residual), diagnostics["l2_volume"])
+    # JIT fusion can round differently from eager evaluation.
+    np.testing.assert_allclose(operator.equation_norms(operator.initial_state()),
+                               diagnostics["l2_volume"], rtol=1e-14, atol=0.0)
+    np.testing.assert_allclose(operator.equation_norms_from_residual(residual),
+                               diagnostics["l2_volume"], rtol=1e-14, atol=0.0)
     np.testing.assert_allclose(diagnostics["linf"], np.max(np.abs(rates), axis=1), rtol=1e-14)
     np.testing.assert_allclose(diagnostics["balance"], np.asarray(residual, dtype=np.float64)[:, 0, :].sum(axis=1))
     np.testing.assert_allclose(diagnostics["normalized_balance"], np.sum(rates * [1, 3], axis=1) / 4)
