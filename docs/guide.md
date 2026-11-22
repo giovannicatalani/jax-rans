@@ -94,6 +94,56 @@ python -m jaxrans.polar examples/rae2822_transonic_sa --alpha -2 5.5 0.5
 batch, split over every visible GPU. The output is `polar.dat` (one row per
 angle), `polar_metadata.json` and a normal result directory per angle.
 
+Every angle of a polar runs until the slowest one stops (to `tol`, or
+`max_iters`). A sweep instead stops each point by the same tests as a
+single run, forces settling included, and continues from one point to the
+next:
+
+```bash
+python -m jaxrans.sweep examples/rae2822_transonic_sa --alpha -1 4 1
+python -m jaxrans.sweep examples/rae2822_transonic_sa --mach 0.70 0.72 0.74 0.76
+python -m jaxrans.sweep examples/rae2822_transonic_sa --alpha -1 4 1 --mach 0.70 0.73
+```
+
+The points form chains: one in alpha (in the order given; a negative step
+sweeps down), one in Mach for a single angle, or one alpha chain per Mach
+number. Along a chain each point starts from the previous point's solution,
+with the CFL ramp and the residual reference started afresh. All chains run
+side by side in one compiled batch, since the angle and the Mach number are
+only inputs to it, and a chain moves on to its next point as soon as its
+current one stops. `--split N` cuts each chain into `N` shorter ones, run
+side by side. That pays only where a batch costs less than its points run
+one by one. On the 23.5k-cell RAE 2822 grid an A100 is already busy with one
+case: six slots cost 8.3 ms per point-iteration against 9.8 ms for one, and
+the six angles took 180 s with `--split 6` against 114 s in one chain.
+`--cold` starts every point from the freestream.
+
+On RAE 2822 (NPARC grid, SA, one A100), six angles from -1 to 4 degrees
+took 114 s as a sweep against 335 s as a polar. The gain comes from the
+per-point stop and the single compilation. Continuation itself saved about
+30% of the iterations at 0 to 3 degrees. At 4 degrees the boundary layer
+separates behind the shock, and there the continued point had not settled
+after 6000 iterations, while the same point started from the freestream
+settled after 5180. Near separation the branch followed can depend on where
+a point starts. A continued point also starts with its forces close to
+their final values, so a slow drift can pass the settling test. Where that
+matters, tighten `forces_tol` or compare with `--cold`.
+
+The output is `sweep.dat` (alpha, Mach, CL, CD, friction drag, CM, orders,
+iterations, CL spread, settled, continued), `sweep_metadata.json` and a result
+directory per point, `M0.7300_a+2.00/`. In Python:
+
+```python
+from jaxrans import load_case
+from jaxrans.sweep import Point, run_sweep
+
+case = load_case("examples/rae2822_transonic_sa")
+sweep = run_sweep(case, [[Point(a, 0.729) for a in (0, 1, 2, 3)]])
+```
+
+`run(case, grid, initial=previous.U)` restarts a single run from a solution
+on the same grid.
+
 ## Boundary conditions
 
 Every grid has named patches on its boundaries, and `boundary_conditions`
