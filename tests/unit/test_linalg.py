@@ -125,3 +125,17 @@ def test_cyclic_reduction_matches_thomas(n) -> None:
 
     x = np.asarray(solve_cyclic_reduction(factor_cyclic_reduction(lower, diag, upper), rhs))
     assert np.allclose(x, solve(lower, diag, upper, rhs), rtol=1e-12, atol=1e-13)
+
+
+@pytest.mark.parametrize("m", [4, 6, 9])
+def test_small_block_products_match_matmul(m) -> None:
+    """The elementwise small-block path (``SMALL_BLOCK``) and the GEMM path
+    both equal ``@``."""
+    from jaxrans.core.linalg import _matmul, _matvec
+
+    rng = np.random.default_rng(m)
+    a, b, v = (rng.standard_normal((7, 3, m, m)), rng.standard_normal((7, 3, m, m)),
+               rng.standard_normal((7, 3, m)))
+    np.testing.assert_allclose(np.asarray(_matmul(a, b)), a @ b, rtol=1e-13, atol=1e-13)
+    np.testing.assert_allclose(np.asarray(_matvec(a, v)), np.einsum("...ij,...j->...i", a, v),
+                               rtol=1e-13, atol=1e-13)

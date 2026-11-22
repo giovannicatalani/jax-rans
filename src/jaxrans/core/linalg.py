@@ -25,8 +25,25 @@ class BlockTridiagonalFactor(NamedTuple):
     c_hat: Array
 
 
+SMALL_BLOCK = 8
+"""Blocks up to this size are multiplied elementwise (``_matvec``, ``_matmul``)."""
+
+
 def _matvec(block: Array, vector: Array) -> Array:
+    """``block @ vector`` per batch entry. The small blocks of the line solves
+    (4x4 to 6x6) as a broadcast multiply and a sum, which XLA fuses with its
+    neighbours, where a batched ``dot`` is a separate vendor GEMM launch per
+    product (the reason ``invert_blocks`` is unrolled too)."""
+    if block.shape[-1] <= SMALL_BLOCK:
+        return jnp.sum(block * vector[..., None, :], axis=-1)
     return jnp.einsum("...ij,...j->...i", block, vector)
+
+
+def _matmul(a: Array, b: Array) -> Array:
+    """``a @ b`` per batch entry; small blocks elementwise, as ``_matvec``."""
+    if a.shape[-1] <= SMALL_BLOCK and b.shape[-1] <= SMALL_BLOCK:
+        return jnp.sum(a[..., :, :, None] * b[..., None, :, :], axis=-2)
+    return a @ b
 
 
 def invert_blocks(A: Array) -> Array:
@@ -76,8 +93,8 @@ def factor_block_tridiagonal(
 
     def eliminate(c_prev: Array, blocks: tuple[Array, Array, Array]):
         low, dia, upp = blocks
-        pivot_inverse = invert_blocks(dia - low @ c_prev)
-        c_hat = pivot_inverse @ upp
+        pivot_inverse = invert_blocks(dia - _matmul(low, c_prev))
+        c_hat = _matmul(pivot_inverse, upp)
         return c_hat, (pivot_inverse, c_hat)
 
     _, (pivot_inverse, c_hat) = lax.scan(
@@ -157,11 +174,11 @@ def factor_cyclic_reduction(lower: Array, diag: Array, upper: Array) -> CyclicRe
     while d.shape[0] > 1:
         odd = d.shape[0] // 2
         inverse, low, upp = invert_blocks(d[0::2]), a[0::2], c[0::2]
-        alpha, gamma = a[1::2] @ inverse[:odd], c[1::2] @ _next(inverse, odd)
+        alpha, gamma = _matmul(a[1::2], inverse[:odd]), _matmul(c[1::2], _next(inverse, odd))
         levels.append((inverse, low, upp, alpha, gamma))
-        a, d, c = (-alpha @ low[:odd],
-                   d[1::2] - alpha @ upp[:odd] - gamma @ _next(low, odd),
-                   -gamma @ _next(upp, odd))
+        a, d, c = (-_matmul(alpha, low[:odd]),
+                   d[1::2] - _matmul(alpha, upp[:odd]) - _matmul(gamma, _next(low, odd)),
+                   -_matmul(gamma, _next(upp, odd)))
     return CyclicReductionFactor(tuple(levels), invert_blocks(d))
 
 
