@@ -173,8 +173,16 @@ def _geometry(atlas: Atlas, distance, flow=None) -> dict:
                 "quarter_chord": jnp.asarray(atlas.quarter_chord),
                 "distance": distance, **params}
     if not isinstance(atlas, SectionalAtlas):
-        geometry["wall_nodes"] = (atlas.walls.faces.a, atlas.walls.faces.b)
+        geometry["wall_nodes"] = _wall_nodes(atlas.walls.faces)
     return geometry
+
+
+# Wall geometry per dimension: 2D segments (a, b) end points, 3D quads' corners.
+_WALL_FIELDS = {2: ("a", "b"), 3: ("corners",)}
+
+
+def _wall_nodes(faces) -> tuple:
+    return tuple(getattr(faces, name) for name in _WALL_FIELDS[3 if hasattr(faces, "corners") else 2])
 
 
 def _flow_options(geometry: dict) -> dict:
@@ -193,9 +201,9 @@ def _with_geometry(template: Atlas, geometry: dict) -> Atlas:
         centres=geometry["centres"], stages=stages, quarter_chord=geometry["quarter_chord"])
     if "wall_nodes" not in geometry:        # sectional: its wall quads stay (forces, conical geometry)
         return atlas
-    a, b = geometry["wall_nodes"]
-    return dataclasses.replace(
-        atlas, walls=dataclasses.replace(template.walls, faces=dataclasses.replace(template.walls.faces, a=a, b=b)))
+    names = _WALL_FIELDS[3 if hasattr(template.walls.faces, "corners") else 2]
+    faces = dataclasses.replace(template.walls.faces, **dict(zip(names, geometry["wall_nodes"])))
+    return dataclasses.replace(atlas, walls=dataclasses.replace(template.walls, faces=faces))
 
 
 def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
