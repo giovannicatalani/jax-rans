@@ -118,6 +118,33 @@ def test_declared_boundaries_never_match_and_left_handed_blocks_keep_them() -> N
     assert check_interfaces(mesh) == 2 * 9
 
 
+def wedge(n: int = 3) -> np.ndarray:
+    """A box whose k extent shrinks linearly to zero towards j_max: its j_max
+    side is collapsed to a line (a wake strip pinched at a wing tip)."""
+    nodes = warped_box((n, n, n), amplitude=0.0).copy()
+    z = nodes[2]
+    mid = 0.5 * (z[:, :, :1] + z[:, :, -1:])
+    shrink = 1.0 - np.linspace(0.0, 1.0, n + 1)[None, :, None]
+    nodes[2] = mid + shrink * (z - mid)
+    return nodes
+
+
+def test_a_collapsed_side_the_file_declares_is_a_degenerate_boundary() -> None:
+    nodes = wedge()
+    raw = [RawBlock3D(nodes, (Declared("j_max", (0, 0), (3, 3), name="degenerate"),))]
+    mesh, info = assemble_3d(raw, (PatchRule("outer"),))
+    (rect,) = mesh[0].sides.j_max
+    assert isinstance(rect, BoundaryRect) and rect.patch == "degenerate"
+    assert info.patch_faces["degenerate"] == 9
+    assert float(np.asarray(mesh[0].volume).min()) > 0.0
+    assert np.abs(np.take(np.asarray(mesh[0].faces[1]), -1, axis=2)).max() == 0.0     # zero area
+
+
+def test_an_undeclared_collapsed_side_still_needs_a_periodic_direction() -> None:
+    with pytest.raises(ValueError, match="collapsed but not round one periodic direction"):
+        assemble_3d([RawBlock3D(wedge())], (PatchRule("outer"),))
+
+
 def test_a_declared_interface_must_be_found() -> None:
     nodes = warped_box((2, 2, 4), amplitude=0.0)
     gap = nodes[:, :, :, 2:] + np.array([0.0, 0.0, 0.5])[:, None, None, None]

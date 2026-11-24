@@ -13,7 +13,11 @@ from the geometry:
    one per region with a single affine map to the partner (mesh/block3d.py);
 3. a side collapsed to a line (every face of zero area) is a **pole**: an
    interface with itself across the axis, half a turn round the periodic
-   running direction; that direction must be an O seam of the block;
+   running direction; that direction must be an O seam of the block --
+   unless the file declares a boundary on every one of its faces: then it
+   is a **degenerate boundary**, a patch of zero-area faces that
+   carries no flux (e.g. the edge where a wake strip pinches to zero
+   thickness at a wing tip);
 4. every other face named: by the file (CGNS families and BC types), else by
    the case's patch rules (``PatchRule``, boxes in ``x, y, z``), first match
    wins; a side whose faces get several names is cut into rectangles.
@@ -259,7 +263,7 @@ def assemble_3d(raw: list[RawBlock3D], rules: tuple[PatchRule, ...] = (), dtype=
         sides, poles = {}, []
         for side in SIDES_3D:
             rows = faces.rows(b, side)
-            if np.all(faces.collapsed[rows]):
+            if np.all(faces.collapsed[rows]) and not np.all(declared_name[rows] != None):  # noqa: E711
                 poles.append(side)
                 continue
             labels = np.empty(len(rows), dtype=object)

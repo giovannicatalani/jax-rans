@@ -255,8 +255,11 @@ def _flow(case_doc: dict, sectional: SectionalSpec | None = None) -> FlowConditi
 
 def default_conditions(flow: FlowConditions) -> dict[str, str]:
     """The condition of a patch the case does not name, by the patch's name."""
+    # "degenerate": a patch of zero-area faces (a side collapsed to a line, see
+    # mesh/assemble3d.py) carries no flux whatever its condition
     return {"wall": "slip_wall" if flow.inviscid else "no_slip_wall", "farfield": "far_field",
-            "symmetry": "symmetry", "inflow": "inflow_total", "outflow": "outflow_static"}
+            "symmetry": "symmetry", "inflow": "inflow_total", "outflow": "outflow_static",
+            "degenerate": "symmetry"}
 
 
 def _boundaries(case_doc: dict, flow: FlowConditions) -> tuple[dict[str, str], str]:
