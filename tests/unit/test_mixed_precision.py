@@ -27,6 +27,19 @@ def test_mixed_alias_is_canonical_and_other_modes_keep_their_meaning():
     assert not NumericsConfig().mixed_precision
 
 
+def test_robust_defaults_mixed_implicit_and_chain_thresholds():
+    """Defaults that converge transonic SA polars past CL max (CHANGELOG)."""
+    from jaxrans.core.config import ImplicitConfig
+    assert NumericsConfig(solver="implicit").precision == "mixed"
+    assert NumericsConfig(solver="explicit").precision == "fp64"
+    assert NumericsConfig(solver="implicit", precision="fp64").precision == "fp64"
+    assert NumericsConfig().equation_peak == "chain"
+    config = ImplicitConfig()
+    assert (config.krylov_subspace, config.krylov_restarts, config.krylov_early_exit) == (30, 3, True)
+    case = load_case("examples/rae2822_sensitivity")      # implicit, no precision key
+    assert case.numerics.mixed_precision
+
+
 def test_mixed_does_not_silently_run_explicit_in_double():
     with pytest.raises(ValueError, match="requires the implicit"):
         NumericsConfig(precision="mixed", solver="explicit")

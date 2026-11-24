@@ -138,12 +138,20 @@ class NumericsConfig:
     sectional_relaxation_start: float = 1.0
     sectional_relaxation_end: float = 5.0
 
-    precision: str = "fp64"
+    precision: str | None = None
+    """``None``: ``mixed`` with the implicit solver (FP64 state and residual, the
+    same converged solution as ``fp64`` at a lower linear-solve cost), ``fp64``
+    with the explicit one, which cannot run mixed."""
     equation_abs_tols: tuple[tuple[str, float], ...] = ()
     diagnostics: bool = False
-    equation_peak: str = "point"
+    equation_peak: str = "chain"
+    """``chain``: a continuation point starts near its converged neighbour, so a
+    threshold relative to its own small initial residual would demand orders of
+    magnitude more than the chain's first point had to reach."""
 
     def __post_init__(self) -> None:
+        if self.precision is None:
+            object.__setattr__(self, "precision", "mixed" if self.solver == "implicit" else "fp64")
         if not np.isfinite(self.sectional_depth) or self.sectional_depth <= 0.0:
             raise ValueError("sectional depth must be finite and positive")
         if (not np.isfinite(self.sectional_relaxation_start) or not np.isfinite(self.sectional_relaxation_end)
@@ -226,15 +234,18 @@ class ImplicitConfig:
     preconditioner: str = "line_j"
     jacobian: str = "first_order"
     krylov_tol: float = 1.0e-2
-    krylov_subspace: int = 10
-    krylov_restarts: int = 2
+    # 30 x 3 with early exit: once shock-induced separation appears, 10 x 2
+    # leaves the Newton direction too inexact and the iteration settles on a
+    # residual plateau; early exit keeps the cost near 10 x 2's on easy steps.
+    krylov_subspace: int = 30
+    krylov_restarts: int = 3
     krylov_success: float = 0.5
     krylov_min_progress: float = 1.0e-6
     max_relative_update: float | None = None
     nonlinear_growth_limit: float | None = None
     nonlinear_merit: str = "mass"
     backtracking_steps: int = 0
-    krylov_early_exit: bool = False
+    krylov_early_exit: bool = True
     relaxation: str = "global"
 
     def __post_init__(self) -> None:

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Robust transonic defaults** (behaviour change): `implicit.krylov_subspace`
+  30 (was 10), `krylov_restarts` 3 (was 2), `krylov_early_exit` true;
+  `convergence.equation_peak` `chain` (was `point`); `general.precision`
+  defaults to `mixed` with the implicit solver (`fp64` with the explicit one).
+  On the RAE 2822 2.5D polar (M normal 0.73, Re 6.5e6, SA), the former
+  defaults stopped at alpha 2 deg: at the onset of shock-induced separation
+  10 x 2 GMRES left the Newton direction too inexact and the residual
+  plateaued, `point` thresholds rejected continuation points converged
+  better than the chain's first, and FP32 floors the residual near 1e-5
+  relative. The new defaults settle every angle from 0 to 7 deg, past
+  CL max, in 260-720 iterations; mixed matches FP64 forces and residual
+  levels. Restore the former behaviour per case with the explicit keys.
 - **Sectional qualification, stage D points 1–2**: reproducible independent
   converged 2D/2.5D limit comparisons for Euler, laminar, SA and SA-QCR;
   nested conical SA mesh refinement and separate wall-spacing/far-field

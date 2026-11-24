@@ -76,7 +76,7 @@ CASE: dict[str, tuple[Key, ...]] = {
             "`mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, "
             "preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. "
             "The small GMRES least-squares solve is FP64; convergence tolerances are unchanged",
-            choices=tuple(PRECISIONS)),
+            choices=tuple(PRECISIONS), default_text="`mixed` (implicit), `fp64` (explicit)"),
     ),
     "domain": (
         Key("grid", "string", REQUIRED, "where the grid comes from: generated round one airfoil "

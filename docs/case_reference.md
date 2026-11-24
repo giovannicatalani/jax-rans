@@ -13,7 +13,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `case_name` | string | required | names the output directory |
 | `description` | string | `case_name` | one line, printed in the log |
 | `save_path` | string | `results` | output root, relative to the case directory |
-| `precision` | string | `fp64` | `fp32` or `fp64` fields; geometry is built in FP64. `mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. The small GMRES least-squares solve is FP64; convergence tolerances are unchanged; one of `fp64`, `float64`, `fp32`, `float32`, `mixed`, `mixt` |
+| `precision` | string | `mixed` (implicit), `fp64` (explicit) | `fp32` or `fp64` fields; geometry is built in FP64. `mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. The small GMRES least-squares solve is FP64; convergence tolerances are unchanged; one of `fp64`, `float64`, `fp32`, `float32`, `mixed`, `mixt` |
 
 ### `domain`
 
@@ -143,15 +143,15 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `preconditioner` | string | `line_j` | one of `line_j`, `none` |
 | `jacobian` | string | `first_order` | of the Krylov operator: `first_order` (defect correction) or `exact`; one of `exact`, `first_order` |
 | `krylov_tol` | number | `0.01` | relative linear residual to reach |
-| `krylov_subspace` | integer | `10` | GMRES vectors before a restart |
-| `krylov_restarts` | integer | `2` | GMRES restarts |
+| `krylov_subspace` | integer | `30` | GMRES vectors before a restart |
+| `krylov_restarts` | integer | `3` | GMRES restarts |
 | `krylov_success` | number | `0.5` | linear residual reduction for the CFL to grow |
 | `krylov_min_progress` | number | `1e-06` | minimum useful relative linear-residual decrease, scaled by damping; below this reject the correction and reduce CFL, including after FP64 fallback; 0 restores strict decrease only; does not change convergence tolerances |
 | `max_relative_update` | number or null | `null` | bound on a step's relative change of density, pressure and nu~ (0.2 for SA at incidence) |
 | `nonlinear_growth_limit` | number or null | `null` | reject a step when its nonlinear residual exceeds this multiple of the current residual |
 | `nonlinear_merit` | string | `mass` | nonlinear acceptance merit: mass residual or maximum normalized equation residual; one of `mass`, `equations` |
 | `backtracking_steps` | integer | `0` | maximum correction halvings after rejection, from 0 to 16; 0 disables backtracking |
-| `krylov_early_exit` | boolean | `False` | stop each GMRES cycle as soon as krylov_tol is met (estimated from the Arnoldi relation) instead of always building krylov_subspace vectors |
+| `krylov_early_exit` | boolean | `True` | stop each GMRES cycle as soon as krylov_tol is met (estimated from the Arnoldi relation) instead of always building krylov_subspace vectors |
 | `relaxation` | string | `global` | how max_relative_update bounds a step: `global` (one factor for the whole correction), `split` (one factor for the mean flow, one for the SA row) or `local` (per cell); one of `global`, `split`, `local` |
 
 ### `convergence`
@@ -164,7 +164,7 @@ One entry per patch of the grid, `"<patch>": {"type": ..., "model": ...}`; a pat
 | `equation_abs_tol` | number | `1e-08` | absolute floor for each normalized equation residual |
 | `equation_abs_tols` | object | `{}` | per-equation absolute floor overrides: mass, momentum_x/y/z, energy, sa; unspecified equations use equation_abs_tol; ignored when forces_tol is null |
 | `diagnostics` | boolean | `False` | record detailed equation and nonlinear convergence diagnostics |
-| `equation_peak` | string | `point` | campaigns: relative equation thresholds refer to the residual peak of the `point`, or of the whole continuation `chain` so far (the level the chain's first point had to reach); one of `point`, `chain` |
+| `equation_peak` | string | `chain` | campaigns: relative equation thresholds refer to the residual peak of the `point`, or of the whole continuation `chain` so far (the level the chain's first point had to reach); one of `point`, `chain` |
 | `forces_tol` | number or null | `0.0001` | also require CL, CD and CM to vary by less than this over the last quarter of the iterations (at least four blocks there); null: use `tol` on every equation |
 | `grid_sequencing` | integer | `0` | solve first on this many coarser grids, each the next with every other node (cell counts, patch and interface limits must stay even), each to settled forces or `max_iters`, and start the next from it; 0: the grid only |
 | `block_iters` | integer | 200 explicit, 20 implicit | iterations per device call; forces are monitored at this interval |
