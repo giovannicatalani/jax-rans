@@ -705,3 +705,13 @@ def test_chains_validation(cases, grids):
                      continuation=module.ContinuationPolicy(adaptive=True))
     with pytest.raises(ValueError, match="slots"):
         run_campaign([PolarRequest("p", cases[0], (0.0, 1.0), grids[0], chains=2)], scheduler="rounds")
+
+
+def test_geometry_round_trip_3d_wall_quads():
+    """A 3D atlas carries its wall quads' corners as campaign geometry."""
+    case = load_case(Path(__file__).resolve().parents[2] / "examples" / "onera_m6_sa")
+    atlas = case.grid()
+    geometry = module._geometry(atlas, None, case.flow)
+    assert len(geometry["wall_nodes"]) == 1
+    rebuilt = module._with_geometry(atlas, geometry)
+    np.testing.assert_array_equal(rebuilt.walls.faces.corners, atlas.walls.faces.corners)

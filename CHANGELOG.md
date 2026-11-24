@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Campaigns on 3D wings**: `jaxrans.campaign` accepts 3D grids (wall quads
+  as batch geometry); use `batch_size` 1. Machs, alphas, continuation from the
+  previous converged field and `--resume` work as in 2D (checked on the ONERA M6
+  example). Replaces `examples/run_wing_polar.py`.
 - **Robust transonic defaults** (behaviour change): `implicit.krylov_subspace`
   30 (was 10), `krylov_restarts` 3 (was 2), `krylov_early_exit` true;
   `convergence.equation_peak` `chain` (was `point`); `general.precision`
