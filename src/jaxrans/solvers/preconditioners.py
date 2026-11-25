@@ -214,7 +214,8 @@ def chain_layout(atlas: Atlas) -> Layout:
         if len(axes) == 1 and len(spans) == 1 and axes != {0}:
             (axis,), ((start, stop),) = axes, spans
             layout = SliceChains(atlas, axis, slice(start, stop))
-            if int(layout.valid.sum()) == int((atlas.lines.cells >= 0).sum()):
+            if (layout.valid.shape == atlas.lines.cells.shape
+                    and int(layout.valid.sum()) == int((atlas.lines.cells >= 0).sum())):
                 return layout
     return ChainLayout(atlas)
 

@@ -249,27 +249,93 @@ def _neighbour_map(mesh, pos, n_canvas: int) -> np.ndarray:
 
 
 def _lines(mesh, origins, g: int, canvas) -> Lines:
-    """One chain per block and pair of indices, along the block's
-    ``line_axis``; links across the faces between its cells (flat indices
-    into the canvas face arrays of the three families, concatenated)."""
+    """1D chains along each block's ``line_axis``, stitched end-to-end across
+    collinear 1-to-1 interfaces (C-grid wake cuts and blunt-base wake strips)."""
     dims = [tuple(n + (a == x) for x, n in enumerate(canvas)) for a in range(3)]
     offsets = np.cumsum([0] + [int(np.prod(d)) for d in dims])
-    chains, faces = [], []
-    for block, origin in zip(mesh, origins):
+    chains: dict[int, np.ndarray] = {}
+    head_end: dict[int, tuple | None] = {}
+    tail_end: dict[int, tuple | None] = {}
+    end_to_chain: dict[tuple, tuple[int, str]] = {}
+    cid = 0
+    for b, (block, origin) in enumerate(zip(mesh, origins)):
         axis = line_axis(block)
-        cells = np.stack(np.meshgrid(*(o + g + np.arange(n) for o, n in zip(origin, block.shape)), indexing="ij"))
-        cells = np.moveaxis(cells, 1 + axis, -1).reshape(3, -1, block.shape[axis])  # chains, cells along
-        above = cells.copy()
+        r_axes = running_axes(f"{'ijk'[axis]}_min")
+        perm = (*r_axes, axis)
+        c_idx = np.stack(np.meshgrid(*(o + g + np.arange(n) for o, n in zip(origin, block.shape)), indexing="ij"))
+        above = c_idx.copy()
         above[axis] += 1
-        chains.append(np.ravel_multi_index(tuple(cells), canvas))
-        faces.append(offsets[axis] + np.ravel_multi_index(tuple(above), dims[axis]))
-    length = max(c.shape[1] for c in chains)
-    pad = lambda a, fill: np.pad(a, ((0, 0), (0, length - a.shape[1])), constant_values=fill)  # noqa: E731
-    cells = np.concatenate([pad(c, -1) for c in chains]).astype(np.int64)
-    up_sign = ((cells >= 0) & (np.roll(cells, -1, axis=1) >= 0)).astype(np.int64)
-    up_sign[:, -1] = 0
-    face = np.where(up_sign != 0, np.concatenate([pad(f, 0) for f in faces]), 0).astype(np.int64)
-    return Lines(cells, face, up_sign, face.copy(), -up_sign)
+        c_flat = np.ravel_multi_index(tuple(c_idx), canvas).transpose(perm)
+        f_min = (offsets[axis] + np.ravel_multi_index(tuple(c_idx), dims[axis])).transpose(perm)
+        f_max = (offsets[axis] + np.ravel_multi_index(tuple(above), dims[axis])).transpose(perm)
+        nu, nv, nl = c_flat.shape
+        minus, plus = np.full(nl, -1, dtype=np.int64), np.ones(nl, dtype=np.int64)
+        for u in range(nu):
+            for v in range(nv):
+                # Columns: [cell, in_face, in_sign, out_face, out_sign]
+                chains[cid] = np.stack([c_flat[u, v], f_min[u, v], minus, f_max[u, v], plus], axis=1)
+                e_min, e_max = (b, u, v, "min"), (b, u, v, "max")
+                head_end[cid], tail_end[cid] = e_min, e_max
+                end_to_chain[e_min] = (cid, "head")
+                end_to_chain[e_max] = (cid, "tail")
+                cid += 1
+
+    def flip(seg: np.ndarray) -> np.ndarray:
+        return seg[::-1][:, [0, 3, 4, 1, 2]]
+
+    for b, block in enumerate(mesh):
+        axis = line_axis(block)
+        for end1, side in (("min", f"{'ijk'[axis]}_min"), ("max", f"{'ijk'[axis]}_max")):
+            for rect in block.sides.side(side):
+                if not isinstance(rect, InterfaceRect):
+                    continue
+                b2 = rect.block
+                if normal_axis(rect.side) != line_axis(mesh[b2]):
+                    continue
+                end2 = "min" if rect.side.endswith("min") else "max"
+                for u in range(rect.start[0], rect.stop[0]):
+                    for v in range(rect.start[1], rect.stop[1]):
+                        pu, pv = rect.partner((u, v))
+                        e1, e2 = (b, u, v, end1), (b2, int(pu), int(pv), end2)
+                        if e1 not in end_to_chain or e2 not in end_to_chain:
+                            continue
+                        c1, pos1 = end_to_chain[e1]
+                        c2, pos2 = end_to_chain[e2]
+                        if c1 == c2:
+                            continue
+                        if pos1 == "head":
+                            chains[c1] = flip(chains[c1])
+                            head_end[c1], tail_end[c1] = tail_end[c1], head_end[c1]
+                            if head_end[c1] is not None:
+                                end_to_chain[head_end[c1]] = (c1, "head")
+                        if pos2 == "tail":
+                            chains[c2] = flip(chains[c2])
+                            head_end[c2], tail_end[c2] = tail_end[c2], head_end[c2]
+                            if tail_end[c2] is not None:
+                                end_to_chain[tail_end[c2]] = (c2, "tail")
+                        del end_to_chain[e1], end_to_chain[e2]
+                        chains[c1] = np.concatenate([chains[c1], chains.pop(c2)], axis=0)
+                        new_tail = tail_end.pop(c2)
+                        head_end.pop(c2)
+                        tail_end[c1] = new_tail
+                        if new_tail is not None:
+                            end_to_chain[new_tail] = (c1, "tail")
+
+    ordered = list(chains.values())
+    n_lines, length = len(ordered), max(len(s) for s in ordered)
+    cells = np.full((n_lines, length), -1, dtype=np.int64)
+    up_face = np.zeros((n_lines, length), dtype=np.int64)
+    up_sign = np.zeros((n_lines, length), dtype=np.int64)
+    down_face = np.zeros((n_lines, length), dtype=np.int64)
+    down_sign = np.zeros((n_lines, length), dtype=np.int64)
+    for row, seg in enumerate(ordered):
+        m = len(seg)
+        cells[row, :m] = seg[:, 0]
+        up_face[row, :m - 1] = seg[:-1, 3]
+        up_sign[row, :m - 1] = seg[:-1, 4]
+        down_face[row, :m - 1] = seg[1:, 1]
+        down_sign[row, :m - 1] = seg[1:, 2]
+    return Lines(cells, up_face, up_sign, down_face, down_sign)
 
 
 def _walls(mesh, origins, pos, g: int, canvas) -> Walls:
