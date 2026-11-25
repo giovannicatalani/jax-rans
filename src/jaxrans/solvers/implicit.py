@@ -155,10 +155,11 @@ def relax_correction(dU: Array, U: Array, gamma: float, fraction: float | None, 
             return omega * dU, omega, omega >= 1.0, True
         rows = Rows(dim)
         nu_hat = U[rows.nu] / rho
-        own = jnp.max(jnp.abs(dU[rows.nu]) / (rho * jnp.maximum(jnp.abs(nu_hat), 1.0)))
+        own = jnp.max(jnp.abs(dU[rows.nu]) / (rho * jnp.maximum(jnp.abs(nu_hat), 10.0)))
         omega_sa = jnp.minimum(one, fraction / jnp.maximum(own, floor_like(own)))
         scale = jnp.concatenate([jnp.full((rows.n_flow,), omega, dU.dtype), omega_sa[None].astype(dU.dtype)])
-        return scale.reshape((-1,) + (1,) * (dU.ndim - 1)) * dU, omega, omega >= 1.0, False
+        ramp_ok = (omega >= 1.0) & (omega_sa >= 0.5)
+        return scale.reshape((-1,) + (1,) * (dU.ndim - 1)) * dU, jnp.minimum(omega, omega_sa), ramp_ok, False
     if mode == "local":
         worst = jnp.maximum(flow[0], flow[1]) if sa is None else jnp.maximum(jnp.maximum(flow[0], flow[1]), sa)
         factor = jnp.minimum(one, fraction / jnp.maximum(worst, floor_like(worst)))
@@ -345,7 +346,7 @@ def make_newton_step(
         cfl_next = jnp.where(
             accept & (linear_reduction < config.krylov_success) & ramp_ok & (factor >= 1.0),
             cfl * jnp.clip(reduction, 1.0, config.cfl_growth),
-            jnp.where(accept, cfl, cfl / config.cfl_cutback),
+            jnp.where(accept, jnp.where(linear_reduction > 0.95, 0.5 * cfl, cfl), cfl / config.cfl_cutback),
         )
 
         kept = jnp.where(accept, candidate, U)

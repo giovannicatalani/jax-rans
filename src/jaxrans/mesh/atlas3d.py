@@ -97,16 +97,20 @@ def _pack_3d(tiles: list[tuple[int, int, int]]):
 def line_axis(block: Grid) -> int:
     """The index direction of a block's line chains: the normal of its wall
     faces (of the most of them, if on several axes), else of its far-field
-    faces (the outer blocks of a wall-to-far-field family); ``j`` without
-    either."""
+    faces (the outer blocks of a wall-to-far-field family), unless another
+    axis is an order of magnitude thinner (e.g. across a blunt-base wake strip)."""
+    nodes = np.asarray(block.nodes)
+    medians = [float(np.median(np.linalg.norm(np.diff(nodes, axis=1 + a), axis=0))) for a in range(3)]
+    thin = int(np.argmin(medians)) if max(medians) > 0.0 else 1
     for kinds in (WALL_KINDS, ("far_field",)):
         count = [0, 0, 0]
         for side, rect in block.sides.boundaries():
             if rect.kind in kinds:
                 count[normal_axis(side)] += (rect.stop[0] - rect.start[0]) * (rect.stop[1] - rect.start[1])
         if max(count):
-            return int(np.argmax(count))
-    return 1
+            ax = int(np.argmax(count))
+            return thin if (medians[ax] > 0.0 and medians[thin] < 0.1 * medians[ax]) else ax
+    return thin
 
 
 def fill_order(block: Grid) -> tuple[int, int, int]:
