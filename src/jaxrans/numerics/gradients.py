@@ -42,12 +42,17 @@ def _corner_average(a: Array, dim: int) -> Array:
 def _solve2(d1x, d1y, d2x, d2y, dphi1, dphi2) -> Array:
     """``grad . d1 = dphi1``, ``grad . d2 = dphi2`` by Cramer's rule: ``(2, ...)``."""
     det = d1x * d2y - d2x * d1y
+    valid = jnp.abs(det) > 1e-300
+    safe_det = jnp.where(valid, det, 1.0)
     if dphi1.dtype == jnp.float32:
         # Coordinates can differ by microns near a wall. Form the inverse
         # geometry in FP64, then apply it to the fields entirely in FP32.
-        a, b, c, d = (v.astype(dphi1.dtype) for v in (d2y / det, -d1y / det, -d2x / det, d1x / det))
+        a, b, c, d = (jnp.where(valid, v / safe_det, 0.0).astype(dphi1.dtype)
+                      for v in (d2y, -d1y, -d2x, d1x))
         return jnp.stack([a * dphi1 + b * dphi2, c * dphi1 + d * dphi2])
-    return jnp.stack([(dphi1 * d2y - dphi2 * d1y) / det, (d1x * dphi2 - d2x * dphi1) / det])
+    grad = jnp.stack([(dphi1 * d2y - dphi2 * d1y) / safe_det,
+                      (d1x * dphi2 - d2x * dphi1) / safe_det])
+    return jnp.where(valid[None], grad, 0.0)
 
 
 def _cross(a: Array, b: Array) -> Array:
@@ -58,10 +63,14 @@ def _solve3(d1: Array, d2: Array, d3: Array, dphi1, dphi2, dphi3) -> Array:
     """``grad . d_m = dphi_m``: ``grad = sum_m dphi_m (d_m+1 x d_m+2) / det``, ``(3, nvar, ...)``."""
     c23, c31, c12 = _cross(d2, d3), _cross(d3, d1), _cross(d1, d2)
     det = d1[0] * c23[0] + d1[1] * c23[1] + d1[2] * c23[2]
+    valid = jnp.abs(det) > 1e-300
+    safe_det = jnp.where(valid, det, 1.0)
     if dphi1.dtype == jnp.float32:
-        a, b, c = ((cofactor / det).astype(dphi1.dtype)[:, None] for cofactor in (c23, c31, c12))
+        a, b, c = (jnp.where(valid, cofactor / safe_det, 0.0).astype(dphi1.dtype)[:, None]
+                   for cofactor in (c23, c31, c12))
         return a * dphi1 + b * dphi2 + c * dphi3
-    return (dphi1 * c23[:, None] + dphi2 * c31[:, None] + dphi3 * c12[:, None]) / det[None, None]
+    num = dphi1 * c23[:, None] + dphi2 * c31[:, None] + dphi3 * c12[:, None]
+    return jnp.where(valid[None, None], num / safe_det[None, None], 0.0)
 
 
 def face_gradients(phi: Array, centres: Array) -> tuple[Array, ...]:
