@@ -144,7 +144,7 @@ def build_atlas_3d(mesh, g: int = 2) -> Atlas:
         tile_centres, tile_volume, tile_faces = metrics(_extended_nodes(np.asarray(block.nodes, dtype=np.float64), g))
         tile = tuple(slice(o, o + n) for o, n in zip(origin, tile_volume.shape))
         centres[(slice(None),) + tile] = tile_centres
-        volume[tile] = np.where(np.abs(tile_volume) > 1e-300, tile_volume, 1.0)
+        volume[tile] = np.where(np.abs(tile_volume) > 1e-300, np.abs(tile_volume), 1.0)
         volume[window] = np.asarray(block.volume)
         for a, f in enumerate(tile_faces):
             faces[a][(slice(None),) + tuple(slice(o, o + n) for o, n in zip(origin, f.shape[1:]))] = f
