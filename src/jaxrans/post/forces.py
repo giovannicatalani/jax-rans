@@ -332,6 +332,18 @@ def _surface_3d(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.nd
     return out
 
 
+def surface_zones(atlas: Atlas):
+    """Zone name, running dimensions and table rows of each 3D wall patch."""
+    # Same block, side and rectangle order as mesh/wall3d.py's wall_quads.
+    start = 0
+    for block, grid in enumerate(atlas.mesh):
+        for patch, (side, rect) in enumerate(grid.sides.walls()):
+            ni, nj = (hi - lo for lo, hi in zip(rect.start, rect.stop))
+            stop = start + ni * nj
+            yield f"Block {block} {side} patch {patch}", (ni, nj), slice(start, stop)
+            start = stop
+
+
 def pressure_lift(U: Array, atlas: Atlas, freestream: Array, gamma: float) -> Array:
     """Pressure lift coefficient per unit reference area, traceable, for
     freestream primitives ``(rho, V, p)``: a batched polar's per-block monitor.

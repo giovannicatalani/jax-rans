@@ -4,16 +4,15 @@ to round-off.
 
 Four CPU devices, forced in a subprocess as the two-device polar test does,
 both versions in it (another process compiles for another CPU configuration).
-From a perturbed state, 40 implicit steps agree to 1e-13 on the M6 example,
+With a fixed FP64 Krylov workload from a perturbed state, 40 implicit steps agree to 1e-13 on the M6 example,
 1e-10 on the small C-grid.
-Multi-block 3D: the M6 cut into blocks, as cut (every block's lines along
-``j``: the slice chains) and re-indexed (lines along two axes: the flat
-chains), written to CGNS (tests/unit/test_assemble3d.py).
+Multi-block 3D: the M6 cut into blocks, with both its original and rotated
+index directions, written to CGNS (tests/unit/test_assemble3d.py).
 From freestream they do not, by design of inexact Newton: the first residual
 is tiny, GMRES stops at 1e-2 of it, and round-off decides whether a restart
 cycle runs, so the first updates differ by ~1e-6 (then 2e-8 after 40 steps,
 both converging on the same solution); there ``run(..., devices=...)`` is
-only checked to run end to end.
+checked to run end to end in the default mixed precision.
 """
 
 from __future__ import annotations
@@ -79,7 +78,9 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
         from jaxrans.solvers.driver import make_block, slab_shardings
         assert len(jax.devices()) == 4, jax.devices()
         from jaxrans.solvers.preconditioners import chain_layout
-        case = load_case({str(directory)!r}, {sets!r})
+        reference = ("case.general.precision=fp64", "numerical.implicit.krylov_subspace=10",
+                     "numerical.implicit.krylov_restarts=2", "numerical.implicit.krylov_early_exit=false")
+        case = load_case({str(directory)!r}, {sets!r} + reference)
         grid = case.grid()
         slabs = SlabAtlas.of(grid, jax.devices())
         print("layout", type(chain_layout(slabs)).__name__)
@@ -104,8 +105,9 @@ def test_four_slabs_compute_the_one_device_step(name, tmp_path) -> None:
     done = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env,
                           capture_output=True, text=True, timeout=1800)
     assert done.returncode == 0, done.stderr[-3000:]
-    expected = "ChainLayout" if name in ("2d", "2d_swept", "3d_reindexed") else "SliceChains"
-    assert f"layout {expected}" in done.stdout, done.stdout
+    # The padded test canvases select flat chains. SliceChains requires a
+    # chain matrix with the same shape as the atlas's actual line chains.
+    assert "layout ChainLayout" in done.stdout, done.stdout
     out = np.load(tmp_path / "out.npz")
     assert np.max(np.abs(out["R4"] - out["R1"])) <= 1e-12 * np.max(np.abs(out["R1"]))
     # 40 implicit steps amplify the round-off: measured 1e-13 (M6), 1e-10 (the C-grid).

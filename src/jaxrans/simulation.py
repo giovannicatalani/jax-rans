@@ -33,7 +33,7 @@ from .mesh.sectional import SectionalAtlas
 from .numerics.residual import make_residual
 from .numerics.slabs import SlabAtlas
 from .case import Case
-from .post.forces import Forces, integrate_forces, surface
+from .post.forces import Forces, integrate_forces, surface, surface_zones
 from .io.output import ResultWriter
 from .solvers import explicit, implicit
 from .solvers.driver import ConvergenceHistory, run_to_steady
@@ -153,6 +153,7 @@ class Result:
                 "cells": self.cells,
                 "field_dtype": str(self.U.dtype),
                 "precision_policy": {"state": str(self.U.dtype), "residual": str(self.U.dtype),
+                                     "jacobian": "float32" if self.case.numerics.mixed_precision else str(self.U.dtype),
                                      "krylov_basis": "float32" if self.case.numerics.mixed_precision else str(self.U.dtype),
                                      "preconditioner": "float32" if self.case.numerics.mixed_precision else str(self.U.dtype)},
                 "grid_quality": quality(self.grid.mesh).record(),
@@ -187,7 +188,10 @@ class Result:
         writer.write_lift_history(self.cl_history, self.case.block_iters)
         writer.write_solver_history(self.coefficients_history, self.convergence_history,
                                     self.history.block_diagnostics, self.case.block_iters)
-        writer.write_surface(self.surface())
+        wall = self.surface()
+        writer.write_surface(wall)
+        if "z" in wall and wall["z"].size:
+            writer.write_surface_tecplot(wall, surface_zones(self.grid))
         blocks = [np.asarray(u) for u in self.grid.unpack(self.U)]
         writer.write_fields(blocks, [np.asarray(b.nodes) for b in self.grid.mesh])
         if self.grid.dim == 3:

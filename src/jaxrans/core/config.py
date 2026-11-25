@@ -205,7 +205,7 @@ class NumericsConfig:
 
     @property
     def mixed_precision(self) -> bool:
-        """FP64 outer iteration with FP32 preconditioner and Krylov storage."""
+        """FP64 outer iteration with FP32 Jacobian products, line factors and Krylov storage."""
         return self.precision == "mixed"
 
     @property

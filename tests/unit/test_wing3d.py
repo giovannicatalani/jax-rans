@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from jaxrans.core.config import FlowConditions, NumericsConfig
+from jaxrans.io.output import ResultWriter
 from jaxrans.mesh.assemble import PatchRule
 from jaxrans.mesh.assemble3d import _rectangles, assemble_3d, load_grid_3d
 from jaxrans.mesh.atlas import build_atlas
@@ -17,7 +18,7 @@ from jaxrans.mesh.block3d import BoundaryRect, InterfaceRect
 from jaxrans.mesh.cgns import RawBlock3D
 from jaxrans.mesh.mesh import assign_conditions
 from jaxrans.numerics.residual import make_residual
-from jaxrans.post.forces import ForceReference, force_coefficients, integrate_forces, surface
+from jaxrans.post.forces import ForceReference, force_coefficients, integrate_forces, surface, surface_zones
 from validation.sections import section
 
 from .test_grid3d import M6_SAMPLE, warped_box
@@ -108,6 +109,30 @@ def test_a_3d_case_needs_a_reference_area() -> None:
     atlas = SimpleNamespace(dim=3, components=3)     # the check comes before any use of the grid
     with pytest.raises(ValueError, match="reference_area"):
         force_coefficients(jnp.zeros(1), atlas, FlowConditions(mach=0.5), ForceReference())
+
+
+def test_tecplot_surface_writes_each_wall_rectangle_with_i_fastest(tmp_path):
+    nodes = warped_box((3, 2, 2), amplitude=0.0)
+    rules = (PatchRule("bottom", y_max=1e-9), PatchRule("left", x_max=1e-9), PatchRule("farfield"))
+    mesh, _ = assemble_3d([RawBlock3D(nodes)], rules)
+    mesh = assign_conditions(mesh, {"bottom": "slip_wall", "left": "slip_wall", "farfield": "far_field"})
+    atlas = build_atlas(mesh, 2)
+    op = make_residual(atlas, FlowConditions(mach=0.5), NumericsConfig())
+    wall = surface(op.initial_state(), atlas, FlowConditions(mach=0.5))
+    wall["cf_x"], wall["cf_y"] = np.full(10, 3.0), np.full(10, 4.0)
+
+    writer = ResultWriter(tmp_path, "wing")
+    legacy = writer.write_surface(wall)
+    export = writer.write_surface_tecplot(wall, surface_zones(atlas))
+    title, variables, zone1, *rows = export.read_text().splitlines()
+    assert title.startswith("TITLE =")
+    assert variables == 'VARIABLES = "X" "Y" "Z" "Cp" "Cf_x" "Cf_y" "Cf_z" "Cf_mag"'
+    assert 'I=3, J=2, K=1, ZONETYPE=ORDERED, DATAPACKING=POINT' in zone1
+    assert 'I=2, J=2, K=1, ZONETYPE=ORDERED, DATAPACKING=POINT' in rows[6]
+    points = np.loadtxt(rows[:6] + rows[7:])
+    order = [0, 2, 4, 1, 3, 5, 6, 8, 7, 9]
+    np.testing.assert_allclose(points[:, :4], np.loadtxt(legacy)[order, 3:7], atol=1e-12)
+    np.testing.assert_array_equal(points[:, 4:], np.tile([3., 4., 0., 5.], (10, 1)))
 
 
 @needs_sample

@@ -1,4 +1,4 @@
-"""FP64 Newton/restart residuals with FP32 Krylov vectors and line factors."""
+"""FP64 Newton/restart residuals with FP32 Jacobian products, vectors and line factors."""
 
 from types import SimpleNamespace
 
@@ -10,7 +10,7 @@ import pytest
 from jaxrans.core.config import FlowConditions, ImplicitConfig, NumericsConfig
 from jaxrans.mesh.block import Grid, rectangle_sides
 from jaxrans.numerics.residual import make_residual
-from jaxrans.solvers import implicit, preconditioners as pre
+from jaxrans.solvers import implicit, krylov, preconditioners as pre
 from jaxrans.solvers.krylov import gmres_right
 
 from ..single import atlas_of
@@ -148,7 +148,7 @@ def test_vmap_fallback_preserves_the_successful_mixed_case(monkeypatch):
     assert np.asarray(report.accepted).all()
 
 
-def test_small_rans_step_keeps_factors_and_basis_single_but_operator_double(monkeypatch):
+def test_small_rans_step_keeps_factors_basis_and_jvp_single_but_residual_double(monkeypatch):
     nodes = np.stack(np.meshgrid(np.linspace(0., 1., 5), np.linspace(0., .3, 4), indexing="ij"))
     grid = Grid.from_node_array(nodes, rectangle_sides(
         4, 3, j_min="wall", j_max="farfield", i_min="farfield", i_max="farfield"))
@@ -161,12 +161,18 @@ def test_small_rans_step_keeps_factors_and_basis_single_but_operator_double(monk
     factored, basis = [], []
     original_factor = pre.factor_cyclic_reduction
     original_gmres = implicit.gmres_right
-    original_lstsq = jnp.linalg.lstsq
+    original_linearize = jax.linearize
+    original_backsolve = krylov._backsolve
 
-    def lstsq(h, rhs, **kwargs):
-        assert h.shape == (config.krylov_subspace + 1, config.krylov_subspace)
+    def backsolve(h, rhs, rcond):
+        assert h.shape == (config.krylov_subspace, config.krylov_subspace)
         assert h.dtype == rhs.dtype == jnp.float64
-        return original_lstsq(h, rhs, **kwargs)
+        return original_backsolve(h, rhs, rcond)
+
+    def linearize(fun, u):
+        value, tangent = original_linearize(fun, u)
+        assert value.dtype == u.dtype
+        return value, tangent
 
     def factor(lower, diagonal, upper):
         result = original_factor(lower, diagonal, upper)
@@ -178,9 +184,10 @@ def test_small_rans_step_keeps_factors_and_basis_single_but_operator_double(monk
         assert b.dtype == jnp.float64
 
         def action(v):
-            assert v.dtype == jnp.float64
+            expected = kwargs["operator_dtype"] or b.dtype
+            assert v.dtype == expected
             result = matvec(v)
-            assert result.dtype == jnp.float64
+            assert result.dtype == expected
             return result
 
         def apply(r):
@@ -195,7 +202,8 @@ def test_small_rans_step_keeps_factors_and_basis_single_but_operator_double(monk
 
     monkeypatch.setattr(pre, "factor_cyclic_reduction", factor)
     monkeypatch.setattr(implicit, "gmres_right", gmres)
-    monkeypatch.setattr(jnp.linalg, "lstsq", lstsq)
+    monkeypatch.setattr(jax, "linearize", linearize)
+    monkeypatch.setattr(krylov, "_backsolve", backsolve)
     result, norm, report = jax.jit(implicit.make_newton_step(
         operator, config, mixed_precision=True, diagnostics=True))(state)
     # Both branches are traced, but both flow and SA factors must be FP32 in

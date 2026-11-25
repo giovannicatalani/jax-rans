@@ -16,6 +16,7 @@ import json
 import platform
 import subprocess
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -119,6 +120,24 @@ class ResultWriter:
         path = self.directory / f"{self.case_name}_surface.dat"
         np.savetxt(path, np.column_stack([np.asarray(v) for v in surface.values()]),
                    header=" ".join(names.get(k, k) for k in surface), fmt="%.12e")
+        return path
+
+    def write_surface_tecplot(
+        self, surface: dict[str, np.ndarray], zones: Iterable[tuple[str, tuple[int, int], slice]]
+    ) -> Path:
+        """Wall-face centres in ordered POINT zones, one per rectangular patch."""
+        shear = np.column_stack([surface.get(f"cf_{c}", np.zeros_like(surface["cp"])) for c in "xyz"])
+        data = np.column_stack([*(surface[k] for k in ("x", "y", "z", "cp")),
+                                shear, np.linalg.norm(shear, axis=1)])
+        path = self.directory / f"{self.case_name}_surface_tecplot.dat"
+        with path.open("w", encoding="ascii") as out:
+            out.write('TITLE = "Wall surface"\n'
+                      'VARIABLES = "X" "Y" "Z" "Cp" "Cf_x" "Cf_y" "Cf_z" "Cf_mag"\n')
+            for name, (ni, nj), rows in zones:
+                out.write(f'ZONE T="{name}", I={ni}, J={nj}, K=1, ZONETYPE=ORDERED, DATAPACKING=POINT\n')
+                # Wall faces are stored with the second running index fastest.
+                points = data[rows].reshape(ni, nj, data.shape[1]).transpose(1, 0, 2)
+                np.savetxt(out, points.reshape(-1, data.shape[1]), fmt="%.12e")
         return path
 
     def write_solver_history(self, coefficients, convergence, diagnostics, block_iters: int) -> None:
