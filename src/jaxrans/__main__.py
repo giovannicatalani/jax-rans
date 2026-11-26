@@ -31,6 +31,8 @@ def main(argv: list[str] | None = None) -> int:
                         metavar="FILE.SECTION.KEY=VALUE", help="override one key; repeatable")
     parser.add_argument("--out", type=Path, help="output directory (default: <save_path>/<case_name>)")
     parser.add_argument("--quiet", action="store_true", help="no progress lines")
+    parser.add_argument("--device-convergence", action="store_true",
+                        help="monitor and stop on one device, without live progress lines")
     parser.add_argument("--devices", type=int, default=1,
                         help="split the case over this many GPUs (slabs of its first grid axis)")
     parser.add_argument("--check", action="store_true",
@@ -46,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         devices = jax.devices()[:args.devices] if args.devices > 1 else None
         if devices is not None and len(devices) < args.devices:
             raise ValueError(f"--devices {args.devices}, but only {len(devices)} device(s) visible")
+        if devices is not None and args.device_convergence:
+            raise ValueError("--device-convergence requires a single device")
     except (CaseError, FileNotFoundError, ValueError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -65,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
         name = f"coarse level {level} (1/{2 ** level} of the nodes in each direction)" if level else "the case's grid"
         print(f"grid sequencing: {name}, {atlas.cells} cells")
 
-    result = run(case, grid, progress=None if args.quiet else progress, on_level=on_level, devices=devices)
+    result = run(case, grid, progress=None if args.quiet or args.device_convergence else progress,
+                 on_level=on_level, devices=devices, device_convergence=args.device_convergence)
     directory = result.write(args.out)
     for k, level in enumerate(result.levels):
         print(f"level {len(result.levels) - k}: {level['cells']} cells, {level['exit_reason']} after "

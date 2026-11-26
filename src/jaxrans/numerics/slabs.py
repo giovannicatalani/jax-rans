@@ -10,10 +10,8 @@ an ordinary atlas never reaches it. Three pieces:
   whole canvas would (at the canvas's two ends, the edge padding the unsplit
   residual uses). One exchange per evaluation, in place of one per shifted
   array that automatic partitioning makes;
-* the ghost fill and the neighbour fill of the face averages gather and write
-  only the cells that move (the same values as ``boundary.fill_ghosts`` and
-  ``Atlas.fill_neighbours``, which gather the whole canvas: split, a whole
-  gather is a copy of the state to every device);
+* the neighbour fill of the face averages gathers and writes only the cells
+  that move, as does the shared ``boundary.fill_ghosts``;
 * the line chains (``solvers/preconditioners.py``) take their slice form.
 
 Geometry (volumes, face vectors, centres, wall distance) is cut once, each
@@ -31,7 +29,7 @@ import numpy as np
 from jax import Array, lax
 
 from ..mesh.atlas import Atlas
-from . import boundary as bc
+from .boundary import fill_ghosts as fill_ghosts
 
 SPACE_AXIS = "space"
 """The device axis of a slab decomposition (the driver splits the state on it too)."""
@@ -64,25 +62,6 @@ class SlabAtlas(Atlas):
         flat = a.reshape(lead + (-1,))
         moved = np.flatnonzero(self.neighbours != np.arange(self.neighbours.size))
         return flat.at[..., moved].set(flat[..., self.neighbours[moved]]).reshape(a.shape)
-
-
-def fill_ghosts(q: Array, atlas: SlabAtlas, conditions: bc.Conditions) -> Array:
-    """``boundary.fill_ghosts``, gathering and writing only each stage's ghosts
-    (its ``index`` is the identity elsewhere)."""
-    flat = q.reshape(q.shape[0], -1)
-    n = flat.shape[1]
-    for stage in atlas.stages:
-        ghosts = np.flatnonzero(stage.index != np.arange(n))
-        source = stage.index[ghosts]
-        copied = source < n                      # the rest take a boundary condition's value
-        values = [bc.CONDITIONS[kind](flat[:, cells], bc.Face(jnp.asarray(normal, dtype=q.dtype),
-                                                           jnp.asarray(midpoint, dtype=q.dtype)), conditions)
-                  for kind, cells, normal, midpoint in stage.conditions]       # from the stage's start, as unsplit
-        new = flat.at[:, ghosts[copied]].set(flat[:, source[copied]])
-        if values:
-            new = new.at[:, ghosts[~copied]].set(jnp.concatenate(values, axis=1)[:, source[~copied] - n])
-        flat = new
-    return flat.reshape(q.shape)
 
 
 def _pieces(a, rows: int, extra: int, n: int, axis: int) -> np.ndarray:

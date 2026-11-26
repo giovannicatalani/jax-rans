@@ -73,8 +73,8 @@ CASE: dict[str, tuple[Key, ...]] = {
         Key("description", "string", None, "one line, printed in the log", default_text="`case_name`"),
         Key("save_path", "string", "results", "output root, relative to the case directory"),
         Key("precision", "string", _N.precision, "`fp32` or `fp64` fields; geometry is built in FP64. "
-            "`mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, "
-            "preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. "
+            "`mixed` (`mixt` alias, implicit only) keeps state and nonlinear residual in FP64, "
+            "with FP32 Jacobian products, preconditioner and Krylov basis and automatic FP64 linear fallback. "
             "The small GMRES least-squares solve is FP64; convergence tolerances are unchanged",
             choices=tuple(PRECISIONS), default_text="`mixed` (implicit), `fp64` (explicit)"),
     ),

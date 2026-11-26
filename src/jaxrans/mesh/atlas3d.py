@@ -222,10 +222,13 @@ def _passes(stages: list[Stage], interior: np.ndarray) -> int:
     for passes in range(1, MAX_PASSES + 1):
         clean = True
         for stage in stages:
-            written = stage.index != np.arange(len(filled))
-            read = np.concatenate([filled] + [filled[source] for _, source, _, _ in stage.conditions])[stage.index]
-            clean &= bool(np.all(read[written]))
-            filled = np.where(written, read, filled)
+            written, copied, physical = stage.ghost_updates
+            read = filled[copied]
+            if stage.conditions:
+                boundary = np.concatenate([filled[source] for _, source, _, _ in stage.conditions])
+                read = np.concatenate([read, boundary[physical]])
+            clean &= bool(np.all(read))
+            filled[written] = read
         if clean:
             return passes
     raise ValueError(f"the ghost fill does not settle in {MAX_PASSES} passes: an interface map is inconsistent")

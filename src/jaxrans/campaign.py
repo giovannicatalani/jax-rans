@@ -42,7 +42,7 @@ from .numerics.residual import make_residual, swept_atlas
 from .polar import ContinuationTiming, Polar, alpha_range, at_alpha, validate_alphas
 from .post.forces import force_coefficients, integrate_forces
 from .simulation import Result, Timing, _march, make_stepper
-from .convergence import convergence_record, equation_labels, diagnostics_report
+from .convergence import atlas_diagnostics_report, convergence_record, equation_labels
 from .solvers.driver import ConvergenceHistory, ExitReason, run_to_steady
 
 SUCCESS = (ExitReason.CONVERGED, ExitReason.SETTLED)
@@ -206,12 +206,7 @@ def _with_geometry(template: Atlas, geometry: dict) -> Atlas:
     return dataclasses.replace(atlas, walls=dataclasses.replace(template.walls, faces=faces))
 
 
-def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
-    """Conservative grouping: equal connectivity, configuration and array shapes.
-
-    Mach/Re/model parameters currently form separate groups when different.
-    This avoids accidentally using one profile's physics for another.
-    """
+def _atlas_key(atlas: Atlas) -> tuple:
     digest = hashlib.sha256()
 
     def add(array):
@@ -239,11 +234,16 @@ def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
                 add(normal)
                 add(midpoint)
         digest.update(repr((atlas.spec, atlas.depth, atlas.relaxation_start, atlas.relaxation_end)).encode())
+    return tuple(kinds), digest.digest()
+
+
+def _signature(case: Case, atlas: Atlas, geometry: dict, atlas_key: tuple) -> tuple:
+    """Group by connectivity, configuration and geometry array shapes."""
     leaves, tree = jax.tree_util.tree_flatten(geometry)
-    shapes = tuple((np.shape(a), np.asarray(a).dtype.str) for a in leaves)
+    shapes = tuple((a.shape, a.dtype.str) for a in leaves)
     return (_static_flow(case.flow, atlas), case.numerics, case.implicit,
             case.rk_scheme, case.block_iters, case.grid_spec.force_reference(), atlas.g,
-            repr((atlas.origins, atlas.windows)), tuple(kinds), digest.digest(), tree, shapes)
+            repr((atlas.origins, atlas.windows)), atlas_key, tree, shapes)
 
 
 def _static_flow(flow, atlas: Atlas):
@@ -351,7 +351,17 @@ def _campaign_kernels(case, template):
         equations = details["l2_volume"] if details is not None else _equation_norms(case, template, U, q, g)
         return equations, coefficients(U, q, g), details
 
-    monitor = jax.jit(jax.vmap(monitored))
+    measured = jax.vmap(monitored)
+
+    @jax.jit
+    def monitor(before, current):
+        states, q, g = current
+        axes = tuple(range(1, states.U.ndim))
+        finite = jnp.all(jnp.isfinite(states.U), axis=axes)
+        changed = (((before.cfl != states.cfl) | jnp.any(before.U != states.U, axis=axes))
+                   if case.numerics.solver == "implicit" else None)
+        return finite, changed, measured(states.U, q, g)
+
     return initialize, step, equation_monitor, monitor
 
 
@@ -366,6 +376,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
 
     initialize, step, equation_monitor, monitor = (
         _campaign_kernels(case, template) if _kernels is None else _kernels)
+    diagnostic_atlases = [swept_atlas(grid, request.case.flow) for grid, request in zip(grids, requests)
+                         ] if case.numerics.diagnostics else ()
     results = [[] for _ in requests]
     alive = np.ones(n, dtype=bool)
     previous = previous_peak = None
@@ -404,10 +416,9 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             equation_peak = np.maximum(equation_peak, previous_peak)
         convergence_samples = []
 
-        def on_block(b, carry, residuals):
+        def on_block(b, carry, residuals, measurements):
             nonlocal equation_peak
-            equation_values, values, detailed_values = jax.tree_util.tree_map(
-                np.asarray, monitor(carry[0].U, carry[1], carry[2]))
+            equation_values, values, detailed_values = measurements
             equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
             samples.append(values)
             if (progress is not None or progress_with_residual is not None or progress_with_coefficients is not None
@@ -434,21 +445,16 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             if case.numerics.diagnostics:
                 for k, row in enumerate(records):
                     if k < n and active[k]:
-                        operator = make_residual(grids[k], requests[k].case.flow, case.numerics,
-                                                 freestream=carry[1][k], distance=geometries[k]["distance"])
-                        row["equation_diagnostics"] = diagnostics_report(
-                            operator, {key: value[k] for key, value in detailed_values.items()})
+                        row["equation_diagnostics"] = atlas_diagnostics_report(
+                            diagnostic_atlases[k], {key: value[k] for key, value in detailed_values.items()})
             convergence_samples.append([dict(row, iteration=(b + 1) * case.block_iters) for row in records])
             return np.array([row["settled"] for row in records])
 
         carry, history = run_to_steady(
             step, (states, q, geometry), max_iters=case.numerics.max_iters, tol=0.0,
             block_iters=case.block_iters, devices=use, active_mask=active_padded, on_block=on_block,
-            finite_check=lambda c: jnp.all(jnp.isfinite(c[0].U), axis=tuple(range(1, c[0].U.ndim))),
-            allow_exact_zero=False, diagnostics=diagnostics,
-            control_changed=(lambda a, b: (a[0].cfl != b[0].cfl) |
-                             jnp.any(a[0].U != b[0].U, axis=tuple(range(1, a[0].U.ndim))))
-                            if case.numerics.solver == "implicit" else None)
+            monitor_block=lambda before, current: monitor(before[0], current),
+            allow_exact_zero=False, diagnostics=diagnostics)
         previous = carry[0].U
         previous_peak = equation_peak
         for k, request in enumerate(requests):
@@ -509,7 +515,7 @@ class _Point:
 
 def _run_slots(requests, grids, geometries, devices, progress, progress_with_residual, on_point=None,
                progress_with_coefficients=None, progress_with_equation_residuals=None,
-               _kernels=None) -> list[Polar]:
+               _kernels=None, *, compact_inactive=False) -> list[Polar]:
     """Continuation polars of one compatible group, scheduled per slot.
 
     Every chain (``_chains``) occupies one slot of the batch. When a slot's
@@ -553,6 +559,9 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
     active = np.zeros(n_slots, dtype=bool)
     last = jnp.zeros(n_slots)
     multi = len(use) > 1
+    q = None
+    diagnostic_atlases = [swept_atlas(grid, request.case.flow) for grid, request in zip(grids, requests)
+                         ] if numerics.diagnostics else ()
 
     def put(tree):
         if not multi:
@@ -562,7 +571,7 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
 
     def schedule(slots_to_fill):
         """Start the next point of every slot in ``slots_to_fill``."""
-        nonlocal states, geometry
+        nonlocal states, geometry, q
         starts = {}
         for s in slots_to_fill:
             current = chain_of[s]
@@ -603,6 +612,9 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
             active[s] = True
         if not starts:
             return
+        if states is None:
+            # The batched kernels may still read padding slots.
+            q_host[~active] = q_host[np.flatnonzero(active)[0]]
         q = jnp.asarray(q_host, dtype=numerics.dtype)
         fresh = initialize(q, geometry)            # CFL and residual control reset at every angle
         U = fresh.U if states is None else states.U
@@ -620,7 +632,7 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
         if states is None:
             states = fresh
         else:
-            mask = np.zeros(n_slots, dtype=bool)
+            mask = np.zeros(len(active), dtype=bool)
             mask[list(starts)] = True
             mask = jnp.asarray(mask)
             states = jax.tree_util.tree_map(
@@ -633,27 +645,36 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
                 peak = np.maximum(peak, chain_peak[s])
             point_of[s].peak, point_of[s].began = peak, now
 
+    def compact():
+        nonlocal states, q, geometry, active, last, q_host
+        live = np.flatnonzero(active)
+        if not 0 < len(live) <= len(active) // 2:
+            return
+        # Shrink only after a factor-of-two drop to limit new executable shapes.
+        states, q, geometry, last = jax.tree_util.tree_map(
+            lambda a: a[live], (states, q, geometry, last))
+        q_host, active = q_host[live], active[live]
+        for values in (owner, chain_of, point_of, chain_peak):
+            values[:] = [values[s] for s in live]
+
     schedule(range(n_slots))
-    # Padding slots never run; give them a valid freestream for the vmapped kernels.
-    q_host[~active] = q_host[np.flatnonzero(active)[0]]
+    (states, q, geometry), active_device, last = put(((states, q, geometry), jnp.asarray(active), last))
     while active.any():
-        before = states
-        q = jnp.asarray(q_host, dtype=numerics.dtype)
-        output = block(put(((states, q, geometry), jnp.asarray(active), last)))
+        carry = ((states, q, geometry), active_device, last)
+        output = block(carry)
         (inner, _, last), block_residual = output[0], output[1]
+        measurements = monitor(carry[0][0], inner)
         report = None
         if diagnostics:
             block_residual, report = block_residual
             report = {key: np.asarray(value) for key, value in report.items()}
         states = inner[0]
-        block_residual = np.asarray(block_residual).reshape(block_iters, n_slots)
-        equation_values, values, detailed = jax.tree_util.tree_map(np.asarray, monitor(states.U, q, geometry))
+        block_residual = np.asarray(block_residual).reshape(block_iters, len(active))
+        finite, changed, (equation_values, values, detailed) = jax.device_get(measurements)
         if names is None:
             names = equation_labels(equation_values.shape[-1], template.components)
-        axes = tuple(range(1, states.U.ndim))
-        finite = np.asarray(jnp.all(jnp.isfinite(states.U), axis=axes))
-        changed = (np.asarray((before.cfl != states.cfl) | jnp.any(before.U != states.U, axis=axes))
-                   if implicit else np.zeros(n_slots, dtype=bool))
+        if changed is None:
+            changed = np.zeros(len(active), dtype=bool)
         finished = []
         for s in np.flatnonzero(active):
             point = point_of[s]
@@ -679,10 +700,8 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
             record = convergence_record(equation_values[s], point.peak, np.asarray(point.samples), numerics,
                                         names=names)
             if numerics.diagnostics:
-                operator = make_residual(grids[k], request.case.flow, numerics, freestream=q[s],
-                                         distance=geometries[k]["distance"])
-                record["equation_diagnostics"] = diagnostics_report(
-                    operator, {key: value[s] for key, value in detailed.items()})
+                record["equation_diagnostics"] = atlas_diagnostics_report(
+                    diagnostic_atlases[k], {key: value[s] for key, value in detailed.items()})
             point.records.append(dict(record, iteration=iteration))
             if report is not None:
                 point.reports.append(dict({key: value[s] for key, value in report.items()}, iteration=iteration))
@@ -724,6 +743,10 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
             finished.append(s)
         if finished:
             schedule(finished)
+            if active.any():
+                if compact_inactive and not multi:
+                    compact()
+                (states, q, geometry), active_device, last = put(((states, q, geometry), jnp.asarray(active), last))
     return [Polar(r.case, np.asarray([r.alphas[i] for i in sorted(rows)]), [rows[i] for i in sorted(rows)],
                   ContinuationTiming(float(elapsed[k]), sum(x.history.n_iters for x in rows.values()),
                                      devices=len(use)),
@@ -807,7 +830,7 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                  progress_with_equation_residuals=None,
                  continuation: ContinuationPolicy | None = None,
                  resume_attempts: dict[str, Sequence[Result]] | None = None,
-                 scheduler: str = "slots") -> Campaign:
+                 scheduler: str = "slots", compact_inactive: bool = False) -> Campaign:
     """Continue profiles in compatible batches; preserve each requested alpha order.
 
     Different topology or physics forms a separate batch. Within a batch the
@@ -822,10 +845,13 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
     ``scheduler``: ``"slots"`` (default, ``_run_slots``) moves each batch slot
     to its next point as soon as its current one stops, and runs a profile's
     ``chains``; ``"rounds"`` (``_run_group``) advances all profiles angle by
-    angle together. Adaptive continuation always runs alone.
+    angle together. Adaptive continuation always runs alone. On one device,
+    ``compact_inactive`` lets slots recompile a smaller batch after at least half finish.
     """
     if scheduler not in ("slots", "rounds"):
         raise ValueError("scheduler must be 'slots' or 'rounds'")
+    if compact_inactive and scheduler != "slots":
+        raise ValueError("compact_inactive requires the 'slots' scheduler")
     requests = list(requests)
     if continuation is not None:
         requests = [dataclasses.replace(r, continuation=continuation) for r in requests]
@@ -840,12 +866,15 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
         raise ValueError(f"devices must be between 1 and {len(jax.devices())}")
     begun = time.perf_counter()
     groups = {}
+    atlas_keys = {}
     for request in requests:
         request = dataclasses.replace(request, alphas=tuple(validate_alphas(request.alphas)))
         grid = request.case.grid() if request.grid is None else request.grid
         distance = make_residual(grid, request.case.flow, request.case.numerics).distance
         geometry = _geometry(grid, distance, request.case.flow)
-        key = (_signature(request.case, grid, geometry), request.case.sequencing,
+        if id(grid) not in atlas_keys:
+            atlas_keys[id(grid)] = _atlas_key(grid)
+        key = (_signature(request.case, grid, geometry, atlas_keys[id(grid)]), request.case.sequencing,
                request.name if request.continuation.adaptive else None)
         groups.setdefault(key, []).append((request, grid, geometry))
     polars, batches = {}, []
@@ -866,8 +895,9 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
                 runner = _run_slots if scheduler == "slots" else _run_group
                 if runner is _run_group and any(r.chains > 1 for r in reqs):
                     raise ValueError("several chains per profile need the 'slots' scheduler")
+                slot_options = {"compact_inactive": compact_inactive} if runner is _run_slots else {}
                 computed = runner(reqs, grids, geometries, devices, progress, progress_with_residual, on_point,
-                                  progress_with_coefficients, progress_with_equation_residuals)
+                                  progress_with_coefficients, progress_with_equation_residuals, **slot_options)
             for request, polar in zip(reqs, computed):
                 polars[request.name] = polar
     return Campaign({name: polars[name] for name in names}, tuple(batches), time.perf_counter() - begun)
@@ -1057,6 +1087,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scheduler", choices=("slots", "rounds"), default="slots",
                         help="slots: refill each batch slot as soon as its point stops (default); "
                              "rounds: advance all profiles angle by angle together")
+    parser.add_argument("--compact-inactive", action="store_true",
+                        help="shrink the active batch on one device when at least half the slots have finished")
     args = parser.parse_args(argv)
     try:
         doc = json.loads(args.manifest.read_text())
@@ -1270,7 +1302,7 @@ def main(argv: list[str] | None = None) -> int:
                 if remaining:
                     retry = dataclasses.replace(request, alphas=remaining, grid=grid,
                                                 initial=prefix[-1].U if prefix else None)
-                    new = run_campaign([retry], devices=devices,
+                    new = run_campaign([retry], devices=devices, compact_inactive=args.compact_inactive,
                                        progress_with_equation_residuals=None if args.quiet else progress, on_point=save_point,
                                        on_group=None if args.quiet else announce)
                     tail = new.polars[request.name]
@@ -1291,7 +1323,7 @@ def main(argv: list[str] | None = None) -> int:
                     _adaptive_resume(request, args.out / request.name, False)
                 elif (args.out / request.name / "continuation.json").exists():
                     raise ValueError("adaptive output requires its continuation policy")
-            campaign = run_campaign(requests, scheduler=args.scheduler,
+            campaign = run_campaign(requests, scheduler=args.scheduler, compact_inactive=args.compact_inactive,
                                     batch_size=args.batch_size if args.batch_size is not None else doc.get("batch_size"),
                                     devices=devices, progress_with_equation_residuals=None if args.quiet else progress,
                                     on_point=save_point, on_group=None if args.quiet else announce,

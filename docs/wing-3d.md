@@ -151,6 +151,7 @@ The result directory holds:
 | file | content |
 |---|---|
 | `*_surface.dat` | one row per wall face: its indices `i k` on the wall, `x y z`, `cp`, and the skin-friction vector `cf_x cf_y cf_z` |
+| `*_surface_tecplot.dat` | Tecplot ASCII, one ordered POINT zone per rectangular wall patch, with face centres, Cp, the skin-friction vector and its magnitude |
 | `*_block0.vts` | the whole field for [ParaView](https://www.paraview.org): density, velocity, pressure, Mach number per cell |
 | `*_fields.npz` | the conservative state and the grid nodes |
 | `*_residual.dat`, `*_lift.dat`, `*_metadata.json` | histories, the resolved case and provenance |

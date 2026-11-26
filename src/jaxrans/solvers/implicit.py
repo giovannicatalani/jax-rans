@@ -183,9 +183,19 @@ def make_newton_step(
     (a first-order residual: defect correction) supplies the linear operator,
     ``None`` linearizes ``operator`` itself. ``diagnostics=True`` appends a
     ``NewtonDiagnostics`` result, preserving facts about rejected corrections.
-    ``mixed_precision`` keeps the state/operator in FP64, with FP32 line factors
-    and Krylov vectors, retrying a failed linear solve entirely in FP64.
+    ``mixed_precision`` keeps the state and nonlinear residual in FP64. The
+    Jacobian products, line factors and Krylov vectors use FP32, with a fresh
+    FP64 linearization and solve on failure.
     """
+    if mixed_precision and isinstance(operator, ResidualOperator):
+        operator = operator.with_precision("fp64")
+    exact_jacobian = jacobian_operator is None
+    jacobian_source = operator if exact_jacobian else jacobian_operator
+    if mixed_precision and isinstance(jacobian_source, ResidualOperator):
+        jacobian_source = jacobian_source.with_precision("fp64")
+        low_source = jacobian_source.with_precision("fp32")
+    else:
+        low_source = jacobian_source
     gamma = operator.gamma
     prepare_preconditioner = get_preconditioner(config.preconditioner)(
         operator.atlas, gamma, operator.viscosity, operator.model, operator.distance
@@ -195,17 +205,17 @@ def make_newton_step(
             operator.atlas.with_dtype(jnp.float32), gamma, operator.viscosity,
             operator.model, None if operator.distance is None else operator.distance.astype(jnp.float32)
         )
-    exact_jacobian = jacobian_operator is None
-    jacobian_source = operator if exact_jacobian else jacobian_operator
     # A sectional canvas is solved on its independent plane (numerics/
     # residual.py ``SectionalPlane``): residual, Jacobian products, Krylov
     # vectors and line solves on plane fields, the plane written back.
     plane = getattr(operator, "plane", None) if getattr(jacobian_source, "plane", None) is not None else None
     if plane is not None:
         residual_of, jacobian_of, norm_of = plane.residual, jacobian_source.plane.residual, plane.norm
+        low_jacobian_of = low_source.plane.residual
         interior, solve_options = plane.interior, {"plane": plane.k}
     else:
         residual_of, jacobian_of, norm_of = operator.residual, jacobian_source.residual, operator.norm
+        low_jacobian_of = low_source.residual
         interior, solve_options = operator.atlas.interior, {}
 
     def step(state: ImplicitState) -> tuple[ImplicitState, Array]:
@@ -221,35 +231,50 @@ def make_newton_step(
 
         # One linearization serves the whole Krylov solve; the branch is
         # resolved at trace time, not in the loop.
-        if exact_jacobian:
+        if exact_jacobian and not mixed_precision:
             residual, jvp = jax.linearize(residual_of, U)
         else:
             residual = residual_of(U)
-            _, jvp = jax.linearize(jacobian_of, U)
         norm = norm_of(residual)
 
         volume_over_dt = cell_wave_speed_sum(lambdas) / cfl
 
-        def matvec(dU: Array) -> Array:
-            """Action of ``V/dt I + dR/dU``."""
-            return volume_over_dt[None] * dU + jvp(dU)
+        def shifted_jacobian(tangent, diagonal):
+            def matvec(dU):
+                dU = dU.astype(diagonal.dtype)
+                return diagonal[None] * dU + tangent(dU)
+            return matvec
 
         # Right preconditioning, so GMRES minimizes the true linear residual
         # that the ramp below is judged on (solvers/krylov.py).
-        def solve(prepare, state_u, speeds, step_cfl, *, basis_dtype=None):
+        def solve(matvec, prepare, state_u, speeds, step_cfl, *, basis_dtype=None):
             return gmres_right(
                 matvec, -residual, prepare(state_u, speeds, step_cfl, **solve_options),
                 restart=config.krylov_subspace, maxiter=config.krylov_restarts,
-                tol=config.krylov_tol, basis_dtype=basis_dtype, return_action=True,
+                tol=config.krylov_tol, basis_dtype=basis_dtype, operator_dtype=basis_dtype,
+                return_action=True,
                 # FP32 Krylov vectors in a mixed solve keep the true action:
                 # it is what detects their stagnation (the FP64 fallback below).
                 action_from_arnoldi=basis_dtype is None,
                 early_exit=config.krylov_early_exit,
             )
 
+        def relaxed(matvec, dU, solved_action):
+            # Global relaxation scales the entire direction, so linearity
+            # gives its action directly. Local and split modes change it.
+            dU, omega, ramp_ok, scaled = relax_correction(
+                dU, U, gamma, config.max_relative_update, operator.components,
+                config.relaxation, interior)
+            action = omega * solved_action if scaled else matvec(dU).astype(residual.dtype)
+            return dU, omega, ramp_ok, action
+
         linear_fp64_fallback = jnp.asarray(False)
         if mixed_precision:
-            dU, solved_action = solve(prepare_low, canvas_U.astype(jnp.float32),
+            # Casting the output also supports operator-like callers whose
+            # residual closure may contain higher-precision constants.
+            _, low_jvp = jax.linearize(lambda u: low_jacobian_of(u).astype(u.dtype), U.astype(jnp.float32))
+            low_matvec = shifted_jacobian(low_jvp, volume_over_dt.astype(jnp.float32))
+            dU, solved_action = solve(low_matvec, prepare_low, canvas_U.astype(jnp.float32),
                        tuple(lam.astype(jnp.float32) for lam in canvas_lambdas),
                        cfl.astype(jnp.float32), basis_dtype=jnp.float32)
             initial_size = l2_norm(residual, dtype=jnp.float64)
@@ -264,29 +289,31 @@ def make_newton_step(
             )
             # A per-case cond becomes an eager select under vmap, executing
             # both solves even for a one-case campaign. A bounded while skips
-            # FP64 factorization when no case needs it; vmap masks inactive
+            # FP64 linearization and factors when no case needs them; vmap masks inactive
             # cases if another case does require the fallback.
-            _, (dU, solved_action) = jax.lax.while_loop(
+            def retry_double(carry):
+                _, full_jvp = jax.linearize(jacobian_of, U)
+                matvec = shifted_jacobian(full_jvp, volume_over_dt)
+                result = solve(matvec, prepare_preconditioner, canvas_U, canvas_lambdas, cfl)
+                return carry[0] + 1, relaxed(matvec, *result)
+
+            _, (dU, omega, ramp_ok, action) = jax.lax.while_loop(
                 lambda carry: linear_fp64_fallback & (carry[0] < 1),
-                lambda carry: (carry[0] + 1, solve(prepare_preconditioner, canvas_U, canvas_lambdas, cfl)),
-                (jnp.asarray(0, jnp.int32), (dU, solved_action)),
+                retry_double,
+                (jnp.asarray(0, jnp.int32), relaxed(low_matvec, dU, solved_action)),
             )
         else:
-            dU, solved_action = solve(prepare_preconditioner, canvas_U, canvas_lambdas, cfl)
-
-        # Bound how far an accepted step may go (ImplicitConfig.max_relative_update).
-        dU, omega, ramp_ok, scaled = relax_correction(
-            dU, U, gamma, config.max_relative_update, operator.components, config.relaxation,
-            interior)
+            if not exact_jacobian:
+                _, jvp = jax.linearize(jacobian_of, U)
+            matvec = shifted_jacobian(jvp, volume_over_dt)
+            result = solve(matvec, prepare_preconditioner, canvas_U, canvas_lambdas, cfl)
+            dU, omega, ramp_ok, action = relaxed(matvec, *result)
 
         # The ramp keys off how well the linear system was solved, not the
         # residual history: a stagnated GMRES returns a null
         # update that leaves the residual unchanged, which looks like success.
         # Keep the scalar decision in double: casting both norms to FP32
         # first can turn a real decrease into exactly 1 and reject the step.
-        # The relaxation only scales the direction, and the operator is linear:
-        # the action of omega dU is omega times GMRES's action of dU.
-        action = omega * solved_action if scaled else matvec(dU)
         residual_size = jnp.maximum(l2_norm(residual, dtype=jnp.float64), floor_like(residual))
 
         def linear_ratio(factor):

@@ -6,9 +6,9 @@ For cell ``c`` of volume ``V_c`` (an area in 2D), with face area vectors ``S``
 
     R_c = sum_faces (F_num - F_v) . S  -  V_c S_c
 
-the last term the SA source (numerics/turbulence.py). Everything runs on an
-atlas canvas (mesh/atlas.py): ghosts filled, the single-block assembly applied
-once, the result kept on interior cells. The dimension is the grid's: ``dim``
+the last term the SA source (numerics/turbulence.py). Ghosts are filled on the
+atlas canvas (mesh/atlas.py), and the flux stencil writes the interior residual.
+The dimension is the grid's: ``dim``
 index axes, ``components`` entries per vector (velocity rows, face vectors),
 3 on the 2D grid of a swept flow (``mesh.atlas.lift_atlas``), where the face
 vectors and gradients have a zero spanwise component and the spanwise
@@ -17,7 +17,7 @@ velocity is carried as a third component with no derivative along it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Callable
 
@@ -26,7 +26,7 @@ import numpy as np
 from jax import Array
 
 from ..core import constants
-from ..core.config import FlowConditions, NumericsConfig
+from ..core.config import PRECISIONS, FlowConditions, NumericsConfig
 from ..core.precision import floor_like, weighted_rms
 from ..core.state import (
     RHO, Rows, conservative_to_primitive, dot, freestream_primitive, magnitude,
@@ -225,6 +225,13 @@ class ResidualOperator:
     model: SAModel | None = None
     distance: Array | None = None
     plane: "SectionalPlane | None" = None
+    _rebuild: Callable[[str], ResidualOperator] | None = field(default=None, repr=False, compare=False)
+
+    def with_precision(self, precision: str) -> ResidualOperator:
+        """Rebuild the discretization with the requested field precision."""
+        if self._rebuild is None or self.q_inf.dtype == jnp.dtype(PRECISIONS[precision]):
+            return self
+        return self._rebuild(precision)
 
     @property
     def grid(self) -> Grid:
@@ -423,6 +430,7 @@ def make_residual(
     """
     atlas = grid if isinstance(grid, Atlas) else build_atlas(grid, numerics.n_ghost)
     atlas = swept_atlas(atlas, flow)
+    source_atlas, source_distance, source_mu_inf = atlas, distance, mu_inf
     if isinstance(atlas, SectionalAtlas) and atlas.geometry is not None:
         if numerics.far_field != "characteristic":
             raise ValueError("finite taper requires the uniform characteristic far field")
@@ -479,6 +487,22 @@ def make_residual(
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * (dim - 1) + ((0, 0),),
                              mode="edge")
             return stencil(padded, plane_grid, plane_centres, plane_distance)
+    elif dim == 3 and len(atlas.mesh) == 1:
+        # The monoblock canvas already has g ghost layers on every side.
+        # Crop the output geometry while keeping the entire ghost-filled input.
+        # The same crop keeps the extra face, node or gradient-centre entries
+        # because those arrays extend beyond the cell shape.
+        interior = (slice(g, -g),) * dim
+        spatial = (Ellipsis,) + interior
+
+        def net_flux(q: Array, conditions: bc.Conditions) -> Array:
+            # Trace the metric slices with the stencil so XLA can optimize them together.
+            block = replace(canvas, nodes=canvas.nodes[spatial],
+                            centres=None if canvas.centres is None else canvas.centres[spatial],
+                            volume=canvas.volume[interior], faces=tuple(f[spatial] for f in canvas.faces))
+            block_distance = None if distance is None else distance[interior]
+            residual = stencil(bc.fill_ghosts(q, atlas, conditions), block, atlas.centres[spatial], block_distance)
+            return jnp.pad(residual, ((0, 0),) + ((g, g),) * dim)
     else:
         def net_flux(q: Array, conditions: bc.Conditions) -> Array:
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * dim, mode="edge")
@@ -516,10 +540,17 @@ def make_residual(
 
         sectional = SectionalPlane(plane, plane_residual, interior_plane, canvas.volume[..., plane:plane + 1])
 
+    def rebuild(precision: str) -> ResidualOperator:
+        # Reuse the full-precision wall distance when rounding down.
+        wall_distance = distance if dtype == jnp.float64 else source_distance
+        return make_residual(source_atlas, flow, replace(numerics, precision=precision),
+                             first_order=first_order, freestream=freestream,
+                             distance=wall_distance, mu_inf=source_mu_inf)
+
     return ResidualOperator(
         residual=residual,
         time_step=partial(local_time_step, grid=canvas, gamma=gamma, cfl=numerics.cfl,
                           viscosity=viscosity, model=model),
         atlas=atlas, q_inf=q_inf, gamma=gamma, viscosity=viscosity, model=model, distance=distance,
-        plane=sectional,
+        plane=sectional, _rebuild=rebuild,
     )

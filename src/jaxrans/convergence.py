@@ -45,13 +45,16 @@ def equation_thresholds(peak, numerics, *, labels=None, names=None):
     Strict mode (``forces_tol=None``) uses ``tol * peak`` exclusively.
     The last axis contains equations; leading axes may contain batch cases.
     """
-    peak = jnp.asarray(peak)
+    return _equation_thresholds(jnp.asarray(peak), numerics, jnp, labels, names)
+
+
+def _equation_thresholds(peak, numerics, xp, labels, names=None):
     if numerics.forces_tol is None:
         return numerics.tol * peak
     overrides = dict(numerics.equation_abs_tols)
     labels = _labels(peak.shape[-1], labels, names, required=bool(overrides))
-    floors = jnp.asarray([overrides.get(name, numerics.equation_abs_tol) for name in labels], dtype=peak.dtype)
-    return jnp.maximum(floors, numerics.equation_tol * peak)
+    floors = xp.asarray([overrides.get(name, numerics.equation_abs_tol) for name in labels], dtype=peak.dtype)
+    return xp.maximum(floors, numerics.equation_tol * peak)
 
 
 def equations_settled(current, peak, numerics, *, labels=None, names=None):
@@ -79,7 +82,7 @@ def convergence_record(current, peak, coefficients, numerics, *, labels=None, na
     current, peak = np.asarray(current), np.asarray(peak)
     labels = _labels(current.shape[-1], labels, names,
                      required=bool(numerics.equation_abs_tols) and numerics.forces_tol is not None)
-    threshold = np.asarray(equation_thresholds(peak, numerics, labels=labels))
+    threshold = _equation_thresholds(peak, numerics, np, labels)
     passed = np.isfinite(current) & np.isfinite(peak) & (current >= 0) & (peak >= 0) & (current <= threshold)
     coefficients = np.asarray(coefficients)
     if coefficients.size == 0:
@@ -120,13 +123,17 @@ def convergence_record(current, peak, coefficients, numerics, *, labels=None, na
 
 def diagnostics_report(operator, diagnostics) -> dict:
     """Name-keyed JSON-ready equation diagnostics, with block/cell locations."""
+    return atlas_diagnostics_report(operator.atlas, diagnostics, components=operator.components)
+
+
+def atlas_diagnostics_report(atlas, diagnostics, *, components=None) -> dict:
     arrays = {key: np.asarray(value) for key, value in diagnostics.items()}
-    labels = equation_labels(len(arrays["scales"]), operator.components)
+    labels = equation_labels(len(arrays["scales"]), atlas.components if components is None else components)
     report = {}
     for row, name in enumerate(labels):
         index = arrays["max_index"][row]
         location = {"canvas_index": index.tolist(), "coordinates": arrays["max_coordinates"][row].tolist()}
-        for block, window in enumerate(operator.atlas.windows):
+        for block, window in enumerate(atlas.windows):
             if all(s.start <= i < s.stop for i, s in zip(index, window)):
                 location.update(block=block, cell_index=[int(i - s.start) for i, s in zip(index, window)])
                 break

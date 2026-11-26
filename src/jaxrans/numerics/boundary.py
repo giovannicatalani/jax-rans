@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 import jax.numpy as jnp
+import numpy as np
 from jax import Array
 
 from ..core.state import RHO, Rows, dot, magnitude, split, stack_primitive
@@ -267,9 +268,18 @@ def fill_ghosts(q: Array, atlas: Atlas, conditions: Conditions) -> Array:
     atlas's gather stages; interior and gap cells unchanged."""
     flat = q.reshape(q.shape[0], -1)
     for stage in atlas.stages:
-        parts = [flat]
+        written, copied, physical = stage.ghost_updates
+        if not written.size:
+            continue
+        values = flat[:, copied]
+        parts = []
         for kind, source, normal, midpoint in stage.conditions:
             face = Face(jnp.asarray(normal, dtype=q.dtype), jnp.asarray(midpoint, dtype=q.dtype))
             parts.append(CONDITIONS[kind](flat[:, source], face, conditions))
-        flat = jnp.concatenate(parts, axis=1)[:, stage.index]
+        if parts:
+            boundary = jnp.concatenate(parts, axis=1)
+            if physical.size != boundary.shape[1] or not np.array_equal(physical, np.arange(physical.size)):
+                boundary = boundary[:, physical]
+            values = jnp.concatenate([values, boundary], axis=1)
+        flat = flat.at[:, written].set(values, unique_indices=True)
     return flat.reshape(q.shape)

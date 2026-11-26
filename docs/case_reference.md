@@ -13,7 +13,7 @@ Every section may carry a `"notes"` string. Unknown keys are errors, a missing k
 | `case_name` | string | required | names the output directory |
 | `description` | string | `case_name` | one line, printed in the log |
 | `save_path` | string | `results` | output root, relative to the case directory |
-| `precision` | string | `mixed` (implicit), `fp64` (explicit) | `fp32` or `fp64` fields; geometry is built in FP64. `mixed` (`mixt` alias, implicit only) keeps state, residual and Jacobian products in FP64, preconditioner and Krylov basis in FP32, with automatic FP64 linear fallback. The small GMRES least-squares solve is FP64; convergence tolerances are unchanged; one of `fp64`, `float64`, `fp32`, `float32`, `mixed`, `mixt` |
+| `precision` | string | `mixed` (implicit), `fp64` (explicit) | `fp32` or `fp64` fields; geometry is built in FP64. `mixed` (`mixt` alias, implicit only) keeps state and nonlinear residual in FP64, with FP32 Jacobian products, preconditioner and Krylov basis and automatic FP64 linear fallback. The small GMRES least-squares solve is FP64; convergence tolerances are unchanged; one of `fp64`, `float64`, `fp32`, `float32`, `mixed`, `mixt` |
 
 ### `domain`
 

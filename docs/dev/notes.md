@@ -45,12 +45,15 @@ each choice, grouped by module.
 
 ## core/config.py
 
-- **FP64 by default; FP32 is opt-in.** `case.general.precision` selects field
-  arithmetic without changing JAX's process-wide x64 support. Verification
+- **Field and linearization precision.** `case.general.precision` defaults to
+  FP64 for explicit runs and mixed precision for implicit runs. The latter
+  evaluates the nonlinear residual in FP64 and linearizes in FP32, with an
+  FP64 retry if the linear solve stagnates or becomes nonfinite. Verification
   references remain in FP64. Source mesh metrics and gradient geometry are
   constructed in FP64 before rounding; FP32 fields, Krylov vectors and line
   factors stay single precision. Norm sums and the tiny GMRES least-squares
-  solve use FP64; CGS2 and full FP32 matrix-product precision are retained.
+  solve use FP64. Mixed precision uses the backend's default dot precision
+  for the FP32 CGS2 contractions.
   Guards must be representable in the field dtype. Tolerances are never
   silently relaxed: FP32 has a higher rounding floor, particularly on stretched
   meshes, and aerodynamic coefficients must be checked against an FP64 run.
@@ -64,11 +67,10 @@ each choice, grouped by module.
   FP32 cast; otherwise a real small decrease can round to exactly one.
 - **HLLC by default**: it resolves a stationary contact exactly and needs no
   entropy fix, so the scheme carries no tunable dissipation.
-- **Krylov sizes.** The Arnoldi loop (solvers/krylov.py) runs to full length
-  whether or not it has converged, testing only between restarts, so a large
-  subspace is paid in full every step: small subspace (10), two restarts.
-  Inexact Newton tolerance 1e-2 (Eisenstat and Walker, SIAM J. Sci. Comput.
-  17 (1996)).
+- **Krylov sizes.** GMRES uses up to three cycles of 30 Arnoldi steps.
+  The incremental Givens factorization gives a residual estimate after
+  each column, with a default inexact Newton tolerance of 1e-2
+  (Eisenstat and Walker, SIAM J. Sci. Comput. 17 (1996)).
 - **CFL ramp defaults.** Start at 10 (five times what the explicit path
   tolerates); growth capped at 1.3 per step and earned by the residual
   reduction; `cfl_max` is a backstop, not a tuning knob: the ramp settles at

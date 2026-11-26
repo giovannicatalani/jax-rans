@@ -39,7 +39,7 @@ from .mesh.atlas import Atlas
 from .core.state import freestream_primitive
 from .numerics.residual import make_residual
 from .case import Case, CaseError, load_case
-from .post.forces import integrate_forces, pressure_lift
+from .post.forces import force_coefficients, forces_from_coefficients, pressure_lift
 from .io.output import environment_record, git_revision
 from .simulation import SETTLED_CL_SPREAD, Result, Timing, make_stepper
 from .solvers.driver import run_to_steady
@@ -205,11 +205,15 @@ def run_polar(case: Case, alphas, grid: Atlas | None = None, devices: int | None
         on_block=on_block, devices=use)
 
     timing = Timing.of(history, case.block_iters, grid.cells, cases=alphas.size, devices=len(use))
-    U, lifts = np.asarray(carry[0].U), np.array(lifts)
+    U, lifts = carry[0].U, np.array(lifts)
+    reference = case.grid_spec.force_reference()
+    coefficients = jax.jit(jax.vmap(
+        lambda field, q: force_coefficients(field, grid, case.flow, reference, freestream=q)))
+    loads = jax.device_get(coefficients(U, carry[1]))
     results = []
     for k, alpha in enumerate(alphas):
-        sub, Uk = at_alpha(case, alpha), jnp.asarray(U[k])
-        forces = integrate_forces(Uk, grid, sub.flow, case.grid_spec.force_reference())
+        sub, Uk = at_alpha(case, alpha), U[k]
+        forces = forces_from_coefficients({key: value[k] for key, value in loads.items()})
         results.append(Result(sub, grid, Uk, forces, history.case(k), lifts[:, k], timing))
     return Polar(case, alphas, results, timing)
 

@@ -175,7 +175,7 @@ def run_to_steady(
     max_iters: int,
     tol: float,
     block_iters: int = 100,
-    on_block: Callable[[int, Any, np.ndarray], bool | np.ndarray | None] | None = None,
+    on_block: Callable[..., bool | np.ndarray | None] | None = None,
     finite_check: Callable[[Any], Array] | None = None,
     devices: Sequence | None = None,
     slabs: Sequence | None = None,
@@ -183,6 +183,7 @@ def run_to_steady(
     allow_exact_zero: bool = True,
     diagnostics: bool = False,
     control_changed: Callable[[Any, Any], Array] | None = None,
+    monitor_block: Callable[[Any, Any], tuple[Array, Array | None, Any]] | None = None,
 ) -> tuple[Any, ConvergenceHistory]:
     """Iterate until the residual is ``tol`` times its running **peak**, per case.
 
@@ -203,6 +204,9 @@ def run_to_steady(
     scalar facts on device before transferring one summary per block.
     ``control_changed(old, new)`` prevents a constant residual being declared
     stalled while solver control (for example a CFL cutback) is progressing.
+    ``monitor_block(old, new)`` can compute both device checks and an extra
+    payload together. Its host payload is passed as a fourth argument to
+    ``on_block``, and its checks take the place of the individual callbacks.
     """
     masked = active_mask is not None
     if masked:
@@ -234,6 +238,8 @@ def run_to_steady(
     for b in range(n_blocks):
         before = state[0] if masked else state
         state, block_residual = block(state)
+        current = state[0] if masked else state
+        measured = monitor_block(before, current) if monitor_block is not None else None
         if diagnostics:
             block_residual, report = block_residual
             reports.append({key: np.asarray(value) for key, value in report.items()})
@@ -241,8 +247,11 @@ def run_to_steady(
         if b == 0:
             first_block = time.perf_counter() - started
         blocks.append(block_residual)
-        current = state[0] if masked else state
-        stop = on_block(b, current, block_residual) if on_block is not None else False
+        checks = jax.device_get(measured) if measured is not None else None
+        stop = False
+        if on_block is not None:
+            args = (b, current, block_residual)
+            stop = on_block(*args, checks[2]) if checks is not None else on_block(*args)
 
         columns = block_residual.reshape(block_residual.shape[0], -1)   # (block, n_cases)
         if peak is None:
@@ -256,7 +265,9 @@ def run_to_steady(
         last = columns[-1]
         running = reasons == ExitReason.MAX_ITERS
         failed = ~np.all(np.isfinite(columns), axis=0)
-        if finite_check is not None:
+        if checks is not None:
+            failed |= ~np.asarray(checks[0], dtype=bool)
+        elif finite_check is not None:
             failed |= ~np.asarray(finite_check(current), dtype=bool)
         reasons[running & failed] = ExitReason.NON_FINITE
         zero = (last == 0) if allow_exact_zero else np.zeros_like(last, dtype=bool)
@@ -266,7 +277,9 @@ def run_to_steady(
         frozen = (len(columns) > 1) & np.all(columns == columns[0], axis=0)
         if diagnostics and "changed_count" in reports[-1]:
             frozen &= ~(reports[-1]["changed_count"] > 0).reshape(-1)
-        if control_changed is not None:
+        if checks is not None and checks[1] is not None:
+            frozen &= ~np.asarray(checks[1], dtype=bool).reshape(-1)
+        elif checks is None and control_changed is not None:
             frozen &= ~np.asarray(control_changed(before, current), dtype=bool).reshape(-1)
         reasons[(reasons == ExitReason.MAX_ITERS) & frozen] = ExitReason.STALLED
         reasons[(reasons == ExitReason.MAX_ITERS) & np.asarray(stop, dtype=bool)] = ExitReason.SETTLED

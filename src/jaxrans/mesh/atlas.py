@@ -21,6 +21,7 @@ segments:
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from functools import cached_property
 
 import jax.numpy as jnp
 import numpy as np
@@ -54,6 +55,22 @@ class Stage:
 
     index: np.ndarray
     conditions: tuple[tuple[str, np.ndarray, np.ndarray, np.ndarray], ...]
+
+    @cached_property
+    def ghost_updates(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Destinations, interface sources, and physical-condition value indices.
+
+        Destinations follow the order of the concatenated interface and
+        physical-condition values. The latter indices select entries in the
+        same order as ``conditions``.
+        """
+        n = self.index.size
+        written = np.flatnonzero(self.index != np.arange(n))
+        source = self.index[written]
+        copied = source < n
+        physical = np.argsort(source[~copied])
+        return (np.concatenate([written[copied], written[~copied][physical]]),
+                source[copied], source[~copied][physical] - n)
 
 
 @dataclass(frozen=True)
