@@ -697,6 +697,18 @@ def test_slot_and_round_schedulers_agree(cases, grids, contraction):
             np.testing.assert_allclose(a.coefficients_history, b.coefficients_history, rtol=1e-12, atol=1e-14)
 
 
+def test_slot_compaction_preserves_the_remaining_chain(cases, grids, contraction):
+    long = PolarRequest("long", cases[0], (0., 1., 2., 3.), grids[0])
+    short = [PolarRequest(f"short{k}", cases[1], (0.,), grids[1]) for k in range(3)]
+    batch = run_campaign([*short, long], devices=1, compact_inactive=True)
+    single = run_campaign([long], devices=1)
+    assert batch.successful and single.successful
+    for packed, reference in zip(batch.polars["long"].results, single.polars["long"].results, strict=True):
+        assert packed.history.reason == reference.history.reason
+        assert packed.history.n_iters == reference.history.n_iters
+        np.testing.assert_allclose(packed.U, reference.U, rtol=1e-13, atol=1e-13)
+
+
 def test_chains_validation(cases, grids):
     with pytest.raises(ValueError, match="chains"):
         PolarRequest("p", cases[0], (0.0,), grids[0], chains=0)

@@ -13,6 +13,7 @@ or validation, which live in ``validation/``.
 
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Sequence
@@ -22,7 +23,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 
-from .convergence import convergence_record, diagnostics_report
+from .convergence import convergence_record, diagnostics_report, equations_settled as device_equations_settled
 from .convergence import cl_spread as cl_spread
 from .convergence import equations_settled as _equations_settled
 from .core.state import conservative_to_primitive
@@ -36,7 +37,7 @@ from .case import Case
 from .post.forces import Forces, force_coefficients, forces_from_coefficients, surface, surface_zones
 from .io.output import ResultWriter
 from .solvers import explicit, implicit
-from .solvers.driver import ConvergenceHistory, run_to_steady
+from .solvers.driver import ConvergenceHistory, ExitReason, make_block, run_to_steady
 
 Progress = Callable[[int, float, float, Forces], None]
 """``(iteration, residual, orders dropped, forces) -> None``, once per block."""
@@ -237,7 +238,7 @@ def make_stepper(case: Case, grid: Atlas, freestream: Array | None = None,
 
 def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
         on_level: Callable[[int, Atlas], None] | None = None, devices: Sequence | None = None,
-        *, initial: Array | None = None) -> Result:
+        *, initial: Array | None = None, device_convergence: bool = False) -> Result:
     """March ``case`` to steady state on ``grid`` (default: ``case.grid()``),
     after its ``sequencing`` coarser grids, each started from the one before;
     ``on_level(level, grid)`` announces each grid (0: the case's own).
@@ -245,28 +246,113 @@ def run(case: Case, grid: Atlas | None = None, progress: Progress | None = None,
     first axis, one per device (``numerics/slabs.py``). Only the case's own
     grid is split; its coarser levels, small, run on one device.
     ``initial`` restarts on this exact grid, copying its interior field,
-    resetting solver control, and bypassing grid sequencing."""
+    resetting solver control, and bypassing grid sequencing. With
+    ``device_convergence`` the block-wise stopping tests and histories stay on
+    one device until the solve stops. A progress callback requires host polling."""
     grid = case.grid() if grid is None else grid
     devices = tuple(devices) if devices is not None and len(devices) > 1 else None
+    if device_convergence and (progress is not None or devices is not None):
+        raise ValueError("device convergence requires a single device and no progress callback")
     if initial is not None:
         # A restart is already on the final grid: do not repeat grid sequencing.
-        return _march(case, grid, progress, None, devices, initial=initial)
+        return _march(case, grid, progress, None, devices, initial=initial, device_convergence=device_convergence)
     levels, start = [], None
     for level in range(case.sequencing, 0, -1):
         coarse = case.grid(coarsen=level)
         if on_level is not None:
             on_level(level, coarse)
-        r = _march(case, coarse, progress, start)
+        r = _march(case, coarse, progress, start, device_convergence=device_convergence)
         levels.append({"cells": coarse.cells, "iterations": r.history.n_iters, "seconds": r.seconds,
                        "exit_reason": r.history.reason, "cl": r.forces.cl, "cd": r.forces.cd})
         start = (r.U, coarse)
     if levels and on_level is not None:
         on_level(0, grid)
-    return replace(_march(case, grid, progress, start, devices), levels=tuple(levels))
+    return replace(_march(case, grid, progress, start, devices, device_convergence=device_convergence),
+                   levels=tuple(levels))
+
+
+def _march_on_device(step, state, monitor, on_block, equation_peak, names, case, diagnostics):
+    """Advance blocks and decide when to stop without transferring history mid-run."""
+    numerics = case.numerics
+    block_iters = case.block_iters
+    max_blocks = max(1, -(-numerics.max_iters // block_iters))
+    block = make_block(step, block_iters, diagnostics=diagnostics)
+    _, block_output = jax.eval_shape(block, state)
+    _, _, measurements = jax.eval_shape(monitor, state, state)
+    reasons = (ExitReason.MAX_ITERS, ExitReason.NON_FINITE, ExitReason.CONVERGED,
+               ExitReason.STALLED, ExitReason.SETTLED)
+
+    @jax.jit
+    def solve(initial, initial_peak):
+        def empty(spec):
+            return jnp.zeros((max_blocks,) + spec.shape, dtype=spec.dtype)
+
+        block_history, measured_history = jax.tree_util.tree_map(empty, (block_output, measurements))
+        coeff_columns = jnp.arange(max_blocks)[:, None]
+
+        def advance(carry):
+            i, _, old, eq_peak, mass_peak, blocks, measured = carry
+            current, output = block(old)
+            finite, changed, values = monitor(old, current)
+            blocks = jax.tree_util.tree_map(lambda hist, value: hist.at[i].set(value), blocks, output)
+            measured = jax.tree_util.tree_map(lambda hist, value: hist.at[i].set(value), measured, values)
+            residuals = output[0] if diagnostics else output
+            eq = values[0]["l2_volume"] if numerics.diagnostics else values[0]
+            eq_peak = jnp.maximum(eq_peak, eq)
+            mass_peak = jnp.maximum(mass_peak, jnp.max(jnp.where(jnp.isfinite(residuals), residuals, 0)))
+            failed = ~finite | ~jnp.all(jnp.isfinite(residuals))
+            converged = (mass_peak > 0) & (residuals[-1] <= 0)
+            frozen = (block_iters > 1) & jnp.all(residuals == residuals[0])
+            if diagnostics:
+                frozen &= output[1]["changed_count"] == 0
+            if changed is not None:
+                frozen &= ~changed
+            settled = device_equations_settled(eq, eq_peak, numerics, names=names)
+            if numerics.forces_tol is not None:
+                count = i + 1
+                start = 3 * count // 4
+                tail = (coeff_columns >= start) & (coeff_columns < count)
+                forces = jnp.stack([measured[1][key] for key in ("cl", "cd", "cm")], axis=1)
+                spread = (jnp.max(jnp.where(tail, forces, -jnp.inf), axis=0)
+                          - jnp.min(jnp.where(tail, forces, jnp.inf), axis=0))
+                settled &= ((count - start >= 4)
+                            & jnp.all(jnp.isfinite(spread) & (spread < numerics.forces_tol)))
+            reason = jnp.select([failed, converged, frozen, settled], [1, 2, 3, 4], default=0).astype(jnp.int32)
+            return i + 1, reason, current, eq_peak, mass_peak, blocks, measured
+
+        residual_spec = block_output[0] if diagnostics else block_output
+        first = (jnp.int32(0), jnp.int32(0), initial, initial_peak, jnp.zeros((), residual_spec.dtype),
+                 block_history, measured_history)
+        i, reason, final, _, _, blocks, measured = jax.lax.while_loop(
+            lambda c: (c[0] < max_blocks) & (c[1] == 0), advance, first)
+        return i, reason, final, blocks, measured
+
+    start = time.perf_counter()
+    compiled = solve.lower(state, equation_peak).compile()
+    compile_time = time.perf_counter() - start
+    count, reason, final, blocks, measured = compiled(state, equation_peak)
+    count, reason, blocks, measured = jax.device_get((count, reason, blocks, measured))
+    count = int(count)
+    if diagnostics:
+        residuals, reports = blocks
+    else:
+        residuals, reports = blocks, {}
+    for i in range(count):
+        on_block(i, final, residuals[i], jax.tree_util.tree_map(lambda a: a[i], measured))
+    elapsed = time.perf_counter() - start
+    # Without a synchronization in the loop, attribute its average block time to the first block.
+    first_block = compile_time + (elapsed - compile_time) / count
+    history = ConvergenceHistory(residuals[:count].reshape(-1), reasons[int(reason)], count * block_iters,
+                                 elapsed, first_block, block_diagnostics=tuple(
+                                     {**{key: value[i] for key, value in reports.items()},
+                                      "iteration": (i + 1) * block_iters}
+                                     for i in range(count)) if diagnostics else ())
+    return final, history
 
 
 def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Array, Atlas] | None,
-           devices: Sequence | None = None, *, initial: Array | None = None) -> Result:
+           devices: Sequence | None = None, *, initial: Array | None = None,
+           device_convergence: bool = False) -> Result:
     """One grid to steady state, from freestream or from ``start``, a coarser
     grid's solution ``(U, atlas)``."""
     flow, numerics = case.flow, case.numerics
@@ -322,13 +408,14 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
         convergence_history.append(dict(record, iteration=(index + 1) * case.block_iters))
         return record["settled"]
 
-    state, history = run_to_steady(
-        step, state,
-        max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
-        on_block=on_block, monitor_block=monitor, slabs=devices,
-        allow_exact_zero=False,
-        diagnostics=diagnostics,
-    )
+    if device_convergence:
+        state, history = _march_on_device(step, state, monitor, on_block, jnp.asarray(equation_peak),
+                                          names, case, diagnostics)
+    else:
+        state, history = run_to_steady(
+            step, state, max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
+            on_block=on_block, monitor_block=monitor, slabs=devices, allow_exact_zero=False,
+            diagnostics=diagnostics)
     assert forces is not None
     return Result(
         case=case, grid=grid, U=state.U,

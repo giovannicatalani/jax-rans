@@ -15,6 +15,7 @@ from jaxrans.convergence import (
 )
 from jaxrans.core.config import ImplicitConfig, NumericsConfig
 from jaxrans.numerics.residual import ResidualOperator
+from jaxrans.simulation import run
 
 
 def case_doc():
@@ -22,6 +23,22 @@ def case_doc():
             "domain": {"grid": "o_grid", "airfoil": "naca0012", "cells_airfoil": 32,
                        "cells_normal": 16, "wall_spacing": 1e-3},
             "freestream": {"mach": 0.5}}
+
+
+def test_device_convergence_preserves_block_history_and_force_gate():
+    case = parse_case(case_doc(), {"convergence": {
+        "max_iters": 40, "block_iters": 2, "diagnostics": True,
+        "forces_tol": 1.0, "equation_abs_tol": 1.0,
+    }})
+    grid = case.grid()
+    host = run(case, grid)
+    resident = run(case, grid, device_convergence=True)
+    assert host.history.reason == resident.history.reason == "settled"
+    assert host.history.n_iters == resident.history.n_iters == 26
+    assert resident.convergence_history[-1]["force_tail_samples"] == 4
+    assert "equations" in resident.convergence_history[-1]
+    np.testing.assert_allclose(resident.history.residual, host.history.residual, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(resident.U, host.U, rtol=1e-10, atol=1e-12)
 
 
 def test_config_roundtrip_named_floors_and_implicit_options():
