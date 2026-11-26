@@ -6,9 +6,9 @@ For cell ``c`` of volume ``V_c`` (an area in 2D), with face area vectors ``S``
 
     R_c = sum_faces (F_num - F_v) . S  -  V_c S_c
 
-the last term the SA source (numerics/turbulence.py). Everything runs on an
-atlas canvas (mesh/atlas.py): ghosts filled, the single-block assembly applied
-once, the result kept on interior cells. The dimension is the grid's: ``dim``
+the last term the SA source (numerics/turbulence.py). Ghosts are filled on the
+atlas canvas (mesh/atlas.py), and the flux stencil writes the interior residual.
+The dimension is the grid's: ``dim``
 index axes, ``components`` entries per vector (velocity rows, face vectors),
 3 on the 2D grid of a swept flow (``mesh.atlas.lift_atlas``), where the face
 vectors and gradients have a zero spanwise component and the spanwise
@@ -487,6 +487,22 @@ def make_residual(
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * (dim - 1) + ((0, 0),),
                              mode="edge")
             return stencil(padded, plane_grid, plane_centres, plane_distance)
+    elif dim == 3 and len(atlas.mesh) == 1:
+        # The monoblock canvas already has g ghost layers on every side.
+        # Crop the output geometry while keeping the entire ghost-filled input.
+        # The same crop keeps the extra face, node or gradient-centre entries
+        # because those arrays extend beyond the cell shape.
+        interior = (slice(g, -g),) * dim
+        spatial = (Ellipsis,) + interior
+
+        def net_flux(q: Array, conditions: bc.Conditions) -> Array:
+            # Trace the metric slices with the stencil so XLA can optimize them together.
+            block = replace(canvas, nodes=canvas.nodes[spatial],
+                            centres=None if canvas.centres is None else canvas.centres[spatial],
+                            volume=canvas.volume[interior], faces=tuple(f[spatial] for f in canvas.faces))
+            block_distance = None if distance is None else distance[interior]
+            residual = stencil(bc.fill_ghosts(q, atlas, conditions), block, atlas.centres[spatial], block_distance)
+            return jnp.pad(residual, ((0, 0),) + ((g, g),) * dim)
     else:
         def net_flux(q: Array, conditions: bc.Conditions) -> Array:
             padded = jnp.pad(bc.fill_ghosts(q, atlas, conditions), ((0, 0),) + ((g, g),) * dim, mode="edge")
