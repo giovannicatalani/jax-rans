@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
     parser.add_argument("--precision", choices=("fp64", "mixed"), default="mixed")
+    parser.add_argument("--krylov-tol", type=float, help="override the relative GMRES residual tolerance")
     parser.add_argument("--max-iters", type=int)
     parser.add_argument("--save-checkpoints", type=Path)
     parser.add_argument("--replay-checkpoints", type=Path)
@@ -28,7 +29,10 @@ def main():
     device = jax.devices()[0]
     if device.platform != "gpu":
         raise RuntimeError(f"CUDA required, got {device}")
-    case = load_case("examples/onera_m6_sa", (f"case.general.precision={args.precision}",))
+    overrides = (f"case.general.precision={args.precision}",)
+    if args.krylov_tol is not None:
+        overrides += (f"numerical.implicit.krylov_tol={args.krylov_tol}",)
+    case = load_case("examples/onera_m6_sa", overrides)
     grid = case.grid()
     step, state = make_stepper(case, grid, diagnostics=True)
     length = case.block_iters
@@ -87,9 +91,11 @@ def main():
     forces = integrate_forces(state.U, grid, case.flow, case.grid_spec.force_reference())
     payload = dict(gpu=device.device_kind, cells=grid.cells, jax=jax.__version__, length=length,
                    precision=args.precision, tolerance=case.numerics.tol, max_iters=max_iters,
+                   krylov_tol=case.implicit.krylov_tol,
                    reached_tolerance=bool(norms[-1] <= case.numerics.tol),
                    compile_s=compile_s, field_dtype=str(state.U.dtype), residual_dtype=str(norms.dtype),
-                   records=records, replay=replay, final_residual=final_residual, cl=forces.cl, cd=forces.cd)
+                   records=records, replay=replay, final_residual=final_residual, cl=forces.cl, cd=forces.cd,
+                   cm=forces.cm)
     args.output.write_text(json.dumps(payload, indent=2) + "\n")
     if args.write_result:
         elapsed = sum(r["seconds"] for r in records)

@@ -8,7 +8,8 @@
         "solver": "implicit"
     },
     "implicit": {
-        "max_relative_update": 0.2
+        "max_relative_update": 0.2,
+        "krylov_tol": 0.06
     },
     "convergence": {
         "max_iters": 1500,
