@@ -33,7 +33,7 @@ from .mesh.sectional import SectionalAtlas
 from .numerics.residual import make_residual
 from .numerics.slabs import SlabAtlas
 from .case import Case
-from .post.forces import Forces, integrate_forces, surface, surface_zones
+from .post.forces import Forces, force_coefficients, forces_from_coefficients, surface, surface_zones
 from .io.output import ResultWriter
 from .solvers import explicit, implicit
 from .solvers.driver import ConvergenceHistory, run_to_steady
@@ -202,7 +202,7 @@ class Result:
 
 def cell_fields(U: np.ndarray, gamma: float) -> dict[str, np.ndarray]:
     """Density, velocity, pressure and Mach number of a 3D block, for ParaView."""
-    rho, velocity, p = (np.asarray(a) for a in conservative_to_primitive(jnp.asarray(U), gamma, 3))
+    rho, velocity, p = conservative_to_primitive(np.asarray(U), gamma, 3)
     mach = np.linalg.norm(velocity, axis=0) / np.sqrt(gamma * p / rho)
     return {"density": rho, "velocity": velocity, "pressure": p, "mach": mach}
 
@@ -290,16 +290,25 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     initial_equations = equation_monitor(state.U)
     equation_peak = np.asarray(initial_equations["l2_volume"] if numerics.diagnostics else initial_equations)
     convergence_history = []
+    forces = None
+    implicit_step = numerics.solver == "implicit"
+    measure_equations = equation_operator.equation_diagnostics if numerics.diagnostics else equation_operator.equation_norms
 
-    def on_block(index: int, current, residuals: np.ndarray) -> bool:
-        nonlocal equation_peak
-        measured = equation_monitor(current.U)
+    @jax.jit
+    def monitor(before, current):
+        finite = jnp.all(jnp.isfinite(current.U))
+        changed = ((before.cfl != current.cfl) | jnp.any(before.U != current.U)) if implicit_step else None
+        return finite, changed, (measure_equations(current.U), force_coefficients(current.U, grid, flow, length))
+
+    def on_block(index: int, _current, residuals: np.ndarray, measurements) -> bool:
+        nonlocal equation_peak, forces
+        measured, loads = measurements
         equation_norms = np.asarray(measured["l2_volume"] if numerics.diagnostics else measured)
         equation_peak = equation_norms if equation_peak is None else np.maximum(equation_peak, equation_norms)
         finite = residuals[np.isfinite(residuals)]
         if finite.size:
             peak[0] = max(peak[0], float(finite.max()))
-        forces = integrate_forces(current.U, grid, flow, length)
+        forces = forces_from_coefficients(loads)
         cl_history.append(forces.cl)
         coefficients.append((forces.cl, forces.cd, forces.cm))
         if progress is not None:
@@ -316,15 +325,14 @@ def _march(case: Case, grid: Atlas, progress: Progress | None, start: tuple[Arra
     state, history = run_to_steady(
         step, state,
         max_iters=numerics.max_iters, tol=0.0, block_iters=case.block_iters,
-        on_block=on_block, finite_check=lambda s: jnp.all(jnp.isfinite(s.U)), slabs=devices,
+        on_block=on_block, monitor_block=monitor, slabs=devices,
         allow_exact_zero=False,
         diagnostics=diagnostics,
-        control_changed=(lambda old, new: (old.cfl != new.cfl) | jnp.any(old.U != new.U))
-                        if numerics.solver == "implicit" else None,
     )
+    assert forces is not None
     return Result(
         case=case, grid=grid, U=state.U,
-        forces=integrate_forces(state.U, grid, flow, length),
+        forces=forces,
         history=history, cl_history=np.asarray(cl_history),
         timing=Timing.of(history, case.block_iters, grid.cells, devices=len(devices) if devices else 1),
         coefficients_history=np.asarray(coefficients),

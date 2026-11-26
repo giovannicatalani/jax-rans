@@ -206,12 +206,7 @@ def _with_geometry(template: Atlas, geometry: dict) -> Atlas:
     return dataclasses.replace(atlas, walls=dataclasses.replace(template.walls, faces=faces))
 
 
-def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
-    """Conservative grouping: equal connectivity, configuration and array shapes.
-
-    Mach/Re/model parameters currently form separate groups when different.
-    This avoids accidentally using one profile's physics for another.
-    """
+def _atlas_key(atlas: Atlas) -> tuple:
     digest = hashlib.sha256()
 
     def add(array):
@@ -239,11 +234,16 @@ def _signature(case: Case, atlas: Atlas, geometry: dict) -> tuple:
                 add(normal)
                 add(midpoint)
         digest.update(repr((atlas.spec, atlas.depth, atlas.relaxation_start, atlas.relaxation_end)).encode())
+    return tuple(kinds), digest.digest()
+
+
+def _signature(case: Case, atlas: Atlas, geometry: dict, atlas_key: tuple) -> tuple:
+    """Group by connectivity, configuration and geometry array shapes."""
     leaves, tree = jax.tree_util.tree_flatten(geometry)
-    shapes = tuple((np.shape(a), np.asarray(a).dtype.str) for a in leaves)
+    shapes = tuple((a.shape, a.dtype.str) for a in leaves)
     return (_static_flow(case.flow, atlas), case.numerics, case.implicit,
             case.rk_scheme, case.block_iters, case.grid_spec.force_reference(), atlas.g,
-            repr((atlas.origins, atlas.windows)), tuple(kinds), digest.digest(), tree, shapes)
+            repr((atlas.origins, atlas.windows)), atlas_key, tree, shapes)
 
 
 def _static_flow(flow, atlas: Atlas):
@@ -351,7 +351,17 @@ def _campaign_kernels(case, template):
         equations = details["l2_volume"] if details is not None else _equation_norms(case, template, U, q, g)
         return equations, coefficients(U, q, g), details
 
-    monitor = jax.jit(jax.vmap(monitored))
+    measured = jax.vmap(monitored)
+
+    @jax.jit
+    def monitor(before, current):
+        states, q, g = current
+        axes = tuple(range(1, states.U.ndim))
+        finite = jnp.all(jnp.isfinite(states.U), axis=axes)
+        changed = (((before.cfl != states.cfl) | jnp.any(before.U != states.U, axis=axes))
+                   if case.numerics.solver == "implicit" else None)
+        return finite, changed, measured(states.U, q, g)
+
     return initialize, step, equation_monitor, monitor
 
 
@@ -404,10 +414,9 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
             equation_peak = np.maximum(equation_peak, previous_peak)
         convergence_samples = []
 
-        def on_block(b, carry, residuals):
+        def on_block(b, carry, residuals, measurements):
             nonlocal equation_peak
-            equation_values, values, detailed_values = jax.tree_util.tree_map(
-                np.asarray, monitor(carry[0].U, carry[1], carry[2]))
+            equation_values, values, detailed_values = measurements
             equation_peak = equation_values if equation_peak is None else np.maximum(equation_peak, equation_values)
             samples.append(values)
             if (progress is not None or progress_with_residual is not None or progress_with_coefficients is not None
@@ -444,11 +453,8 @@ def _run_group(requests, grids, geometries, devices, progress, progress_with_res
         carry, history = run_to_steady(
             step, (states, q, geometry), max_iters=case.numerics.max_iters, tol=0.0,
             block_iters=case.block_iters, devices=use, active_mask=active_padded, on_block=on_block,
-            finite_check=lambda c: jnp.all(jnp.isfinite(c[0].U), axis=tuple(range(1, c[0].U.ndim))),
-            allow_exact_zero=False, diagnostics=diagnostics,
-            control_changed=(lambda a, b: (a[0].cfl != b[0].cfl) |
-                             jnp.any(a[0].U != b[0].U, axis=tuple(range(1, a[0].U.ndim))))
-                            if case.numerics.solver == "implicit" else None)
+            monitor_block=lambda before, current: monitor(before[0], current),
+            allow_exact_zero=False, diagnostics=diagnostics)
         previous = carry[0].U
         previous_peak = equation_peak
         for k, request in enumerate(requests):
@@ -637,23 +643,22 @@ def _run_slots(requests, grids, geometries, devices, progress, progress_with_res
     # Padding slots never run; give them a valid freestream for the vmapped kernels.
     q_host[~active] = q_host[np.flatnonzero(active)[0]]
     while active.any():
-        before = states
         q = jnp.asarray(q_host, dtype=numerics.dtype)
-        output = block(put(((states, q, geometry), jnp.asarray(active), last)))
+        carry = put(((states, q, geometry), jnp.asarray(active), last))
+        output = block(carry)
         (inner, _, last), block_residual = output[0], output[1]
+        measurements = monitor(carry[0][0], inner)
         report = None
         if diagnostics:
             block_residual, report = block_residual
             report = {key: np.asarray(value) for key, value in report.items()}
         states = inner[0]
         block_residual = np.asarray(block_residual).reshape(block_iters, n_slots)
-        equation_values, values, detailed = jax.tree_util.tree_map(np.asarray, monitor(states.U, q, geometry))
+        finite, changed, (equation_values, values, detailed) = jax.device_get(measurements)
         if names is None:
             names = equation_labels(equation_values.shape[-1], template.components)
-        axes = tuple(range(1, states.U.ndim))
-        finite = np.asarray(jnp.all(jnp.isfinite(states.U), axis=axes))
-        changed = (np.asarray((before.cfl != states.cfl) | jnp.any(before.U != states.U, axis=axes))
-                   if implicit else np.zeros(n_slots, dtype=bool))
+        if changed is None:
+            changed = np.zeros(n_slots, dtype=bool)
         finished = []
         for s in np.flatnonzero(active):
             point = point_of[s]
@@ -840,12 +845,15 @@ def run_campaign(requests: Sequence[PolarRequest], *, batch_size: int | None = N
         raise ValueError(f"devices must be between 1 and {len(jax.devices())}")
     begun = time.perf_counter()
     groups = {}
+    atlas_keys = {}
     for request in requests:
         request = dataclasses.replace(request, alphas=tuple(validate_alphas(request.alphas)))
         grid = request.case.grid() if request.grid is None else request.grid
         distance = make_residual(grid, request.case.flow, request.case.numerics).distance
         geometry = _geometry(grid, distance, request.case.flow)
-        key = (_signature(request.case, grid, geometry), request.case.sequencing,
+        if id(grid) not in atlas_keys:
+            atlas_keys[id(grid)] = _atlas_key(grid)
+        key = (_signature(request.case, grid, geometry, atlas_keys[id(grid)]), request.case.sequencing,
                request.name if request.continuation.adaptive else None)
         groups.setdefault(key, []).append((request, grid, geometry))
     polars, batches = {}, []

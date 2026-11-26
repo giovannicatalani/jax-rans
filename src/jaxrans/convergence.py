@@ -45,13 +45,16 @@ def equation_thresholds(peak, numerics, *, labels=None, names=None):
     Strict mode (``forces_tol=None``) uses ``tol * peak`` exclusively.
     The last axis contains equations; leading axes may contain batch cases.
     """
-    peak = jnp.asarray(peak)
+    return _equation_thresholds(jnp.asarray(peak), numerics, jnp, labels, names)
+
+
+def _equation_thresholds(peak, numerics, xp, labels, names=None):
     if numerics.forces_tol is None:
         return numerics.tol * peak
     overrides = dict(numerics.equation_abs_tols)
     labels = _labels(peak.shape[-1], labels, names, required=bool(overrides))
-    floors = jnp.asarray([overrides.get(name, numerics.equation_abs_tol) for name in labels], dtype=peak.dtype)
-    return jnp.maximum(floors, numerics.equation_tol * peak)
+    floors = xp.asarray([overrides.get(name, numerics.equation_abs_tol) for name in labels], dtype=peak.dtype)
+    return xp.maximum(floors, numerics.equation_tol * peak)
 
 
 def equations_settled(current, peak, numerics, *, labels=None, names=None):
@@ -79,7 +82,7 @@ def convergence_record(current, peak, coefficients, numerics, *, labels=None, na
     current, peak = np.asarray(current), np.asarray(peak)
     labels = _labels(current.shape[-1], labels, names,
                      required=bool(numerics.equation_abs_tols) and numerics.forces_tol is not None)
-    threshold = np.asarray(equation_thresholds(peak, numerics, labels=labels))
+    threshold = _equation_thresholds(peak, numerics, np, labels)
     passed = np.isfinite(current) & np.isfinite(peak) & (current >= 0) & (peak >= 0) & (current <= threshold)
     coefficients = np.asarray(coefficients)
     if coefficients.size == 0:

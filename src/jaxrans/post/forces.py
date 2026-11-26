@@ -258,7 +258,11 @@ def integrate_forces(U: Array, atlas: Atlas, flow: FlowConditions,
         reference = ForceReference(length=float(reference))
     kernel, components = _force_kernel(atlas, flow, reference)
     q = np.asarray(freestream_primitive(flow, components), dtype=np.float64)
-    c = {k: np.asarray(v) for k, v in kernel(U, q).items()}
+    return forces_from_coefficients(jax.device_get(kernel(U, q)))
+
+
+def forces_from_coefficients(c: dict[str, np.ndarray]) -> Forces:
+    """Convert host-side coefficient arrays to the public result."""
     force = [float(f) for f in c["force"]] + [0.0]
     bodies = tuple(tuple(float(x) for x in b) for b in c["bodies"]) if len(c["bodies"]) > 1 else ()
     return Forces(float(c["cl"]), float(c["cd"]), float(c["cm"]), force[0], force[1],
@@ -275,7 +279,7 @@ def surface(U: Array, atlas: Atlas, flow: FlowConditions) -> dict[str, np.ndarra
         if atlas.geometry is not None:
             faces = atlas.reference.walls.faces
             mid, _ = atlas.geometry.surface_vectors(faces)
-            p = np.asarray(conservative_to_primitive(U[:5], flow.gamma, 3)[2]).ravel()[atlas.walls.cell]
+            p = np.asarray(conservative_to_primitive(U[:5], flow.gamma, 3)[2].ravel()[atlas.walls.cell])
             out = {"x": faces.mid[:, 0], "y": faces.mid[:, 1], "body": faces.body.astype(float),
                    "x_streamwise": mid[0], "y_streamwise": mid[1],
                    "cp": (p - 1.0 / flow.gamma) / dynamic_pressure(flow)}
